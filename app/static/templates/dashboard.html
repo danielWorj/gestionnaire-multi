@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tableau de bord — Lycée Bilingue de Yaoundé | Gestionnaire SaaS</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- FontAwesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+
+  <style>
+    /* ── Grille dashboard ── */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    .col-span-3 { grid-column: span 3; }
+    .col-span-4 { grid-column: span 4; }
+    .col-span-6 { grid-column: span 6; }
+    .col-span-8 { grid-column: span 8; }
+    .col-span-12 { grid-column: span 12; }
+
+    @media (max-width: 991.98px) {
+      .col-span-3, .col-span-4, .col-span-5, .col-span-6, .col-span-7, .col-span-8 { grid-column: span 12; }
+    }
+
+    /* ── Bandeau établissement ── */
+    .etab-banner {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, var(--ta-primary) 0%, var(--ta-primary-dark) 100%);
+      border-radius: var(--ta-radius);
+      color: #fff;
+      margin-bottom: 16px;
+    }
+    .etab-banner .etab-logo {
+      width: 52px; height: 52px;
+      border-radius: var(--ta-radius);
+      background: rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 700;
+      flex-shrink: 0;
+      backdrop-filter: blur(6px);
+    }
+    .etab-banner .etab-title {
+      font-size: 15px; font-weight: 700;
+      margin: 0; color: #fff;
+    }
+    .etab-banner .etab-subtitle {
+      font-size: 11.5px; opacity: 0.85; margin-top: 2px;
+    }
+    .etab-banner .etab-meta {
+      margin-left: auto;
+      display: flex; gap: 18px;
+      font-size: 11.5px;
+    }
+    .etab-banner .etab-meta-item {
+      display: flex; flex-direction: column;
+      align-items: flex-end;
+    }
+    .etab-banner .etab-meta-label {
+      font-size: 10px; text-transform: uppercase;
+      letter-spacing: 0.06em; opacity: 0.7;
+    }
+    .etab-banner .etab-meta-value {
+      font-size: 12px; font-weight: 600; margin-top: 2px;
+    }
+
+    @media (max-width: 767.98px) {
+      .etab-banner { flex-wrap: wrap; }
+      .etab-banner .etab-meta {
+        margin-left: 0; width: 100%;
+        justify-content: space-between;
+        margin-top: 10px; padding-top: 10px;
+        border-top: 1px solid rgba(255,255,255,0.15);
+      }
+    }
+
+    /* ── Carte KPI enrichie ── */
+    .stat-card { position: relative; overflow: hidden; }
+    .stat-card .stat-trend {
+      position: absolute; top: 16px; right: 16px;
+      font-size: 10.5px; font-weight: 600;
+      padding: 2px 7px; border-radius: 20px;
+    }
+    .stat-trend.up   { background: var(--ta-success-light); color: var(--ta-success); }
+    .stat-trend.down { background: var(--ta-danger-light);  color: var(--ta-danger);  }
+    .stat-trend.neutral { background: var(--ta-bg); color: var(--ta-text-muted); }
+
+    /* ── Carte chart ── */
+    .chart-card { padding: 18px; }
+    .chart-card .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .chart-card .chart-title {
+      font-size: 13px; font-weight: 600; color: var(--ta-text);
+    }
+    .chart-card .chart-subtitle {
+      font-size: 11px; color: var(--ta-text-muted); margin-top: 2px;
+    }
+    .chart-legend {
+      display: flex; gap: 14px; font-size: 11px; color: var(--ta-text-muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .chart-legend .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+
+    /* ── Liste alertes ── */
+    .alert-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 0; border-bottom: 1px solid var(--ta-border-light);
+    }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-item .alert-icon {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .alert-icon.warn    { background: var(--ta-warning-light); color: var(--ta-warning); }
+    .alert-icon.danger  { background: var(--ta-danger-light);  color: var(--ta-danger);  }
+    .alert-icon.info    { background: var(--ta-info-light);    color: var(--ta-info);    }
+    .alert-icon.success { background: var(--ta-success-light); color: var(--ta-success); }
+    .alert-item .alert-title { font-size: 12px; font-weight: 600; color: var(--ta-text); }
+    .alert-item .alert-desc  { font-size: 11.5px; color: var(--ta-text-muted); margin-top: 2px; }
+    .alert-item .alert-time  { font-size: 10.5px; color: var(--ta-text-light); margin-left: auto; white-space: nowrap; }
+
+    /* ── Barres horizontales (répartition par classe) ── */
+    .class-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 5px 0; font-size: 12px;
+    }
+    .class-bar .class-name {
+      width: 90px; color: var(--ta-text-muted); font-weight: 500;
+    }
+    .class-bar .class-track {
+      flex: 1; height: 8px; background: var(--ta-border-light);
+      border-radius: 20px; overflow: hidden;
+    }
+    .class-bar .class-fill {
+      height: 100%; border-radius: 20px;
+      transition: width 0.6s ease;
+    }
+    .class-bar .class-fill.college { background: var(--ta-primary); }
+    .class-bar .class-fill.lycee   { background: #6D28D9; }
+    .class-bar .class-value {
+      width: 55px; text-align: right; font-weight: 600; color: var(--ta-text);
+    }
+
+    /* ── Activité récente ── */
+    .activity-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 0; border-bottom: 1px solid var(--ta-border-light);
+    }
+    .activity-item:last-child { border-bottom: none; }
+    .activity-icon {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .activity-content { flex: 1; min-width: 0; }
+    .activity-title { font-size: 12px; font-weight: 600; color: var(--ta-text); }
+    .activity-desc  { font-size: 11.5px; color: var(--ta-text-muted); margin-top: 2px; }
+    .activity-time  { font-size: 10.5px; color: var(--ta-text-light); white-space: nowrap; }
+    .activity-icon.note      { background: var(--ta-primary-light); color: var(--ta-primary); }
+    .activity-icon.paiement  { background: var(--ta-success-light); color: var(--ta-success); }
+    .activity-icon.eleve     { background: var(--ta-info-light);    color: var(--ta-info);    }
+    .activity-icon.bulletin  { background: #EDE9FE;                 color: #6D28D9;           }
+    .activity-icon.discipline{ background: var(--ta-warning-light); color: var(--ta-warning); }
+
+    /* ── Quick actions ── */
+    .quick-action {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border: 1px solid var(--ta-border);
+      border-radius: var(--ta-radius); background: var(--ta-white);
+      cursor: pointer; transition: all var(--ta-transition);
+      text-decoration: none; color: var(--ta-text);
+    }
+    .quick-action:hover {
+      border-color: var(--ta-primary); background: var(--ta-primary-light);
+      transform: translateY(-1px); box-shadow: var(--ta-shadow-sm);
+    }
+    .quick-action .qa-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+    }
+    .quick-action .qa-label { font-size: 12px; font-weight: 600; }
+    .quick-action .qa-desc  { font-size: 11px; color: var(--ta-text-muted); }
+
+    /* ── Tranche paiement ── */
+    .tranche-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--ta-border-light);
+    }
+    .tranche-item:last-child { border-bottom: none; }
+    .tranche-item .tranche-label {
+      width: 80px; font-size: 12px; font-weight: 600; color: var(--ta-text);
+    }
+    .tranche-item .tranche-progress { flex: 1; }
+    .tranche-item .tranche-value {
+      width: 110px; text-align: right;
+      font-size: 11px; color: var(--ta-text-muted);
+    }
+    .tranche-item .tranche-value strong {
+      color: var(--ta-text); font-size: 12px;
+    }
+
+    /* ── Top élèves ── */
+    .top-eleve-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 0; border-bottom: 1px solid var(--ta-border-light);
+    }
+    .top-eleve-item:last-child { border-bottom: none; }
+    .top-eleve-rang {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--ta-bg); color: var(--ta-text-muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px; font-weight: 700; flex-shrink: 0;
+    }
+    .top-eleve-rang.rang-1 { background: #FEF3C7; color: #92400E; }
+    .top-eleve-rang.rang-2 { background: #E2E8F0; color: #475569; }
+    .top-eleve-rang.rang-3 { background: #FED7AA; color: #9A3412; }
+    .top-eleve-info { flex: 1; min-width: 0; }
+    .top-eleve-name {
+      font-size: 12px; font-weight: 600; color: var(--ta-text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .top-eleve-class {
+      font-size: 11px; color: var(--ta-text-muted);
+    }
+    .top-eleve-moyenne {
+      font-size: 13px; font-weight: 700; color: var(--ta-success);
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+
+<body data-page="dashboard">
+
+  <div class="app-wrapper">
+    <!-- Le sidebar établissement sera injecté ici par sidebar.js -->
+
+    <div class="main-content" id="mainContent">
+      <!-- La topbar sera injectée ici par sidebar.js -->
+
+      <main class="page-content">
+
+        <!-- ── Breadcrumb ── -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/dashboard">Accueil</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Tableau de bord</li>
+          </ol>
+        </nav>
+
+        <!-- ── Bandeau établissement ── -->
+        <div class="etab-banner">
+          <div class="etab-logo">LB</div>
+          <div>
+            <h1 class="etab-title">Lycée Bilingue de Yaoundé</h1>
+            <div class="etab-subtitle">
+              <i class="fa-solid fa-location-dot me-1"></i>
+              Centre · Mfoundi · Francophone
+            </div>
+          </div>
+          <div class="etab-meta">
+            <div class="etab-meta-item">
+              <span class="etab-meta-label">Année scolaire</span>
+              <span class="etab-meta-value">2025 – 2026</span>
+            </div>
+            <div class="etab-meta-item">
+              <span class="etab-meta-label">Trimestre en cours</span>
+              <span class="etab-meta-value">Trimestre 2</span>
+            </div>
+            <div class="etab-meta-item">
+              <span class="etab-meta-label">Séquence</span>
+              <span class="etab-meta-value">Séquence 1</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── KPIs ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Élèves inscrits -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +42</span>
+              <div class="stat-icon primary"><i class="fa-solid fa-user-graduate"></i></div>
+              <div class="stat-label">Élèves inscrits</div>
+              <div class="stat-value">1 247</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-circle-check"></i> 1 182 actifs · 95%
+              </div>
+            </div>
+          </div>
+
+          <!-- Classes -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend neutral"><i class="fa-solid fa-equals"></i> stable</span>
+              <div class="stat-icon info"><i class="fa-solid fa-chalkboard"></i></div>
+              <div class="stat-label">Classes actives</div>
+              <div class="stat-value">32</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-layer-group"></i> 2 cycles · 6 niveaux
+              </div>
+            </div>
+          </div>
+
+          <!-- Enseignants -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +3</span>
+              <div class="stat-icon success"><i class="fa-solid fa-chalkboard-user"></i></div>
+              <div class="stat-label">Enseignants</div>
+              <div class="stat-value">68</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-book"></i> 187 matières-classe
+              </div>
+            </div>
+          </div>
+
+          <!-- Taux de recouvrement -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend down"><i class="fa-solid fa-triangle-exclamation"></i> -4%</span>
+              <div class="stat-icon warning"><i class="fa-solid fa-sack-dollar"></i></div>
+              <div class="stat-label">Recouvrement</div>
+              <div class="stat-value">78%</div>
+              <div class="stat-change down">
+                <i class="fa-solid fa-user-clock"></i> 87 élèves en retard
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── KPIs secondaires ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Notes saisies -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend neutral">67%</span>
+              <div class="stat-icon primary"><i class="fa-solid fa-pen-to-square"></i></div>
+              <div class="stat-label">Notes saisies (S1)</div>
+              <div class="stat-value">842 / 1 247</div>
+              <div class="stat-change down">
+                <i class="fa-solid fa-clock"></i> 405 en attente
+              </div>
+            </div>
+          </div>
+
+          <!-- Bulletins -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend neutral">T2 en cours</span>
+              <div class="stat-icon info"><i class="fa-solid fa-file-lines"></i></div>
+              <div class="stat-label">Bulletins générés</div>
+              <div class="stat-value">1 182</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-file-pdf"></i> Trimestre 1
+              </div>
+            </div>
+          </div>
+
+          <!-- Discipline -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend down"><i class="fa-solid fa-arrow-up"></i> +12</span>
+              <div class="stat-icon danger"><i class="fa-solid fa-person-walking-arrow-right"></i></div>
+              <div class="stat-label">Absences ce mois</div>
+              <div class="stat-value">124</div>
+              <div class="stat-change down">
+                <i class="fa-solid fa-clock"></i> 38 retards · 6 exclusions
+              </div>
+            </div>
+          </div>
+
+          <!-- Parents -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +28</span>
+              <div class="stat-icon success"><i class="fa-solid fa-users"></i></div>
+              <div class="stat-label">Parents enregistrés</div>
+              <div class="stat-value">1 089</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-mobile-screen"></i> 812 avec téléphone
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Graphiques ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Évolution des inscriptions -->
+          <div class="col-span-8">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Évolution des inscriptions</div>
+                  <div class="chart-subtitle">Effectifs cumulés par mois — année scolaire 2025-2026</div>
+                </div>
+                <div class="chart-legend">
+                  <span><span class="dot" style="background: var(--ta-primary);"></span> Collège</span>
+                  <span><span class="dot" style="background: #6D28D9;"></span> Lycée</span>
+                </div>
+              </div>
+              <div style="position: relative; height: 280px;">
+                <canvas id="inscriptionsChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Répartition par cycle -->
+          <div class="col-span-4">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Répartition par cycle</div>
+                  <div class="chart-subtitle">1 247 élèves · 32 classes</div>
+                </div>
+              </div>
+              <div style="position: relative; height: 180px;">
+                <canvas id="cyclesChart"></canvas>
+              </div>
+              <div class="d-flex justify-content-around mt-3" style="font-size: 11px;">
+                <div class="text-center">
+                  <div style="font-weight: 700; color: var(--ta-primary);">742</div>
+                  <div class="text-muted">Collège (18 classes)</div>
+                </div>
+                <div class="text-center">
+                  <div style="font-weight: 700; color: #6D28D9;">505</div>
+                  <div class="text-muted">Lycée (14 classes)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Ligne 2 : Répartition par classe + Recouvrement ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Répartition par classe -->
+          <div class="col-span-6">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Effectifs par classe</div>
+                  <div class="chart-subtitle">Top 8 — classes les plus peuplées</div>
+                </div>
+                <a href="/classes" class="btn btn-light btn-sm">Voir tout</a>
+              </div>
+
+              <div class="class-bar">
+                <span class="class-name">3ème A</span>
+                <div class="class-track"><div class="class-fill college" style="width: 92%;"></div></div>
+                <span class="class-value">58</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">4ème B</span>
+                <div class="class-track"><div class="class-fill college" style="width: 85%;"></div></div>
+                <span class="class-value">54</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">2nde C</span>
+                <div class="class-track"><div class="class-fill lycee" style="width: 80%;"></div></div>
+                <span class="class-value">51</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">6ème A</span>
+                <div class="class-track"><div class="class-fill college" style="width: 78%;"></div></div>
+                <span class="class-value">49</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">1ère D</span>
+                <div class="class-track"><div class="class-fill lycee" style="width: 72%;"></div></div>
+                <span class="class-value">46</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">5ème A</span>
+                <div class="class-track"><div class="class-fill college" style="width: 68%;"></div></div>
+                <span class="class-value">43</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">Terminale A</span>
+                <div class="class-track"><div class="class-fill lycee" style="width: 65%;"></div></div>
+                <span class="class-value">41</span>
+              </div>
+              <div class="class-bar">
+                <span class="class-name">3ème B</span>
+                <div class="class-track"><div class="class-fill college" style="width: 60%;"></div></div>
+                <span class="class-value">38</span>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Recouvrement par tranche -->
+          <div class="col-span-6">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Recouvrement par tranche</div>
+                  <div class="chart-subtitle">Année scolaire 2025-2026 · Suivi des paiements</div>
+                </div>
+                <a href="/paiements" class="btn btn-light btn-sm">Détails</a>
+              </div>
+
+              <div class="tranche-item">
+                <span class="tranche-label">Tranche 1</span>
+                <div class="tranche-progress">
+                  <div class="progress">
+                    <div class="progress-bar bg-success" style="width: 96%;"></div>
+                  </div>
+                </div>
+                <div class="tranche-value"><strong>96%</strong> · 1 197 / 1 247</div>
+              </div>
+
+              <div class="tranche-item">
+                <span class="tranche-label">Tranche 2</span>
+                <div class="tranche-progress">
+                  <div class="progress">
+                    <div class="progress-bar" style="width: 78%;"></div>
+                  </div>
+                </div>
+                <div class="tranche-value"><strong>78%</strong> · 973 / 1 247</div>
+              </div>
+
+              <div class="tranche-item">
+                <span class="tranche-label">Tranche 3</span>
+                <div class="tranche-progress">
+                  <div class="progress">
+                    <div class="progress-bar bg-warning" style="width: 32%;"></div>
+                  </div>
+                </div>
+                <div class="tranche-value"><strong>32%</strong> · 399 / 1 247</div>
+              </div>
+
+              <hr class="divider" />
+
+              <div class="d-flex justify-content-between align-items-center" style="font-size: 11.5px;">
+                <div>
+                  <div class="text-muted">Total perçu</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--ta-text);">
+                    187,4 M <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
+                  </div>
+                </div>
+                <div class="text-end">
+                  <div class="text-muted">Reste à percevoir</div>
+                  <div style="font-size: 15px; font-weight: 700; color: var(--ta-warning);">
+                    52,8 M <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Ligne 3 : Top élèves + Alertes ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Top 5 élèves -->
+          <div class="col-span-6">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-trophy text-warning me-1"></i>
+                  Top 5 élèves — Trimestre 1
+                </div>
+                <a href="/eleves/classement" class="btn btn-light btn-sm">
+                  Classement complet <i class="fa-solid fa-arrow-right ms-1"></i>
+                </a>
+              </div>
+              <div class="card-body" style="padding: 8px 18px;">
+
+                <div class="top-eleve-item">
+                  <div class="top-eleve-rang rang-1">1</div>
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">AM</div>
+                  <div class="top-eleve-info">
+                    <div class="top-eleve-name">Aïcha Moussa</div>
+                    <div class="top-eleve-class">Terminale A · Mention Très Bien</div>
+                  </div>
+                  <div class="top-eleve-moyenne">18,42</div>
+                </div>
+
+                <div class="top-eleve-item">
+                  <div class="top-eleve-rang rang-2">2</div>
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">JN</div>
+                  <div class="top-eleve-info">
+                    <div class="top-eleve-name">Jean-Pierre Nkolo</div>
+                    <div class="top-eleve-class">Terminale D · Mention Très Bien</div>
+                  </div>
+                  <div class="top-eleve-moyenne">17,85</div>
+                </div>
+
+                <div class="top-eleve-item">
+                  <div class="top-eleve-rang rang-3">3</div>
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">FE</div>
+                  <div class="top-eleve-info">
+                    <div class="top-eleve-name">Fatima Elouardi</div>
+                    <div class="top-eleve-class">1ère C · Mention Très Bien</div>
+                  </div>
+                  <div class="top-eleve-moyenne">17,31</div>
+                </div>
+
+                <div class="top-eleve-item">
+                  <div class="top-eleve-rang">4</div>
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">SB</div>
+                  <div class="top-eleve-info">
+                    <div class="top-eleve-name">Samuel Biya</div>
+                    <div class="top-eleve-class">3ème A · Mention Bien</div>
+                  </div>
+                  <div class="top-eleve-moyenne">16,92</div>
+                </div>
+
+                <div class="top-eleve-item">
+                  <div class="top-eleve-rang">5</div>
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">CN</div>
+                  <div class="top-eleve-info">
+                    <div class="top-eleve-name">Christelle Ndjock</div>
+                    <div class="top-eleve-class">4ème B · Mention Bien</div>
+                  </div>
+                  <div class="top-eleve-moyenne">16,54</div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Alertes à traiter -->
+          <div class="col-span-6">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-bell text-danger me-1"></i>
+                  Alertes à traiter
+                </div>
+                <span class="badge badge-danger">8</span>
+              </div>
+              <div class="card-body p-0" style="padding: 4px 18px 10px !important;">
+
+                <div class="alert-item">
+                  <div class="alert-icon danger"><i class="fa-solid fa-money-bill-wave"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">87 élèves en retard de paiement</div>
+                    <div class="alert-desc">Tranche 2 — échéance dépassée depuis 5 jours</div>
+                  </div>
+                  <div class="alert-time">Aujourd'hui</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon warn"><i class="fa-solid fa-pen-to-square"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">405 notes manquantes en Séquence 1</div>
+                    <div class="alert-desc">12 enseignants n'ont pas encore saisi leurs notes</div>
+                  </div>
+                  <div class="alert-time">Aujourd'hui</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon danger"><i class="fa-solid fa-user-xmark"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">23 élèves avec absences excessives</div>
+                    <div class="alert-desc">Plus de 10 heures d'absence ce trimestre</div>
+                  </div>
+                  <div class="alert-time">Hier</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon warn"><i class="fa-solid fa-graduation-cap"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">142 élèves en difficulté (< 8/20)</div>
+                    <div class="alert-desc">Conseil de classe à prévoir — décision "Redoublant"</div>
+                  </div>
+                  <div class="alert-time">Hier</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon info"><i class="fa-solid fa-calendar-check"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">Fin de Séquence 1 dans 4 jours</div>
+                    <div class="alert-desc">Clôture des saisies le 20 juillet 2026</div>
+                  </div>
+                  <div class="alert-time">Il y a 2j</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon success"><i class="fa-solid fa-file-pdf"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">65 bulletins du T1 non retirés</div>
+                    <div class="alert-desc">Relancer les parents par SMS / email</div>
+                  </div>
+                  <div class="alert-time">Il y a 3j</div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Ligne 4 : Activité + Actions rapides ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Activité récente -->
+          <div class="col-span-7">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-timeline me-1"></i>
+                  Activité récente
+                </div>
+                <a href="/journal" class="btn btn-light btn-sm">Journal complet</a>
+              </div>
+              <div class="card-body" style="padding: 8px 18px;">
+
+                <div class="activity-item">
+                  <div class="activity-icon note"><i class="fa-solid fa-pen-to-square"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Notes saisies — Mathématiques 3ème A</div>
+                    <div class="activity-desc">M. Emmanuel Mbeze · Séquence 1 · 58 élèves</div>
+                  </div>
+                  <div class="activity-time">Il y a 15 min</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon paiement"><i class="fa-solid fa-money-bill-wave"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Paiement reçu — 75 000 FCFA</div>
+                    <div class="activity-desc">Aïcha Moussa · Tranche 2 · Mobile Money</div>
+                  </div>
+                  <div class="activity-time">Il y a 1h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon eleve"><i class="fa-solid fa-user-plus"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Nouvel élève inscrit</div>
+                    <div class="activity-desc">Paul Atangana · 6ème B · Parent : Mme Atangana</div>
+                  </div>
+                  <div class="activity-time">Il y a 2h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon discipline"><i class="fa-solid fa-person-walking-arrow-right"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Absence enregistrée — 4 élèves</div>
+                    <div class="activity-desc">Français 4ème B · Séquence 1 · 2h d'absence</div>
+                  </div>
+                  <div class="activity-time">Il y a 3h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon bulletin"><i class="fa-solid fa-file-pdf"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">12 bulletins du T1 téléchargés</div>
+                    <div class="activity-desc">Classe de 3ème A · Par 8 parents différents</div>
+                  </div>
+                  <div class="activity-time">Il y a 5h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon note"><i class="fa-solid fa-file-excel"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Import Excel de notes</div>
+                    <div class="activity-desc">Mme Cécile Tchoupo · Physique-Chimie 2nde C · 51 notes</div>
+                  </div>
+                  <div class="activity-time">Hier</div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions rapides -->
+          <div class="col-span-5">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-bolt text-warning me-1"></i>
+                  Actions rapides
+                </div>
+              </div>
+              <div class="card-body d-flex flex-column gap-2">
+
+                <a href="/notes/saisie" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-primary-light); color: var(--ta-primary);">
+                    <i class="fa-solid fa-pen-to-square"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Saisir les notes</div>
+                    <div class="qa-desc">Par matière-classe et séquence</div>
+                  </div>
+                </a>
+
+                <a href="/bulletins/generer" class="quick-action">
+                  <div class="qa-icon" style="background: #EDE9FE; color: #6D28D9;">
+                    <i class="fa-solid fa-file-pdf"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Générer les bulletins</div>
+                    <div class="qa-desc">Calcul & export PDF</div>
+                  </div>
+                </a>
+
+                <a href="/eleves/nouveau" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-info-light); color: var(--ta-info);">
+                    <i class="fa-solid fa-user-plus"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Inscrire un élève</div>
+                    <div class="qa-desc">Nouvelle fiche + affectation</div>
+                  </div>
+                </a>
+
+                <a href="/paiements/nouveau" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-success-light); color: var(--ta-success);">
+                    <i class="fa-solid fa-money-bill-wave"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Enregistrer un paiement</div>
+                    <div class="qa-desc">Scolarité · Reçu PDF</div>
+                  </div>
+                </a>
+
+                <a href="/emploi-du-temps" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-warning-light); color: var(--ta-warning);">
+                    <i class="fa-solid fa-calendar-days"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Emploi du temps</div>
+                    <div class="qa-desc">Planification hebdomadaire</div>
+                  </div>
+                </a>
+
+                <a href="/discipline" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-danger-light); color: var(--ta-danger);">
+                    <i class="fa-solid fa-person-walking-arrow-right"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Discipline</div>
+                    <div class="qa-desc">Absences · Retards · Exclusions</div>
+                  </div>
+                </a>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/auth-admin.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <script>
+    // ── Chart : Évolution des inscriptions ──
+    const ctxInsc = document.getElementById('inscriptionsChart');
+    if (ctxInsc) {
+      new Chart(ctxInsc, {
+        type: 'line',
+        data: {
+          labels: ['Sept','Oct','Nov','Déc','Jan','Fév','Mar','Avr','Mai','Juin','Juil'],
+          datasets: [
+            {
+              label: 'Collège',
+              data: [680, 705, 718, 722, 728, 731, 735, 738, 740, 741, 742],
+              borderColor: '#3C50E0',
+              backgroundColor: 'rgba(60, 80, 224, 0.1)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#3C50E0'
+            },
+            {
+              label: 'Lycée',
+              data: [460, 475, 482, 488, 492, 495, 498, 500, 502, 504, 505],
+              borderColor: '#6D28D9',
+              backgroundColor: 'rgba(109, 40, 217, 0.08)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#6D28D9'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1C2434',
+              padding: 10,
+              titleFont: { size: 11 },
+              bodyFont: { size: 11 }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 11 }, color: '#94A3B8' }
+            },
+            y: {
+              beginAtZero: false,
+              grid: { color: '#F1F5F9' },
+              ticks: { font: { size: 11 }, color: '#94A3B8' }
+            }
+          }
+        }
+      });
+    }
+
+    // ── Chart : Répartition par cycle ──
+    const ctxCycles = document.getElementById('cyclesChart');
+    if (ctxCycles) {
+      new Chart(ctxCycles, {
+        type: 'doughnut',
+        data: {
+          labels: ['Collège', 'Lycée'],
+          datasets: [{
+            data: [742, 505],
+            backgroundColor: ['#3C50E0', '#6D28D9'],
+            borderWidth: 0,
+            cutout: '70%'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1C2434',
+              padding: 10,
+              titleFont: { size: 11 },
+              bodyFont: { size: 11 }
+            }
+          }
+        }
+      });
+    }
+  </script>
+
+</body>
+</html>

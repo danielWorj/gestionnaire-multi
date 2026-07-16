@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tableau de bord — Super Admin | Gestionnaire SaaS</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <!-- FontAwesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet" />
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <style>
+    /* Styles spécifiques au dashboard SuperAdmin */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 16px;
+    }
+    .col-span-3 { grid-column: span 3; }
+    .col-span-4 { grid-column: span 4; }
+    .col-span-6 { grid-column: span 6; }
+    .col-span-8 { grid-column: span 8; }
+    .col-span-12 { grid-column: span 12; }
+
+    @media (max-width: 991.98px) {
+      .col-span-3, .col-span-4, .col-span-6, .col-span-8 { grid-column: span 12; }
+    }
+
+    /* Carte KPI enrichie */
+    .stat-card { position: relative; overflow: hidden; }
+    .stat-card .stat-icon {
+      width: 44px; height: 44px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 17px;
+    }
+    .stat-card .stat-trend {
+      position: absolute; top: 18px; right: 18px;
+      font-size: 11px; font-weight: 600;
+      padding: 3px 8px; border-radius: 20px;
+    }
+    .stat-trend.up   { background: var(--ta-success-light); color: var(--ta-success); }
+    .stat-trend.down { background: var(--ta-danger-light);  color: var(--ta-danger);  }
+
+    /* Carte chart */
+    .chart-card { padding: 18px; }
+    .chart-card .chart-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .chart-card .chart-title {
+      font-size: 13px; font-weight: 600; color: var(--ta-text);
+    }
+    .chart-card .chart-subtitle {
+      font-size: 11px; color: var(--ta-text-muted); margin-top: 2px;
+    }
+    .chart-legend {
+      display: flex; gap: 14px; font-size: 11px; color: var(--ta-text-muted);
+    }
+    .chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .chart-legend .dot {
+      width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+    }
+
+    /* Liste alertes */
+    .alert-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 12px 0; border-bottom: 1px solid var(--ta-border-light);
+    }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-item .alert-icon {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; flex-shrink: 0;
+    }
+    .alert-icon.warn    { background: var(--ta-warning-light); color: var(--ta-warning); }
+    .alert-icon.danger  { background: var(--ta-danger-light);  color: var(--ta-danger);  }
+    .alert-icon.info    { background: var(--ta-info-light);    color: var(--ta-info);    }
+    .alert-item .alert-title { font-size: 12px; font-weight: 600; color: var(--ta-text); }
+    .alert-item .alert-desc  { font-size: 11.5px; color: var(--ta-text-muted); margin-top: 2px; }
+    .alert-item .alert-time  { font-size: 10.5px; color: var(--ta-text-light); margin-left: auto; white-space: nowrap; }
+
+    /* Mini bar chart CSS (répartition régions) */
+    .region-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 0; font-size: 12px;
+    }
+    .region-bar .region-name { width: 110px; color: var(--ta-text-muted); }
+    .region-bar .region-track {
+      flex: 1; height: 8px; background: var(--ta-border-light);
+      border-radius: 20px; overflow: hidden;
+    }
+    .region-bar .region-fill {
+      height: 100%; background: var(--ta-primary); border-radius: 20px;
+      transition: width 0.6s ease;
+    }
+    .region-bar .region-value {
+      width: 60px; text-align: right; font-weight: 600; color: var(--ta-text);
+    }
+
+    /* Activité récente */
+    .activity-item .activity-icon {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; flex-shrink: 0;
+    }
+    .activity-icon.etab   { background: var(--ta-primary-light); color: var(--ta-primary); }
+    .activity-icon.paiement { background: var(--ta-success-light); color: var(--ta-success); }
+    .activity-icon.eleve  { background: var(--ta-info-light); color: var(--ta-info); }
+    .activity-icon.alerte { background: var(--ta-warning-light); color: var(--ta-warning); }
+
+    /* Quick actions */
+    .quick-action {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border: 1px solid var(--ta-border);
+      border-radius: var(--ta-radius); background: var(--ta-white);
+      cursor: pointer; transition: all var(--ta-transition);
+      text-decoration: none; color: var(--ta-text);
+    }
+    .quick-action:hover {
+      border-color: var(--ta-primary); background: var(--ta-primary-light);
+      transform: translateY(-1px); box-shadow: var(--ta-shadow-sm);
+    }
+    .quick-action .qa-icon {
+      width: 36px; height: 36px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px; flex-shrink: 0;
+    }
+    .quick-action .qa-label { font-size: 12px; font-weight: 600; }
+    .quick-action .qa-desc  { font-size: 11px; color: var(--ta-text-muted); }
+
+    /* Masqué par défaut : révélé par le script de garde d'authentification
+       une fois la session SuperAdmin confirmée côté serveur (voir fin de
+       page). Évite un flash du contenu protégé avant la vérification. */
+    body:not(.auth-checked) { visibility: hidden; }
+  </style>
+</head>
+
+<body data-page="dashboard">
+
+  <div class="app-wrapper">
+    <!-- Le sidebar SuperAdmin sera injecté ici par sidebar_admin.js -->
+
+    <div class="main-content" id="mainContent">
+      <!-- La topbar sera injectée ici par sidebar_admin.js -->
+
+      <main class="page-content">
+
+        <!-- ── Breadcrumb + Titre ── -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/superadmin/dashboard">Super Admin</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Tableau de bord</li>
+          </ol>
+        </nav>
+
+        <div class="d-flex flex-wrap align-items-center justify-content-between mb-3 gap-2">
+          <div>
+            <h1 class="page-title mb-1">Tableau de bord global</h1>
+            <p class="text-muted mb-0" style="font-size: 12px;">
+              Vue d'ensemble de la plateforme SaaS — <strong>Jeudi 16 juillet 2026</strong>
+            </p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-light btn-sm">
+              <i class="fa-solid fa-download"></i> Exporter
+            </button>
+            <button class="btn btn-primary btn-sm">
+              <i class="fa-solid fa-plus"></i> Nouvel établissement
+            </button>
+          </div>
+        </div>
+
+        <!-- ── KPIs ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Total établissements -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +5 ce mois</span>
+              <div class="stat-icon primary"><i class="fa-solid fa-school"></i></div>
+              <div class="stat-label">Établissements</div>
+              <div class="stat-value">47</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-arrow-trend-up"></i> 42 actifs · 89%
+              </div>
+            </div>
+          </div>
+
+          <!-- Élèves cumulés -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +12%</span>
+              <div class="stat-icon success"><i class="fa-solid fa-user-graduate"></i></div>
+              <div class="stat-label">Élèves cumulés</div>
+              <div class="stat-value">18 432</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-arrow-trend-up"></i> +1 962 cette année
+              </div>
+            </div>
+          </div>
+
+          <!-- Revenus mensuels (MRR) -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +8,4%</span>
+              <div class="stat-icon info"><i class="fa-solid fa-sack-dollar"></i></div>
+              <div class="stat-label">MRR (FCFA)</div>
+              <div class="stat-value">4,28 M</div>
+              <div class="stat-change up">
+                <i class="fa-solid fa-arrow-trend-up"></i> vs mois dernier
+              </div>
+            </div>
+          </div>
+
+          <!-- Abonnements expirant -->
+          <div class="col-span-3">
+            <div class="stat-card">
+              <span class="stat-trend down"><i class="fa-solid fa-triangle-exclamation"></i> à suivre</span>
+              <div class="stat-icon warning"><i class="fa-solid fa-clock-rotate-left"></i></div>
+              <div class="stat-label">Abonnements expirant</div>
+              <div class="stat-value">6</div>
+              <div class="stat-change down">
+                <i class="fa-solid fa-bell"></i> sous 30 jours
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Graphiques ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Évolution des revenus -->
+          <div class="col-span-8">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Évolution des revenus</div>
+                  <div class="chart-subtitle">MRR cumulé des 12 derniers mois (en millions FCFA)</div>
+                </div>
+                <div class="chart-legend">
+                  <span><span class="dot" style="background: var(--ta-primary);"></span> Revenus</span>
+                  <span><span class="dot" style="background: var(--ta-success);"></span> Nouveaux établissements</span>
+                </div>
+              </div>
+              <div style="position: relative; height: 300px;">
+                <canvas id="revenusChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Répartition par plan -->
+          <div class="col-span-4">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Répartition par plan</div>
+                  <div class="chart-subtitle">47 établissements actifs</div>
+                </div>
+              </div>
+              <div style="position: relative; height: 180px;">
+                <canvas id="plansChart"></canvas>
+              </div>
+              <div class="d-flex justify-content-around mt-3" style="font-size: 11px;">
+                <div class="text-center">
+                  <div style="font-weight: 700; color: var(--ta-text);">12</div>
+                  <div class="text-muted">Free</div>
+                </div>
+                <div class="text-center">
+                  <div style="font-weight: 700; color: var(--ta-primary);">21</div>
+                  <div class="text-muted">Basic</div>
+                </div>
+                <div class="text-center">
+                  <div style="font-weight: 700; color: #6D28D9;">14</div>
+                  <div class="text-muted">Pro</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Ligne 2 : Top établissements + Alertes ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Top établissements -->
+          <div class="col-span-8">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-trophy text-warning me-1"></i>
+                  Top 5 établissements (élèves)
+                </div>
+                <a href="/superadmin/etablissements" class="btn btn-light btn-sm">
+                  Voir tout <i class="fa-solid fa-arrow-right ms-1"></i>
+                </a>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Établissement</th>
+                      <th>Région</th>
+                      <th>Élèves</th>
+                      <th>Plan</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><span class="rang-cell rang-1">1</span></td>
+                      <td>
+                        <div class="eleve-card">
+                          <div class="eleve-avatar-placeholder" style="width:32px;height:32px;font-size:11px;">CC</div>
+                          <div>
+                            <div class="eleve-name">Collège Catholique de Douala</div>
+                            <div class="eleve-matricule">direction@ccd.cm</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">Littoral · Wouri</span></td>
+                      <td><strong>612</strong></td>
+                      <td><span class="abonnement-badge abonnement-pro">Pro</span></td>
+                      <td><span class="badge badge-success">Actif</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="rang-cell rang-2">2</span></td>
+                      <td>
+                        <div class="eleve-card">
+                          <div class="eleve-avatar-placeholder" style="width:32px;height:32px;font-size:11px;">LB</div>
+                          <div>
+                            <div class="eleve-name">Lycée Bilingue de Yaoundé</div>
+                            <div class="eleve-matricule">contact@lbhy.cm</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">Centre · Mfoundi</span></td>
+                      <td><strong>487</strong></td>
+                      <td><span class="abonnement-badge abonnement-pro">Pro</span></td>
+                      <td><span class="badge badge-success">Actif</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="rang-cell rang-3">3</span></td>
+                      <td>
+                        <div class="eleve-card">
+                          <div class="eleve-avatar-placeholder" style="width:32px;height:32px;font-size:11px;">LI</div>
+                          <div>
+                            <div class="eleve-name">Lycée d'Idenau</div>
+                            <div class="eleve-matricule">lydidenau@gmail.com</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">Sud-Ouest · Ndian</span></td>
+                      <td><strong>340</strong></td>
+                      <td><span class="abonnement-badge abonnement-basic">Basic</span></td>
+                      <td><span class="badge badge-danger">Suspendu</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="rang-cell">4</span></td>
+                      <td>
+                        <div class="eleve-card">
+                          <div class="eleve-avatar-placeholder" style="width:32px;height:32px;font-size:11px;">GS</div>
+                          <div>
+                            <div class="eleve-name">Groupe Scolaire Les Brillants</div>
+                            <div class="eleve-matricule">gsbrillants@gmail.com</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">Ouest · Mifi</span></td>
+                      <td><strong>215</strong></td>
+                      <td><span class="abonnement-badge abonnement-basic">Basic</span></td>
+                      <td><span class="badge badge-success">Actif</span></td>
+                    </tr>
+                    <tr>
+                      <td><span class="rang-cell">5</span></td>
+                      <td>
+                        <div class="eleve-card">
+                          <div class="eleve-avatar-placeholder" style="width:32px;height:32px;font-size:11px;">EP</div>
+                          <div>
+                            <div class="eleve-name">École Protestante de Bafoussam</div>
+                            <div class="eleve-matricule">epbafoussam@yahoo.fr</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">Ouest · Mifi</span></td>
+                      <td><strong>98</strong></td>
+                      <td><span class="abonnement-badge abonnement-free">Free</span></td>
+                      <td><span class="badge badge-warning">En attente</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Alertes à traiter -->
+          <div class="col-span-4">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-bell text-danger me-1"></i>
+                  Alertes à traiter
+                </div>
+                <span class="badge badge-danger">6</span>
+              </div>
+              <div class="card-body p-0" style="padding: 4px 18px 10px !important;">
+
+                <div class="alert-item">
+                  <div class="alert-icon warn"><i class="fa-solid fa-clock"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">3 abonnements expirent sous 7 jours</div>
+                    <div class="alert-desc">Relancer les établissements concernés</div>
+                  </div>
+                  <div class="alert-time">Aujourd'hui</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon danger"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">Lycée d'Idenau suspendu</div>
+                    <div class="alert-desc">Paiement en retard depuis 45 jours</div>
+                  </div>
+                  <div class="alert-time">Hier</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon info"><i class="fa-solid fa-database"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">Quota atteint : 2 établissements</div>
+                    <div class="alert-desc">Limite d'élèves du plan Basic atteinte</div>
+                  </div>
+                  <div class="alert-time">Il y a 2j</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon warn"><i class="fa-solid fa-user-plus"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">4 inscriptions en attente de validation</div>
+                    <div class="alert-desc">Établissements Free à approuver</div>
+                  </div>
+                  <div class="alert-time">Il y a 3j</div>
+                </div>
+
+                <div class="alert-item">
+                  <div class="alert-icon info"><i class="fa-solid fa-server"></i></div>
+                  <div style="flex:1;">
+                    <div class="alert-title">Stockage à 78% sur le cluster principal</div>
+                    <div class="alert-desc">Envisager une montée de capacité</div>
+                  </div>
+                  <div class="alert-time">Il y a 5j</div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- ── Ligne 3 : Répartition régions + Activité + Actions rapides ── -->
+        <div class="dashboard-grid mb-3">
+
+          <!-- Répartition par région -->
+          <div class="col-span-4">
+            <div class="card chart-card">
+              <div class="chart-header">
+                <div>
+                  <div class="chart-title">Répartition par région</div>
+                  <div class="chart-subtitle">Nombre d'établissements par région</div>
+                </div>
+              </div>
+
+              <div class="region-bar">
+                <span class="region-name">Centre</span>
+                <div class="region-track"><div class="region-fill" style="width: 85%;"></div></div>
+                <span class="region-value">14</span>
+              </div>
+              <div class="region-bar">
+                <span class="region-name">Littoral</span>
+                <div class="region-track"><div class="region-fill" style="width: 70%;"></div></div>
+                <span class="region-value">11</span>
+              </div>
+              <div class="region-bar">
+                <span class="region-name">Ouest</span>
+                <div class="region-track"><div class="region-fill" style="width: 50%;"></div></div>
+                <span class="region-value">8</span>
+              </div>
+              <div class="region-bar">
+                <span class="region-name">Nord-Ouest</span>
+                <div class="region-track"><div class="region-fill" style="width: 30%;"></div></div>
+                <span class="region-value">5</span>
+              </div>
+              <div class="region-bar">
+                <span class="region-name">Sud-Ouest</span>
+                <div class="region-track"><div class="region-fill" style="width: 25%;"></div></div>
+                <span class="region-value">4</span>
+              </div>
+              <div class="region-bar">
+                <span class="region-name">Autres</span>
+                <div class="region-track"><div class="region-fill" style="width: 32%; background: var(--ta-info);"></div></div>
+                <span class="region-value">5</span>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Activité récente -->
+          <div class="col-span-4">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-timeline me-1"></i>
+                  Activité récente
+                </div>
+                <a href="#" class="btn btn-light btn-sm">Tout voir</a>
+              </div>
+              <div class="card-body" style="padding: 8px 18px;">
+
+                <div class="activity-item">
+                  <div class="activity-icon etab"><i class="fa-solid fa-school"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Nouvel établissement créé</div>
+                    <div class="activity-desc">Groupe Scolaire Les Génies — Extrême-Nord</div>
+                  </div>
+                  <div class="activity-time">Il y a 2h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon paiement"><i class="fa-solid fa-money-bill-wave"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Paiement reçu — 125 000 FCFA</div>
+                    <div class="activity-desc">Collège Catholique de Douala · Plan Pro</div>
+                  </div>
+                  <div class="activity-time">Il y a 5h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon eleve"><i class="fa-solid fa-user-graduate"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Pic d'inscriptions détecté</div>
+                    <div class="activity-desc">+42 élèves aujourd'hui sur la plateforme</div>
+                  </div>
+                  <div class="activity-time">Il y a 8h</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon alerte"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Abonnement arrivé à échéance</div>
+                    <div class="activity-desc">École Protestante de Bafoussam · Free</div>
+                  </div>
+                  <div class="activity-time">Hier</div>
+                </div>
+
+                <div class="activity-item">
+                  <div class="activity-icon etab"><i class="fa-solid fa-gear"></i></div>
+                  <div class="activity-content">
+                    <div class="activity-title">Configuration globale mise à jour</div>
+                    <div class="activity-desc">Nouveau plan "Enterprise" ajouté</div>
+                  </div>
+                  <div class="activity-time">Il y a 2j</div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions rapides -->
+          <div class="col-span-4">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">
+                  <i class="fa-solid fa-bolt text-warning me-1"></i>
+                  Actions rapides
+                </div>
+              </div>
+              <div class="card-body d-flex flex-column gap-2">
+
+                <a href="/superadmin/etablissements" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-primary-light); color: var(--ta-primary);">
+                    <i class="fa-solid fa-school"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Nouvel établissement</div>
+                    <div class="qa-desc">Créer un compte client</div>
+                  </div>
+                </a>
+
+                <a href="/superadmin/abonnements/plans" class="quick-action">
+                  <div class="qa-icon" style="background: #EDE9FE; color: #6D28D9;">
+                    <i class="fa-solid fa-crown"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Gérer les plans</div>
+                    <div class="qa-desc">Tarifs & quotas</div>
+                  </div>
+                </a>
+
+                <a href="/superadmin/utilisateurs" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-info-light); color: var(--ta-info);">
+                    <i class="fa-solid fa-user-shield"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Utilisateurs</div>
+                    <div class="qa-desc">Admins & rôles</div>
+                  </div>
+                </a>
+
+                <a href="/superadmin/paiements" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-success-light); color: var(--ta-success);">
+                    <i class="fa-solid fa-sack-dollar"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Paiements</div>
+                    <div class="qa-desc">Historique & relances</div>
+                  </div>
+                </a>
+
+                <a href="/superadmin/configuration" class="quick-action">
+                  <div class="qa-icon" style="background: var(--ta-warning-light); color: var(--ta-warning);">
+                    <i class="fa-solid fa-gear"></i>
+                  </div>
+                  <div>
+                    <div class="qa-label">Configuration</div>
+                    <div class="qa-desc">Paramètres système</div>
+                  </div>
+                </a>
+
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth-admin.js') }}"></script>
+
+  <script>
+    // ============================================================
+    // GARDE D'AUTHENTIFICATION — page SuperAdmin protégée
+    // requireAuth() interroge /api/auth/superadmin/me (source de vérité
+    // serveur) et redirige vers /superadmin/login si la session n'est pas
+    // valide. sidebar_admin.js n'est chargé qu'APRÈS confirmation, pour
+    // qu'il dispose de window.GESTIONNAIRE_USER (vraies données, plus le
+    // mock en dur) dès son exécution.
+    // ============================================================
+    (async () => {
+      const ok = await GestionnaireAuthAdmin.requireAuth();
+      if (!ok) return; // requireAuth() a déjà redirigé vers /superadmin/login
+
+      const superadmin = GestionnaireAuthAdmin.getUser();
+      window.GESTIONNAIRE_USER = {
+        nom: superadmin.nom,
+        role: 'Administrateur Plateforme',
+        avatar: null
+      };
+
+      document.body.classList.add('auth-checked');
+
+      const sidebarScript = document.createElement('script');
+      sidebarScript.src = "{{ url_for('static', filename='js/sidebar_admin.js') }}";
+      document.body.appendChild(sidebarScript);
+    })();
+  </script>
+
+  <script>
+    // ── Chart : Évolution des revenus ──
+    const ctxRevenus = document.getElementById('revenusChart');
+    if (ctxRevenus) {
+      new Chart(ctxRevenus, {
+        type: 'line',
+        data: {
+          labels: ['Août','Sept','Oct','Nov','Déc','Jan','Fév','Mar','Avr','Mai','Juin','Juil'],
+          datasets: [
+            {
+              label: 'Revenus (M FCFA)',
+              data: [2.4, 2.7, 3.0, 3.1, 3.3, 3.5, 3.6, 3.8, 3.9, 4.0, 4.1, 4.28],
+              borderColor: '#3C50E0',
+              backgroundColor: 'rgba(60, 80, 224, 0.1)',
+              fill: true,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#3C50E0'
+            },
+            {
+              label: 'Nouveaux établissements',
+              data: [2, 3, 4, 2, 5, 3, 4, 6, 3, 4, 5, 5],
+              borderColor: '#219653',
+              backgroundColor: 'rgba(33, 150, 83, 0.08)',
+              fill: false,
+              tension: 0.4,
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: '#219653',
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1C2434',
+              padding: 10,
+              titleFont: { size: 11 },
+              bodyFont: { size: 11 }
+            }
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { font: { size: 11 }, color: '#94A3B8' }
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: '#F1F5F9' },
+              ticks: { font: { size: 11 }, color: '#94A3B8' }
+            },
+            y1: {
+              position: 'right',
+              beginAtZero: true,
+              grid: { display: false },
+              ticks: { font: { size: 11 }, color: '#94A3B8', stepSize: 2 }
+            }
+          }
+        }
+      });
+    }
+
+    // ── Chart : Répartition par plan ──
+    const ctxPlans = document.getElementById('plansChart');
+    if (ctxPlans) {
+      new Chart(ctxPlans, {
+        type: 'doughnut',
+        data: {
+          labels: ['Free', 'Basic', 'Pro'],
+          datasets: [{
+            data: [12, 21, 14],
+            backgroundColor: ['#E2E8F0', '#3C50E0', '#6D28D9'],
+            borderWidth: 0,
+            cutout: '70%'
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#1C2434',
+              padding: 10,
+              titleFont: { size: 11 },
+              bodyFont: { size: 11 }
+            }
+          }
+        }
+      });
+    }
+  </script>
+
+</body>
+</html>

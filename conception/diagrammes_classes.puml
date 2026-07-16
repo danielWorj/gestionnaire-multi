@@ -1,0 +1,742 @@
+' ============================================================
+' Diagrammes de classes SQLAlchemy - Gestion Scolaire
+' Genere a partir de remplir_models.ps1 (backend/models/)
+' ============================================================
+
+
+' ============================================================
+' MODULE 1 : STRUCTURE SCOLAIRE
+' (etablissement, annee_scolaire, trimestre, sequence, cycle, classe)
+' ============================================================
+@startuml module_structure_scolaire
+title Module Structure Scolaire
+
+class Etablissement {
+  +id : Integer <<PK>>
+  +nom : String(150)
+  +nom_bilingue : String(150)
+  +adresse : String(255)
+  +bp : String(50)
+  +telephone : String(20)
+  +region : String(100)
+  +logo_url : String(255)
+}
+
+class AnneeScolaire {
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +libelle : String(20)
+  +active : Boolean
+  --
+  uq_annee_scolaire_etablissement(etablissement_id, libelle)
+}
+
+class Trimestre {
+  +id : Integer <<PK>>
+  +annee_scolaire_id : Integer <<FK>>
+  +libelle : String(20)
+  +numero : Integer
+  +date_debut : Date
+  +date_fin : Date
+  --
+  uq_trimestre_annee_numero(annee_scolaire_id, numero)
+}
+
+class Sequence {
+  +id : Integer <<PK>>
+  +trimestre_id : Integer <<FK>>
+  +libelle : String(10)
+  +numero : Integer
+  +date_debut : Date
+  +date_fin : Date
+  --
+  uq_sequence_trimestre_numero(trimestre_id, numero)
+}
+
+class Cycle {
+  +id : Integer <<PK>>
+  +libelle : String(50)
+  +ordre : Integer
+  +cycle : String(50)
+}
+
+class Classe {
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +cycle_id : Integer <<FK>>
+  +option : String(50)
+  +salle : String(30)
+}
+
+note "effectif retire : calcule via\nCOUNT(Inscription) WHERE classe_id=?\nAND statut='Actif'" as N0
+Classe .. N0
+
+AnneeScolaire "1" -- "0..*" Trimestre : trimestres >
+Trimestre "1" -- "0..*" Sequence : sequences >
+Cycle "1" -- "0..*" Classe : classes >
+
+Etablissement "1" -- "0..*" AnneeScolaire : annees_scolaires >
+Etablissement "1" -- "0..*" Classe : classes >
+
+note "Multi-etablissement : chaque entite cle\n(AnneeScolaire, Classe, Enseignant, Eleve,\nParent, Utilisateur) porte un etablissement_id\npour cloisonner les donnees par ecole." as N1
+Etablissement .. N1
+@enduml
+
+
+' ============================================================
+' MODULE 2 : PERSONNEL & PEDAGOGIE
+' (enseignant, titulaire_classe, matiere, matiere_classe)
+' ============================================================
+@startuml module_personnel_pedagogie
+title Module Personnel & Pedagogie
+
+class Classe {
+  +id : Integer <<PK>>
+}
+
+class AnneeScolaire {
+  +id : Integer <<PK>>
+}
+
+class Etablissement {
+  +id : Integer <<PK>>
+}
+
+class Enseignant {
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +nom : String(100)
+  +prenom : String(100)
+  +telephone : String(20)
+  +email : String(150) <<unique>>
+  +grade : String(50)
+}
+
+note "est_titulaire retire : calcule via\nEXISTS(TitulaireClasse) WHERE enseignant_id=?" as N0b
+Enseignant .. N0b
+
+class TitulaireClasse {
+  +id : Integer <<PK>>
+  +classe_id : Integer <<FK>>
+  +enseignant_id : Integer <<FK>>
+  +annee_scolaire_id : Integer <<FK>>
+  --
+  uq_titulaire_classe_annee(classe_id, annee_scolaire_id)
+}
+
+class GroupeMatiere {
+  +id : Integer <<PK>>
+  +libelle : String(150)
+}
+
+class Matiere {
+  +id : Integer <<PK>>
+  +libelle : String(150)
+  +groupe_id : Integer <<FK>>
+  --
+  uq_matiere_groupe(libelle, groupe_id)
+}
+
+note "Le coefficient n'existe qu'au niveau\nMatiereClasse.coefficient : il n'a de sens\nque dans le contexte d'une affectation\nclasse/matiere/enseignant." as N0c
+Matiere .. N0c
+
+class MatiereClasse {
+  +id : Integer <<PK>>
+  +classe_id : Integer <<FK>>
+  +matiere_id : Integer <<FK>>
+  +enseignant_id : Integer <<FK>>
+  +coefficient : Integer
+  --
+  uq_matiere_classe(classe_id, matiere_id)
+}
+
+Enseignant "1" -- "0..*" TitulaireClasse : titulaires_classe >
+Classe "1" -- "0..*" TitulaireClasse : titulaires >
+AnneeScolaire "1" -- "0..*" TitulaireClasse : titulaires_classe >
+
+Enseignant "1" -- "0..*" MatiereClasse : matieres_classe >
+Classe "1" -- "0..*" MatiereClasse : matieres_classe >
+GroupeMatiere "1" -- "0..*" Matiere : matieres >
+Matiere "1" -- "0..*" MatiereClasse : matieres_classe >
+
+Etablissement "1" -- "0..*" Enseignant : enseignants >
+@enduml
+
+
+' ============================================================
+' MODULE 3 : ELEVES & INSCRIPTIONS
+' (eleve, inscription)
+' ============================================================
+@startuml module_eleves_inscriptions
+title Module Eleves & Inscriptions
+
+class Classe {
+  +id : Integer <<PK>>
+}
+
+class AnneeScolaire {
+  +id : Integer <<PK>>
+}
+
+class Etablissement {
+  +id : Integer <<PK>>
+}
+
+class Parent{
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +nom : String(100)
+  +prenom : String(100)
+  +telephone : String(20)
+  +email : String(150) <<unique>>
+}
+class Eleve {
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +matricule : String(50)
+  +nom : String(100)
+  +prenom : String(150)
+  +sexe : String(1)
+  +date_naissance : Date
+  +lieu_naissance : String(100)
+  +parent_id : Integer <<FK>>
+  +statut : String(10)
+  --
+  uq_eleve_matricule_etablissement(etablissement_id, matricule)
+  --
+  ck_eleve_sexe : sexe IN ('M','F')
+  -- 
+  ck_eleve_statut : statut IN ('Actif','Inactif')
+  --
+  ck_eleve_parent : parent_id IS NOT NULL
+
+}
+
+class Inscription {
+  +id : Integer <<PK>>
+  +eleve_id : Integer <<FK>>
+  +classe_id : Integer <<FK>>
+  +annee_scolaire_id : Integer <<FK>>
+  +date_inscription : Date 
+  +statut : String(30) = "Actif"
+  --
+  uq_inscription(eleve_id, classe_id, annee_scolaire_id)
+}
+
+Parent "1" -- "0..*" Eleve : enfants >
+Eleve "1" -- "0..*" Inscription : inscriptions >
+Classe "1" -- "0..*" Inscription : inscriptions >
+AnneeScolaire "1" -- "0..*" Inscription : inscriptions >
+
+Etablissement "1" -- "0..*" Parent : parents >
+Etablissement "1" -- "0..*" Eleve : eleves >
+@enduml
+
+
+' ============================================================
+' MODULE 4 : EVALUATION (NOTES & DISCIPLINE)
+' (note, discipline)
+' ============================================================
+@startuml module_evaluation
+title Module Evaluation (Notes & Discipline)
+
+class Inscription {
+  +id : Integer <<PK>>
+}
+
+class MatiereClasse {
+  +id : Integer <<PK>>
+}
+
+class Sequence {
+  +id : Integer <<PK>>
+}
+
+class Note {
+  +id : Integer <<PK>>
+  +inscription_id : Integer <<FK>>
+  +matiere_classe_id : Integer <<FK>>
+  +sequence_id : Integer <<FK>>
+  +valeur : Numeric(5,2)
+  +absent : Boolean
+  +saisie_le : DateTime
+  --
+  uq_note(inscription_id, matiere_classe_id, sequence_id)
+  ck_note_valeur : 0 <= valeur <= 20
+}
+
+class Discipline {
+  +id : Integer <<PK>>
+  +inscription_id : Integer <<FK>>
+  +sequence_id : Integer <<FK>>
+  +absences_justifiees : Integer
+  +absences_non_justifiees : Integer
+  +retards : Integer
+  +exclusions : Integer
+  +observation : Text
+  --
+  uq_discipline(inscription_id, sequence_id)
+}
+
+Inscription "1" -- "0..*" Note : notes >
+MatiereClasse "1" -- "0..*" Note : notes >
+Sequence "1" -- "0..*" Note : notes >
+
+Inscription "1" -- "0..*" Discipline : disciplines >
+Sequence "1" -- "0..*" Discipline
+
+note "v4 : le bulletin n'est plus stocke en base,\nil est calcule a la demande depuis 'note'\net exporte en PDF (storage/bulletins/...)" as N2
+Note .. N2
+@enduml
+
+
+' ============================================================
+' MODULE 5 : PAIEMENTS
+' (tranche_paiement, paiement)
+' ============================================================
+@startuml module_paiements
+title Module Paiements
+
+class AnneeScolaire {
+  +id : Integer <<PK>>
+}
+
+class Inscription {
+  +id : Integer <<PK>>
+}
+
+class TranchePaiement {
+  +id : Integer <<PK>>
+  +annee_scolaire_id : Integer <<FK>>
+  +libelle : String(100)
+  +montant_attendu : Numeric(10,2)
+  +date_limite : Date
+  --
+  ck_tranche_montant_positif : montant_attendu > 0
+}
+
+class Paiement {
+  +id : Integer <<PK>>
+  +inscription_id : Integer <<FK>>
+  +tranche_paiement_id : Integer <<FK>>
+  +montant_verse : Numeric(10,2)
+  +date_paiement : Date
+  +mode_paiement : String(30)
+  --
+  ck_paiement_montant_positif : montant_verse > 0
+}
+
+AnneeScolaire "1" -- "0..*" TranchePaiement : tranches_paiement >
+TranchePaiement "1" -- "0..*" Paiement : paiements >
+Inscription "1" -- "0..*" Paiement : paiements >
+@enduml
+
+
+' ============================================================
+' MODULE 6 : AUTHENTIFICATION / UTILISATEURS
+' (role, utilisateur, super_admin)
+' ============================================================
+@startuml module_authentification
+title Module Authentification
+
+class Etablissement {
+  +id : Integer <<PK>>
+}
+
+class Role {
+  +id : Integer <<PK>>
+  +libelle : String(50) <<unique>>
+  .. Valeurs ..
+  Admin, Proviseur, Censeur, Surveillant,
+  Secretaire, Comptable, Infirmier,
+  Enseignant, Parent
+}
+
+class Utilisateur {
+  +id : Integer <<PK>>
+  +etablissement_id : Integer <<FK>>
+  +nom : String(100)
+  +email : String(150)
+  +mot_de_passe_hash : String(255)
+  +role_id : Integer <<FK>>
+  +actif : Boolean
+  --
+  .. Authentification JWT ..
+  +refresh_token_hash : String(255)
+  +refresh_token_expire_le : DateTime
+  +dernier_login : DateTime
+  --
+  uq_utilisateur_email_etablissement(etablissement_id, email)
+}
+
+class SuperAdmin {
+  +id : Integer <<PK>>
+  +nom : String(100)
+  +email : String(150) <<unique>>
+  +mot_de_passe_hash : String(255)
+  +actif : Boolean
+  --
+  .. Authentification JWT ..
+  +refresh_token_hash : String(255)
+  +refresh_token_expire_le : DateTime
+  +dernier_login : DateTime
+}
+
+Role "1" -- "0..*" Utilisateur : utilisateurs >
+Etablissement "1" -- "0..*" Utilisateur : utilisateurs >
+
+note "Authentification JWT : l'access token (courte duree)\nn'est pas stocke en base, il est genere a la volee\nau login/refresh et verifie via sa signature.\nSeul le refresh_token_hash (hash du refresh token,\nlongue duree) est persiste ici pour permettre\nsa revocation, sans exposer le token en clair\nen cas de fuite de la base." as N3
+Utilisateur .. N3
+
+note "SuperAdmin : compte d'administration globale\nde la plateforme, independant de tout\netablissement (pas d'etablissement_id).\nGere les etablissements eux-memes et la\nconfiguration generale de l'application.\nA ne pas confondre avec Utilisateur, qui\nrepresente le personnel/parents rattaches\na un etablissement (Enseignant, Surveillant,\nParent, etc.)." as N3b
+SuperAdmin .. N3b
+@enduml
+
+
+' ============================================================
+' MODULE 7 : EMPLOI DU TEMPS
+' (creneau_horaire, horaire)
+' ============================================================
+@startuml module_emploi_temps
+title Module Emploi du Temps
+
+class Matiere {
+  +id : Integer <<PK>>
+}
+
+class Enseignant {
+  +id : Integer <<PK>>
+}
+
+class Classe {
+  +id : Integer <<PK>>
+}
+
+class MatiereClasse {
+  +id : Integer <<PK>>
+  +classe_id : Integer <<FK>>
+  +matiere_id : Integer <<FK>>
+  +enseignant_id : Integer <<FK>>
+}
+
+class AnneeScolaire {
+  +id : Integer <<PK>>
+}
+
+class CreneauHoraire {
+  +id : Integer <<PK>>
+  +libelle : String(50)
+  +heure_debut : Time
+  +heure_fin : Time
+  +ordre : Integer
+  --
+  uq_creneau_ordre(ordre)
+}
+
+class Horaire {
+  +id : Integer <<PK>>
+  +matiere_classe_id : Integer <<FK>>
+  +annee_scolaire_id : Integer <<FK>>
+  +jour_semaine : String(10)
+  +creneau_id : Integer <<FK>>
+  +salle : String(30)
+  --
+  ck_horaire_jour : jour_semaine IN ('Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi')
+  --
+  uq_horaire_matiere_classe_creneau(matiere_classe_id, jour_semaine, creneau_id, annee_scolaire_id)
+}
+
+MatiereClasse "1" -- "0..*" Horaire : horaires >
+AnneeScolaire "1" -- "0..*" Horaire : horaires >
+CreneauHoraire "1" -- "0..*" Horaire : horaires >
+
+note "classe_id et enseignant_id sont accessibles\nvia matiere_classe (jointure), pas dupliques ici.\nLa detection des collisions classe/enseignant\n(cours simultanes) est geree cote application,\nvia une requete joignant Horaire -> MatiereClasse\navant chaque insertion/generation." as N4
+Horaire .. N4
+@enduml
+
+
+' ============================================================
+' DIAGRAMME GLOBAL (toutes les entites, regroupees par package)
+' ============================================================
+@startuml diagramme_global
+title Diagramme de classes global - Gestion Scolaire (backend/models/)
+skinparam packageStyle rectangle
+
+package "Structure scolaire" {
+  class Etablissement {
+    +id : Integer <<PK>>
+    +nom : String(150)
+    +nom_bilingue : String(150)
+    +adresse : String(255)
+    +bp : String(50)
+    +telephone : String(20)
+    +region : String(100)
+    +logo_url : String(255)
+  }
+
+  class AnneeScolaire {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +libelle : String(20)
+    +date_debut : Date
+    +date_fin : Date
+    +active : Boolean
+  }
+
+  class Trimestre {
+    +id : Integer <<PK>>
+    +annee_scolaire_id : Integer <<FK>>
+    +libelle : String(20)
+    +numero : Integer
+    +date_debut : Date
+    +date_fin : Date
+  }
+
+  class Sequence {
+    +id : Integer <<PK>>
+    +trimestre_id : Integer <<FK>>
+    +libelle : String(10)
+    +numero : Integer
+    +date_debut : Date
+    +date_fin : Date
+  }
+
+  class Cycle {
+    +id : Integer <<PK>>
+    +libelle : String(50)
+    +ordre : Integer
+    +cycle : String(50)
+  }
+
+  class Classe {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +cycle_id : Integer <<FK>>
+    +option : String(50)
+    +salle : String(30)
+  }
+}
+
+note "effectif retire de Classe : calcule via\nCOUNT(Inscription actives) par classe.\nClasse n'a pas de lien direct avec\nAnneeScolaire : la temporalite passe\npar Inscription / TitulaireClasse / MatiereClasse." as NG1
+Classe .. NG1
+
+package "Personnel & Pedagogie" {
+  class Enseignant {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +nom : String(100)
+    +prenom : String(100)
+    +telephone : String(20)
+    +email : String(150) <<unique>>
+    +grade : String(50)
+  }
+
+  note "est_titulaire retire d'Enseignant : calcule\nvia EXISTS(TitulaireClasse)." as NG2
+  Enseignant .. NG2
+
+  class TitulaireClasse {
+    +id : Integer <<PK>>
+    +classe_id : Integer <<FK>>
+    +enseignant_id : Integer <<FK>>
+    +annee_scolaire_id : Integer <<FK>>
+  }
+
+  class GroupeMatiere {
+    +id : Integer <<PK>>
+    +libelle : String(150)
+  }
+
+  class Matiere {
+    +id : Integer <<PK>>
+    +libelle : String(150)
+    +groupe_id : Integer <<FK>>
+  }
+
+  class MatiereClasse {
+    +id : Integer <<PK>>
+    +classe_id : Integer <<FK>>
+    +matiere_id : Integer <<FK>>
+    +enseignant_id : Integer <<FK>>
+    +coefficient : Integer
+  }
+}
+
+package "Eleves & Inscriptions" {
+  class Parent {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +nom : String(100)
+    +prenom : String(100)
+    +telephone : String(20)
+    +email : String(150) <<unique>>
+  }
+
+  class Eleve {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +matricule : String(50)
+    +nom : String(100)
+    +prenom : String(150)
+    +sexe : String(1)
+    +date_naissance : Date
+    +lieu_naissance : String(100)
+    +parent_id : Integer <<FK>>
+    +statut : String(10)
+    --
+    ck_eleve_parent : parent_id IS NOT NULL
+  }
+
+  class Inscription {
+    +id : Integer <<PK>>
+    +eleve_id : Integer <<FK>>
+    +classe_id : Integer <<FK>>
+    +annee_scolaire_id : Integer <<FK>>
+    +date_inscription : Date
+    +statut : String(30)
+  }
+}
+
+package "Evaluation" {
+  class Note {
+    +id : Integer <<PK>>
+    +inscription_id : Integer <<FK>>
+    +matiere_classe_id : Integer <<FK>>
+    +sequence_id : Integer <<FK>>
+    +valeur : Numeric(5,2)
+    +absent : Boolean
+    +saisie_le : DateTime
+  }
+
+  class Discipline {
+    +id : Integer <<PK>>
+    +inscription_id : Integer <<FK>>
+    +sequence_id : Integer <<FK>>
+    +absences_justifiees : Integer
+    +absences_non_justifiees : Integer
+    +retards : Integer
+    +exclusions : Integer
+    +observation : Text
+  }
+}
+
+package "Paiements" {
+  class TranchePaiement {
+    +id : Integer <<PK>>
+    +annee_scolaire_id : Integer <<FK>>
+    +libelle : String(100)
+    +montant_attendu : Numeric(10,2)
+    +date_limite : Date
+  }
+
+  class Paiement {
+    +id : Integer <<PK>>
+    +inscription_id : Integer <<FK>>
+    +tranche_paiement_id : Integer <<FK>>
+    +montant_verse : Numeric(10,2)
+    +date_paiement : Date
+    +mode_paiement : String(30)
+  }
+}
+
+package "Emploi du temps" {
+  class CreneauHoraire {
+    +id : Integer <<PK>>
+    +libelle : String(50)
+    +heure_debut : Time
+    +heure_fin : Time
+    +ordre : Integer
+  }
+
+  class Horaire {
+    +id : Integer <<PK>>
+    +matiere_classe_id : Integer <<FK>>
+    +annee_scolaire_id : Integer <<FK>>
+    +jour_semaine : String(10)
+    +creneau_id : Integer <<FK>>
+    +salle : String(30)
+  }
+}
+
+package "Authentification" {
+  class Role {
+    +id : Integer <<PK>>
+    +libelle : String(50) <<unique>>
+  }
+
+  class Utilisateur {
+    +id : Integer <<PK>>
+    +etablissement_id : Integer <<FK>>
+    +nom : String(100)
+    +email : String(150)
+    +mot_de_passe_hash : String(255)
+    +role_id : Integer <<FK>>
+    +actif : Boolean
+    +refresh_token_hash : String(255)
+    +refresh_token_expire_le : DateTime
+    +dernier_login : DateTime
+  }
+
+  class SuperAdmin {
+    +id : Integer <<PK>>
+    +nom : String(100)
+    +email : String(150) <<unique>>
+    +mot_de_passe_hash : String(255)
+    +actif : Boolean
+    +refresh_token_hash : String(255)
+    +refresh_token_expire_le : DateTime
+    +dernier_login : DateTime
+  }
+}
+
+note "SuperAdmin : administration globale de la\nplateforme (multi-etablissements), independant\nde tout etablissement_id. Distinct d'Utilisateur\n(personnel/parents rattaches a un etablissement)." as NG3
+SuperAdmin .. NG3
+
+' --- Relations Structure scolaire ---
+AnneeScolaire "1" -- "0..*" Trimestre
+Trimestre "1" -- "0..*" Sequence
+Cycle "1" -- "0..*" Classe
+
+' --- Relations Personnel & Pedagogie ---
+Enseignant "1" -- "0..*" TitulaireClasse
+Classe "1" -- "0..*" TitulaireClasse
+AnneeScolaire "1" -- "0..*" TitulaireClasse
+Enseignant "1" -- "0..*" MatiereClasse
+Classe "1" -- "0..*" MatiereClasse
+GroupeMatiere "1" -- "0..*" Matiere
+Matiere "1" -- "0..*" MatiereClasse
+
+' --- Relations Eleves & Inscriptions ---
+Parent "1" -- "0..*" Eleve : enfants >
+Eleve "1" -- "0..*" Inscription
+Classe "1" -- "0..*" Inscription
+AnneeScolaire "1" -- "0..*" Inscription
+
+' --- Relations Evaluation ---
+Inscription "1" -- "0..*" Note
+MatiereClasse "1" -- "0..*" Note
+Sequence "1" -- "0..*" Note
+Inscription "1" -- "0..*" Discipline
+Sequence "1" -- "0..*" Discipline
+
+' --- Relations Paiements ---
+AnneeScolaire "1" -- "0..*" TranchePaiement
+TranchePaiement "1" -- "0..*" Paiement
+Inscription "1" -- "0..*" Paiement
+
+' --- Relations Authentification ---
+Role "1" -- "0..*" Utilisateur
+
+' --- Relations Emploi du temps ---
+MatiereClasse "1" -- "0..*" Horaire
+AnneeScolaire "1" -- "0..*" Horaire
+CreneauHoraire "1" -- "0..*" Horaire
+
+' --- Relations Multi-etablissement ---
+Etablissement "1" -- "0..*" AnneeScolaire
+Etablissement "1" -- "0..*" Classe
+Etablissement "1" -- "0..*" Enseignant
+Etablissement "1" -- "0..*" Eleve
+Etablissement "1" -- "0..*" Parent
+Etablissement "1" -- "0..*" Utilisateur
+
+@enduml

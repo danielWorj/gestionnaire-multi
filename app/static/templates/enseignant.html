@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Enseignants — Gestionnaire</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+</head>
+<body data-page="enseignants">
+
+  <div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+
+      <main class="page-content">
+
+        <!-- Fil d'ariane -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Enseignants</li>
+          </ol>
+        </nav>
+
+        <!-- Titre + actions -->
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+          <div>
+            <h1 class="page-title mb-1">Enseignants</h1>
+            <p class="mb-0 text-muted" style="font-size:12px;">
+              Gérez le corps enseignant de votre établissement, leurs classes titularisées et leurs matières enseignées.
+            </p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-light btn-sm" type="button" id="btnExportCsv">
+              <i class="fa-solid fa-file-export"></i> Exporter
+            </button>
+            <button class="btn btn-light btn-sm" type="button" id="btnRefresh">
+              <i class="fa-solid fa-rotate"></i> Actualiser
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" id="btnNouvelEnseignant">
+              <i class="fa-solid fa-plus"></i> Nouvel enseignant
+            </button>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             STATS GLOBALES
+        ═══════════════════════════════════════════════ -->
+        <div class="row g-3 mb-4" id="statsRow">
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon primary"><i class="fa-solid fa-user-tie"></i></div>
+              <div class="stat-label">Enseignants</div>
+              <div class="stat-value" id="statTotal">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon success"><i class="fa-solid fa-chalkboard-user"></i></div>
+              <div class="stat-label">Titulaires de classe</div>
+              <div class="stat-value" id="statTitulaires">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon info"><i class="fa-solid fa-book-open"></i></div>
+              <div class="stat-label">Affectations matière-classe</div>
+              <div class="stat-value" id="statAffectations">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon warning"><i class="fa-solid fa-layer-group"></i></div>
+              <div class="stat-label">Grade le plus représenté</div>
+              <div class="stat-value" id="statTopGrade" style="font-size:16px;">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             FILTRES
+        ═══════════════════════════════════════════════ -->
+        <div class="card mb-3">
+          <div class="card-body py-3">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-4">
+                <label class="form-label">Rechercher</label>
+                <input type="search" class="form-control form-control-sm" id="filterSearch" placeholder="Nom, prénom, email…">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Grade</label>
+                <select class="form-select form-select-sm" id="filterGrade">
+                  <option value="">Tous les grades</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Statut</label>
+                <select class="form-select form-select-sm" id="filterStatut">
+                  <option value="">Tous les statuts</option>
+                  <option value="titulaire">Titulaire de classe</option>
+                  <option value="non-titulaire">Sans classe titularisée</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <button class="btn btn-light btn-sm w-100" id="btnResetFilters"><i class="fa-solid fa-rotate-left"></i> Réinitialiser</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             TABLEAU ENSEIGNANTS
+        ═══════════════════════════════════════════════ -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">
+              <i class="fa-solid fa-user-tie me-2 text-primary"></i>Liste des enseignants
+              <span class="badge badge-primary ms-2" id="badgeCount">0</span>
+            </h2>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover mb-0">
+                <thead>
+                  <tr>
+                    <th>Enseignant</th>
+                    <th>Contact</th>
+                    <th>Grade</th>
+                    <th>Statut</th>
+                    <th>Matières enseignées</th>
+                    <th class="text-end">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="tableBody">
+                  <tr>
+                    <td colspan="6" class="text-center text-muted py-5">
+                      <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>
+                      Chargement des enseignants…
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer d-flex justify-content-between align-items-center">
+            <small class="text-muted" id="footerCount">—</small>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouvel / Modifier enseignant
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalEnseignant" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalEnseignantTitle"><i class="fa-solid fa-user-tie me-2 text-primary"></i>Nouvel enseignant</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formEnseignant" novalidate>
+            <input type="hidden" id="fEnseignantId" value="">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Nom *</label>
+                <input type="text" class="form-control" id="fNom" placeholder="Ex : Fouda" required>
+                <div class="invalid-feedback">Le nom est requis.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Prénom *</label>
+                <input type="text" class="form-control" id="fPrenom" placeholder="Ex : Marie" required>
+                <div class="invalid-feedback">Le prénom est requis.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Email *</label>
+                <input type="email" class="form-control" id="fEmail" placeholder="Ex : marie.fouda@ecole.cm" required>
+                <div class="invalid-feedback">Un email valide est requis.</div>
+                <div class="form-text" style="font-size:11px;">Unique pour tous les établissements (un enseignant = un seul compte, quel que soit le nombre d'établissements).</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Téléphone</label>
+                <input type="tel" class="form-control" id="fTelephone" placeholder="Ex : 6 90 00 00 00">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Grade</label>
+                <input type="text" class="form-control" id="fGrade" list="gradesSuggestions" placeholder="Ex : Certifié, PLEG, Vacataire…">
+                <datalist id="gradesSuggestions">
+                  <option value="Certifié">
+                  <option value="PLEG">
+                  <option value="PLET">
+                  <option value="Instituteur">
+                  <option value="Contractuel">
+                  <option value="Vacataire">
+                </datalist>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnSaveEnseignant" type="button">
+            <i class="fa-solid fa-check"></i> <span id="btnSaveEnseignantLabel">Créer l'enseignant</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Détail enseignant
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalDetailEnseignant" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-circle-user me-2 text-primary"></i>Fiche enseignant</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <div class="eleve-avatar-placeholder" style="width:52px;height:52px;font-size:16px;" id="detailAvatar">--</div>
+            <div>
+              <div style="font-weight:700;font-size:14px;" id="detailNomComplet">—</div>
+              <div class="text-muted" id="detailGrade">—</div>
+            </div>
+            <span class="badge badge-success ms-auto d-none" id="detailBadgeTitulaire"><i class="fa-solid fa-chalkboard-user me-1"></i>Titulaire</span>
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <div id="detailEmail">—</div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Téléphone</label>
+              <div id="detailTelephone">—</div>
+            </div>
+          </div>
+          <hr class="divider">
+          <h6 class="mb-2" style="font-size:12.5px;"><i class="fa-solid fa-chalkboard-user me-1 text-primary"></i>Classe(s) titularisée(s)</h6>
+          <div id="detailClasses" class="mb-3">—</div>
+          <h6 class="mb-2" style="font-size:12.5px;"><i class="fa-solid fa-book-open me-1 text-primary"></i>Matières enseignées</h6>
+          <div class="table-responsive">
+            <table class="table table-hover mb-0" id="detailMatieresTable">
+              <thead>
+                <tr>
+                  <th>Matière</th>
+                  <th>Classe</th>
+                  <th>Coefficient</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Confirmation suppression
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalConfirmSuppression" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirmer la suppression</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">Supprimer l'enseignant <strong id="deleteEnseignantNom">—</strong> ?</p>
+          <p class="text-muted mb-0" style="font-size:11.5px;">Cette action est irréversible. Les affectations liées (classes, matières) pourront être impactées.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-danger btn-sm" id="btnConfirmDelete"><i class="fa-solid fa-trash"></i> Oui, supprimer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+    <div id="appToast" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="fa-solid fa-circle-check text-success me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Notification</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Transport HTTP + session -->
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script>
+    (function () {
+      const cached = window.GestionnaireAuth.getUser();
+      window.GESTIONNAIRE_USER = {
+        nom: cached ? `${cached.prenom || ""} ${cached.nom || ""}`.trim() : "",
+        role: window.GestionnaireAuth.getRole() || "",
+        avatar: (cached && cached.avatar_url) || null
+      };
+    })();
+  </script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <!-- Script spécifique à la page : logique enseignants -->
+  <script>
+    (function () {
+      "use strict";
+
+      /* ─────────────────────────────────────────
+         TRANSPORT API
+         Routes réelles (pedagogie_api.py) : /api/enseignants/, /api/titulaires-classe/,
+         /api/matieres-classe/ — cloisonnées Admin/SuperAdmin, sans préfixe /api/pedagogie.
+         Réponses brutes (tableau/objet), erreurs { erreur: "..." }. to_dict() ne renvoie
+         que des clés étrangères plates (classe_id, matiere_id, annee_scolaire_id…) :
+         tous les libellés affichés ci-dessous sont reconstruits côté client.
+      ───────────────────────────────────────── */
+      async function call(path, options) {
+        const res = await window.GestionnaireAuth.authFetch(path, Object.assign({
+          headers: { "Content-Type": "application/json" }
+        }, options || {}));
+        let json;
+        try { json = await res.json(); } catch (e) { json = {}; }
+        if (!res.ok) throw new Error(json.erreur || `Erreur ${res.status}`);
+        return json;
+      }
+      const api = {
+        get: (p) => call(p, { method: "GET" }),
+        post: (p, body) => call(p, { method: "POST", body: JSON.stringify(body) }),
+        put: (p, body) => call(p, { method: "PUT", body: JSON.stringify(body) }),
+        del: (p) => call(p, { method: "DELETE" }),
+      };
+
+      /* ─────────────────────────────────────────
+         ÉTAT GLOBAL
+      ───────────────────────────────────────── */
+      let enseignants = [];
+      let matieresClasse = [];
+      let titulairesClasse = [];
+      let classes = [];
+      let anneesScolaires = [];
+      let matieres = [];              // peut rester vide : /api/matieres est réservé SuperAdmin
+      let matieresAccessibles = true;
+      let matieresByEnseignant = {};   // id -> [{matiere_label, classe_label, coefficient}]
+      let titulairesByEnseignant = {}; // id -> [{classe_label, annee_label}]
+      let deleteTargetId = null;
+
+      /* ─────────────────────────────────────────
+         HELPERS
+      ───────────────────────────────────────── */
+      const $ = (sel) => document.querySelector(sel);
+      function initials(nom, prenom) {
+        const a = (prenom || "").trim().charAt(0).toUpperCase();
+        const b = (nom || "").trim().charAt(0).toUpperCase();
+        return (a + b) || "?";
+      }
+      function fullName(e) {
+        return `${e.prenom || ""} ${e.nom || ""}`.trim();
+      }
+      function toast(message, type) {
+        const toastEl = $("#appToast");
+        const isError = type === "error";
+        $("#toastIcon").className = isError
+          ? "fa-solid fa-circle-xmark text-danger me-2"
+          : "fa-solid fa-circle-check text-success me-2";
+        $("#toastTitle").textContent = isError ? "Erreur" : "Succès";
+        $("#toastBody").textContent = message;
+        bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 }).show();
+      }
+      function escapeHtml(str) {
+        return (str || "").toString()
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function classeLabel(id) {
+        const c = classes.find((x) => x.id === id);
+        if (!c) return `Classe #${id}`;
+        return `${c.cycle_libelle || "Classe"}${c.option ? " " + c.option : ""}`.trim();
+      }
+      function anneeLabel(id) {
+        const a = anneesScolaires.find((x) => x.id === id);
+        return a ? a.libelle : `Année #${id}`;
+      }
+      function matiereLabel(id) {
+        const m = matieres.find((x) => x.id === id);
+        return m ? m.libelle : `Matière #${id}`;
+      }
+
+      /* ─────────────────────────────────────────
+         CHARGEMENT DES DONNÉES
+      ───────────────────────────────────────── */
+      function renderLoadingTable() {
+        $("#tableBody").innerHTML = `
+          <tr><td colspan="6" class="text-center text-muted py-5">
+            <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>
+            Chargement des enseignants…
+          </td></tr>`;
+      }
+
+      async function loadAll() {
+        renderLoadingTable();
+        try {
+          // Cycles/classes servent uniquement à construire les libellés de classe
+          // (Classe.to_dict() ne renvoie pas le libellé du cycle).
+          const [cyclesRes, classesRes, anneesRes] = await Promise.all([
+            api.get("/api/cycles/").catch(() => []),
+            api.get("/api/classes/").catch(() => []),
+            api.get("/api/annees-scolaires/").catch(() => []),
+          ]);
+          const cycleMap = {};
+          cyclesRes.forEach((c) => { cycleMap[c.id] = c.libelle; });
+          classes = classesRes.map((c) => ({ ...c, cycle_libelle: cycleMap[c.cycle_id] }));
+          anneesScolaires = anneesRes;
+
+          try {
+            matieres = await api.get("/api/matieres/");
+            matieresAccessibles = true;
+          } catch (e) {
+            matieres = [];
+            matieresAccessibles = false; // 403 attendu pour un compte Admin d'établissement
+          }
+
+          const [ensRes, mcRes, tcRes] = await Promise.all([
+            api.get("/api/enseignants/"),
+            api.get("/api/matieres-classe/"),
+            api.get("/api/titulaires-classe/"),
+          ]);
+          enseignants = ensRes;
+          matieresClasse = mcRes;
+          titulairesClasse = tcRes;
+
+          buildLookups();
+          populateGradeFilter();
+          renderStats();
+          renderTable();
+        } catch (err) {
+          $("#tableBody").innerHTML = `
+            <tr><td colspan="6" class="text-center text-danger py-5">
+              <i class="fa-solid fa-triangle-exclamation fa-lg mb-2 d-block"></i>
+              ${escapeHtml(err.message)}
+            </td></tr>`;
+        }
+      }
+
+      function buildLookups() {
+        matieresByEnseignant = {};
+        titulairesByEnseignant = {};
+
+        matieresClasse.forEach((mc) => {
+          if (!matieresByEnseignant[mc.enseignant_id]) matieresByEnseignant[mc.enseignant_id] = [];
+          matieresByEnseignant[mc.enseignant_id].push({
+            matiere: matiereLabel(mc.matiere_id),
+            classe: classeLabel(mc.classe_id),
+            coefficient: mc.coefficient,
+          });
+        });
+
+        titulairesClasse.forEach((tc) => {
+          if (!titulairesByEnseignant[tc.enseignant_id]) titulairesByEnseignant[tc.enseignant_id] = [];
+          titulairesByEnseignant[tc.enseignant_id].push({
+            classe: classeLabel(tc.classe_id),
+            annee: anneeLabel(tc.annee_scolaire_id),
+          });
+        });
+      }
+
+      function populateGradeFilter() {
+        const grades = [...new Set(enseignants.map((e) => e.grade).filter(Boolean))].sort();
+        const sel = $("#filterGrade");
+        const current = sel.value;
+        sel.innerHTML = '<option value="">Tous les grades</option>' +
+          grades.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
+        sel.value = current;
+      }
+
+      /* ─────────────────────────────────────────
+         STATS
+      ───────────────────────────────────────── */
+      function renderStats() {
+        $("#statTotal").textContent = enseignants.length;
+        const nbTitulaires = enseignants.filter((e) => e.est_titulaire).length;
+        $("#statTitulaires").textContent = nbTitulaires;
+        $("#statAffectations").textContent = matieresClasse.length;
+
+        const counts = {};
+        enseignants.forEach((e) => {
+          if (e.grade) counts[e.grade] = (counts[e.grade] || 0) + 1;
+        });
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+        $("#statTopGrade").textContent = top ? top[0] : "—";
+      }
+
+      /* ─────────────────────────────────────────
+         TABLEAU
+      ───────────────────────────────────────── */
+      function getFilteredList() {
+        const search = $("#filterSearch").value.trim().toLowerCase();
+        const grade = $("#filterGrade").value;
+        const statut = $("#filterStatut").value;
+
+        return enseignants.filter((e) => {
+          if (search) {
+            const hay = `${e.nom} ${e.prenom} ${e.email}`.toLowerCase();
+            if (!hay.includes(search)) return false;
+          }
+          if (grade && e.grade !== grade) return false;
+          if (statut === "titulaire" && !e.est_titulaire) return false;
+          if (statut === "non-titulaire" && e.est_titulaire) return false;
+          return true;
+        });
+      }
+
+      function renderTable() {
+        const list = getFilteredList();
+        $("#badgeCount").textContent = enseignants.length;
+        $("#footerCount").textContent = `${list.length} enseignant(s) affiché(s) sur ${enseignants.length}`;
+
+        const tbody = $("#tableBody");
+        if (!list.length) {
+          tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-5">
+            <i class="fa-solid fa-user-tie fa-lg mb-2 d-block"></i>Aucun enseignant trouvé
+          </td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = list.map((e) => {
+          const matiereList = matieresByEnseignant[e.id] || [];
+          const matieresBadges = matiereList.length
+            ? matiereList.slice(0, 3).map((m) => `<span class="badge badge-light me-1 mb-1">${escapeHtml(m.matiere)}</span>`).join("") +
+              (matiereList.length > 3 ? `<span class="text-muted" style="font-size:11px;">+${matiereList.length - 3}</span>` : "")
+            : '<span class="text-muted">—</span>';
+
+          return `
+            <tr>
+              <td>
+                <div class="d-flex align-items-center gap-2">
+                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:12px;">${initials(e.nom, e.prenom)}</div>
+                  <div>
+                    <div style="font-weight:600;cursor:pointer;" onclick="openDetailModal(${e.id})">${escapeHtml(fullName(e))}</div>
+                  </div>
+                </div>
+              </td>
+              <td>
+                <div style="font-size:12px;">${escapeHtml(e.email)}</div>
+                <div class="text-muted" style="font-size:11px;">${escapeHtml(e.telephone) || "—"}</div>
+              </td>
+              <td>${escapeHtml(e.grade) || "—"}</td>
+              <td>${e.est_titulaire
+                ? '<span class="badge badge-success">Titulaire</span>'
+                : '<span class="badge badge-light">Non titulaire</span>'}</td>
+              <td>${matieresBadges}</td>
+              <td class="text-end">
+                <button class="btn btn-icon btn-sm btn-light" title="Détails" onclick="openDetailModal(${e.id})"><i class="fa-solid fa-eye"></i></button>
+                <button class="btn btn-icon btn-sm btn-light" title="Modifier" onclick="openEditModal(${e.id})"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-icon btn-sm btn-light text-danger" title="Supprimer" onclick="openDeleteModal(${e.id})"><i class="fa-solid fa-trash"></i></button>
+              </td>
+            </tr>`;
+        }).join("");
+      }
+
+      /* ─────────────────────────────────────────
+         CRÉATION / ÉDITION
+      ───────────────────────────────────────── */
+      function resetForm() {
+        $("#formEnseignant").reset();
+        $("#formEnseignant").classList.remove("was-validated");
+        $("#fEnseignantId").value = "";
+        $("#modalEnseignantTitle").innerHTML = '<i class="fa-solid fa-user-tie me-2 text-primary"></i>Nouvel enseignant';
+        $("#btnSaveEnseignantLabel").textContent = "Créer l'enseignant";
+      }
+      $("#btnNouvelEnseignant").addEventListener("click", () => {
+        resetForm();
+        bootstrap.Modal.getOrCreateInstance($("#modalEnseignant")).show();
+      });
+
+      window.openEditModal = function (id) {
+        const e = enseignants.find((x) => x.id === id);
+        if (!e) return;
+        $("#fEnseignantId").value = e.id;
+        $("#fNom").value = e.nom || "";
+        $("#fPrenom").value = e.prenom || "";
+        $("#fEmail").value = e.email || "";
+        $("#fTelephone").value = e.telephone || "";
+        $("#fGrade").value = e.grade || "";
+        $("#modalEnseignantTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier l\'enseignant';
+        $("#btnSaveEnseignantLabel").textContent = "Enregistrer les modifications";
+        bootstrap.Modal.getOrCreateInstance($("#modalEnseignant")).show();
+      };
+
+      $("#btnSaveEnseignant").addEventListener("click", async () => {
+        const form = $("#formEnseignant");
+        const nom = $("#fNom").value.trim();
+        const prenom = $("#fPrenom").value.trim();
+        const email = $("#fEmail").value.trim();
+
+        if (!nom || !prenom || !email || !form.checkValidity()) {
+          form.classList.add("was-validated");
+          return;
+        }
+
+        const id = $("#fEnseignantId").value;
+        // Pas de est_titulaire dans le payload : c'est une propriété calculée
+        // côté serveur (EXISTS(TitulaireClasse)), non une colonne modifiable.
+        const payload = {
+          nom,
+          prenom,
+          email,
+          telephone: $("#fTelephone").value.trim() || null,
+          grade: $("#fGrade").value.trim() || null,
+        };
+
+        const btn = $("#btnSaveEnseignant");
+        btn.disabled = true;
+        try {
+          if (id) {
+            await api.put(`/api/enseignants/${id}`, payload);
+            toast("Enseignant mis à jour avec succès.");
+          } else {
+            await api.post("/api/enseignants/", payload);
+            toast("Enseignant créé avec succès.");
+          }
+          bootstrap.Modal.getInstance($("#modalEnseignant")).hide();
+          await loadAll();
+        } catch (err) {
+          toast(err.message || "Une erreur est survenue.", "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      /* ─────────────────────────────────────────
+         MODAL DÉTAIL
+      ───────────────────────────────────────── */
+      window.openDetailModal = function (id) {
+        const e = enseignants.find((x) => x.id === id);
+        if (!e) return;
+
+        $("#detailAvatar").textContent = initials(e.nom, e.prenom);
+        $("#detailNomComplet").textContent = fullName(e);
+        $("#detailGrade").textContent = e.grade || "Grade non renseigné";
+        $("#detailEmail").textContent = e.email || "—";
+        $("#detailTelephone").textContent = e.telephone || "—";
+        $("#detailBadgeTitulaire").classList.toggle("d-none", !e.est_titulaire);
+
+        const classesTitu = titulairesByEnseignant[e.id] || [];
+        $("#detailClasses").innerHTML = classesTitu.length > 0
+          ? classesTitu.map((c) => `<span class="badge badge-primary me-1 mb-1">${escapeHtml(c.classe)} <span class="text-muted">(${escapeHtml(c.annee)})</span></span>`).join("")
+          : '<span class="text-muted">Aucune classe titularisée</span>';
+
+        const matiereList = matieresByEnseignant[e.id] || [];
+        const tbody = document.querySelector("#detailMatieresTable tbody");
+        tbody.innerHTML = matiereList.length > 0
+          ? matiereList.map((m) => `
+              <tr>
+                <td>${escapeHtml(m.matiere)}</td>
+                <td>${escapeHtml(m.classe)}</td>
+                <td>${m.coefficient != null ? m.coefficient : "—"}</td>
+              </tr>`).join("")
+          : `<tr><td colspan="3" class="text-center text-muted py-3">Aucune matière affectée</td></tr>`;
+
+        if (!matieresAccessibles && matiereList.length) {
+          tbody.innerHTML += `<tr><td colspan="3" class="text-muted text-center" style="font-size:11px;">
+            <i class="fa-solid fa-circle-info me-1"></i>Libellés de matières partiellement indisponibles (référentiel réservé au Super Administrateur)
+          </td></tr>`;
+        }
+
+        bootstrap.Modal.getOrCreateInstance($("#modalDetailEnseignant")).show();
+      };
+
+      /* ─────────────────────────────────────────
+         SUPPRESSION
+      ───────────────────────────────────────── */
+      window.openDeleteModal = function (id) {
+        const e = enseignants.find((x) => x.id === id);
+        if (!e) return;
+        deleteTargetId = id;
+        $("#deleteEnseignantNom").textContent = fullName(e);
+        bootstrap.Modal.getOrCreateInstance($("#modalConfirmSuppression")).show();
+      };
+
+      $("#btnConfirmDelete").addEventListener("click", async () => {
+        if (!deleteTargetId) return;
+        const btn = $("#btnConfirmDelete");
+        btn.disabled = true;
+        try {
+          await api.del(`/api/enseignants/${deleteTargetId}`);
+          toast("Enseignant supprimé avec succès.");
+          bootstrap.Modal.getInstance($("#modalConfirmSuppression")).hide();
+          deleteTargetId = null;
+          await loadAll();
+        } catch (err) {
+          toast(err.message || "Impossible de supprimer cet enseignant.", "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      /* ─────────────────────────────────────────
+         FILTRES
+      ───────────────────────────────────────── */
+      let searchDebounce = null;
+      $("#filterSearch").addEventListener("input", () => {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(renderTable, 200);
+      });
+      $("#filterGrade").addEventListener("change", renderTable);
+      $("#filterStatut").addEventListener("change", renderTable);
+      $("#btnResetFilters").addEventListener("click", () => {
+        $("#filterSearch").value = "";
+        $("#filterGrade").value = "";
+        $("#filterStatut").value = "";
+        renderTable();
+      });
+
+      /* ─────────────────────────────────────────
+         ACTUALISATION / EXPORT
+      ───────────────────────────────────────── */
+      $("#btnRefresh").addEventListener("click", loadAll);
+
+      $("#btnExportCsv").addEventListener("click", () => {
+        if (enseignants.length === 0) {
+          toast("Aucune donnée à exporter.", "error");
+          return;
+        }
+        const rows = [["Nom", "Prénom", "Email", "Téléphone", "Grade", "Titulaire", "Classes", "Nb matières"]];
+        enseignants.forEach((e) => {
+          const classesTxt = (titulairesByEnseignant[e.id] || []).map((c) => c.classe).join(" | ");
+          const nbMatieres = (matieresByEnseignant[e.id] || []).length;
+          rows.push([
+            e.nom || "", e.prenom || "", e.email || "", e.telephone || "",
+            e.grade || "", e.est_titulaire ? "Oui" : "Non", classesTxt, nbMatieres,
+          ]);
+        });
+        const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
+        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "enseignants.csv";
+        link.click();
+      });
+
+      /* ─────────────────────────────────────────
+         INIT
+      ───────────────────────────────────────── */
+      async function init() {
+        const ok = await window.GestionnaireAuth.requireAuth();
+        if (!ok) return; // requireAuth() a déjà redirigé vers /login
+        $("#modalEnseignant").addEventListener("hidden.bs.modal", resetForm);
+        await loadAll();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+
+</body>
+</html>

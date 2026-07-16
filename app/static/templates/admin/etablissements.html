@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Établissements — Super Admin</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome 6 -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Custom Style System -->
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+    <style>
+      /* Masqué par défaut : révélé par le script de garde d'authentification
+         une fois la session SuperAdmin confirmée côté serveur (voir fin de
+         page). Évite un flash du contenu protégé avant la vérification. */
+      body:not(.auth-checked) { visibility: hidden; }
+    </style>
+</head>
+<body data-page="etablissement">
+
+<!-- Wrapper principal requis par sidebar.js -->
+<div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+        
+        <!-- Page Content -->
+        <div class="page-content">
+            
+            <!-- Breadcrumb -->
+            <nav aria-label="breadcrumb" class="breadcrumb">
+                <ol class="breadcrumb mb-0">
+                    <li class="breadcrumb-item"><a href="/dashboard">Tableau de bord</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">Établissements</li>
+                </ol>
+            </nav>
+
+            <!-- Header de page -->
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+                <div>
+                    <h1 class="page-title mb-1">Établissements</h1>
+                    <p class="mb-0 text-muted small">Gérez les établissements clients et leur structure scolaire (Cycles, Classes, Années).</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-light btn-sm" type="button">
+                        <i class="fa-solid fa-download"></i> Exporter
+                    </button>
+                    <button class="btn btn-primary btn-sm" type="button" id="btnNouvelEtablissement" data-bs-toggle="modal" data-bs-target="#modalNouvelEtablissement">
+                        <i class="fa-solid fa-plus"></i> Nouvel établissement
+                    </button>
+                </div>
+            </div>
+
+            <!-- KPIs Contexte Structure Scolaire -->
+            <div class="row g-3 mb-4">
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="stat-label">Total Établissements</span>
+                                <div class="stat-value mt-1" id="kpiTotalEtablissements">—</div>
+                            </div>
+                            <div class="stat-icon primary">
+                                <i class="fa-solid fa-school"></i>
+                            </div>
+                        </div>
+                        <div class="text-muted small mt-2">Tous établissements de la plateforme</div>
+                    </div>
+                </div>
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="stat-label">Cycles Configurés</span>
+                                <div class="stat-value mt-1" id="kpiTotalCycles">—</div>
+                            </div>
+                            <div class="stat-icon info">
+                                <i class="fa-solid fa-layer-group"></i>
+                            </div>
+                        </div>
+                        <div class="text-muted small mt-2" id="kpiCyclesSub">&nbsp;</div>
+                    </div>
+                </div>
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="stat-label">Classes Actives</span>
+                                <div class="stat-value mt-1" id="kpiTotalClasses">—</div>
+                            </div>
+                            <div class="stat-icon success">
+                                <i class="fa-solid fa-chalkboard-user"></i>
+                            </div>
+                        </div>
+                        <div class="text-muted small mt-2" id="kpiClassesSub">&nbsp;</div>
+                    </div>
+                </div>
+                <div class="col-xl-3 col-md-6">
+                    <div class="stat-card">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <span class="stat-label">Années Scolaires Actives</span>
+                                <div class="stat-value mt-1" id="kpiTotalAnneesActives">—</div>
+                            </div>
+                            <div class="stat-icon warning">
+                                <i class="fa-solid fa-calendar-check"></i>
+                            </div>
+                        </div>
+                        <div class="text-muted small mt-2" id="kpiAnneesSub">&nbsp;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filtres -->
+            <div class="card mb-4">
+                <div class="card-body py-3">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted mb-1">Région</label>
+                            <select class="form-select form-select-sm" id="filterRegion">
+                                <option value="">Toutes les régions</option>
+                                <option>Centre</option>
+                                <option>Littoral</option>
+                                <option>Ouest</option>
+                                <option>Nord-Ouest</option>
+                                <option>Sud-Ouest</option>
+                                <option>Est</option>
+                                <option>Sud</option>
+                                <option>Adamaoua</option>
+                                <option>Nord</option>
+                                <option>Extrême-Nord</option>
+                            </select>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label small text-muted mb-1">Recherche</label>
+                            <input type="text" class="form-control form-control-sm" id="filterSearch" placeholder="Nom, ville, BP...">
+                        </div>
+                        <div class="col-md-3">
+                            <button class="btn btn-light btn-sm w-100" id="btnResetFiltres" type="button">
+                                <i class="fa-solid fa-rotate-left me-1"></i> Réinitialiser
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Liste des établissements -->
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title">Liste des établissements <span class="text-muted fw-normal ms-1" id="countEtablissements">(…)</span></h5>
+                </div>
+                <div id="etablissementsLoading" class="text-center text-muted py-4">
+                    <i class="fa-solid fa-spinner fa-spin me-2"></i> Chargement des établissements...
+                </div>
+                <div id="etablissementsError" class="alert alert-danger m-3 d-none"></div>
+                <div class="table-responsive d-none" id="etablissementsTableWrap">
+                    <table class="table table-hover mb-0">
+                        <thead>
+                            <tr>
+                                <th>Établissement</th>
+                                <th>Région</th>
+                                <th>Structure Scolaire</th>
+                                <th>Administrateur</th>
+                                <th class="text-end">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="etablissementsTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer d-none" id="etablissementsFooter">
+                    <span class="text-muted small" id="etablissementsFooterText"></span>
+                </div>
+            </div>
+
+        </div><!-- /.page-content -->
+    </div><!-- /.main-content -->
+</div><!-- /.app-wrapper -->
+
+<!-- ════════════════════════════════════════════
+     MODALE : NOUVEL ÉTABLISSEMENT
+     ════════════════════════════════════════════ -->
+<div class="modal fade" id="modalNouvelEtablissement" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalEtablissementTitle"><i class="fa-solid fa-plus me-2 text-primary"></i>Nouvel établissement</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="formEtablissementAlert" class="alert alert-danger d-none"></div>
+                <form id="formEtablissement">
+                    <input type="hidden" id="etablissementId" value="">
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Nom (français) *</label>
+                            <input type="text" class="form-control" id="etabNom" placeholder="Ex: Lycée Bilingue de Yaoundé" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Nom bilingue / anglais</label>
+                            <input type="text" class="form-control" id="etabNomBilingue" placeholder="Ex: Yaoundé Bilingual High School">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Région *</label>
+                            <select class="form-select" id="etabRegion" required>
+                                <option value="">-- Choisir --</option>
+                                <option>Centre</option>
+                                <option>Littoral</option>
+                                <option>Ouest</option>
+                                <option>Nord-Ouest</option>
+                                <option>Sud-Ouest</option>
+                                <option>Est</option>
+                                <option>Sud</option>
+                                <option>Adamaoua</option>
+                                <option>Nord</option>
+                                <option>Extrême-Nord</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Téléphone</label>
+                            <input type="tel" class="form-control" id="etabTelephone" placeholder="+237 6XX XXX XXX">
+                        </div>
+                        <div class="col-md-8">
+                            <label class="form-label">Adresse</label>
+                            <input type="text" class="form-control" id="etabAdresse" placeholder="Rue, quartier...">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Boîte postale</label>
+                            <input type="text" class="form-control" id="etabBp" placeholder="BP ...">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">URL du logo</label>
+                            <input type="url" class="form-control" id="etabLogoUrl" placeholder="https://...">
+                        </div>
+
+                        <div class="col-12" id="adminSectionDivider"><hr class="divider"></div>
+
+                        <div class="col-12" id="adminSectionTitle">
+                            <h6 class="mb-1"><i class="fa-solid fa-user-shield me-2 text-primary"></i>Compte administrateur de l'établissement</h6>
+                            <p class="text-muted small mb-3">Optionnel : renseignez ces champs pour créer immédiatement le compte Admin de cet établissement. Un mot de passe temporaire sera généré et affiché une seule fois.</p>
+                        </div>
+                        <div class="col-md-6" id="adminNomWrap">
+                            <label class="form-label">Nom complet de l'admin</label>
+                            <input type="text" class="form-control" id="adminNom">
+                        </div>
+                        <div class="col-md-6" id="adminEmailWrap">
+                            <label class="form-label">Email de connexion</label>
+                            <input type="email" class="form-control" id="adminEmail">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="btnEnregistrerEtablissement"><i class="fa-solid fa-check me-1"></i> Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MODALE : MOT DE PASSE TEMPORAIRE (affiché une seule fois)
+     ════════════════════════════════════════════ -->
+<div class="modal fade" id="modalMdpTemp" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fa-solid fa-key me-2 text-primary"></i>Mot de passe temporaire généré</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Communiquez ces identifiants à l'administrateur de l'établissement. Ce mot de passe ne sera plus affiché ensuite (valide 48h, changement obligatoire à la première connexion).</p>
+                <div class="mb-2"><span class="text-muted small">Email :</span> <strong id="mdpTempEmail"></strong></div>
+                <div><span class="text-muted small">Mot de passe temporaire :</span> <code id="mdpTempValeur" style="font-size:14px;"></code></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Compris</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MODALE : GÉRER STRUCTURE SCOLAIRE
+     ════════════════════════════════════════════ -->
+<div class="modal fade" id="modalStructure" tabindex="-1">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title"><i class="fa-solid fa-diagram-project me-2 text-primary"></i>Gérer la structure scolaire</h5>
+                    <p class="mb-0 text-muted small" id="modalStructureSubtitle">&nbsp;</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body p-0">
+                <!-- Tabs Structure -->
+                <ul class="nav nav-tabs px-3 pt-3" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-cycles" type="button">
+                            <i class="fa-solid fa-layer-group me-1"></i> Cycles (<span id="countCycles">0</span>)
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-classes" type="button">
+                            <i class="fa-solid fa-chalkboard-user me-1"></i> Classes (<span id="countClasses">0</span>)
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-annees" type="button">
+                            <i class="fa-solid fa-calendar-days me-1"></i> Années scolaires (<span id="countAnnees">0</span>)
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-trimestres" type="button">
+                            <i class="fa-solid fa-calendar-week me-1"></i> Trimestres & Séquences
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content p-3">
+                    <!-- TAB: CYCLES -->
+                    <div class="tab-pane fade show active" id="tab-cycles">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <p class="mb-0 text-muted small">Définissez les cycles pédagogiques de l'établissement (Primaire, Secondaire, etc.)</p>
+                            <button class="btn btn-primary btn-sm" id="btnAjouterCycle" type="button"><i class="fa-solid fa-plus me-1"></i> Ajouter un cycle</button>
+                        </div>
+
+                        <!-- Formulaire inline Cycle (création / édition) — masqué par défaut, affiché au-dessus du tableau -->
+                        <div class="card border-primary-subtle mb-3 d-none" id="panelFormCycle">
+                            <div class="card-body">
+                                <h6 class="mb-3" id="panelFormCycleTitle"><i class="fa-solid fa-plus me-1 text-primary"></i>Nouveau cycle</h6>
+                                <input type="hidden" id="cycleFormId" value="">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-6">
+                                        <label class="form-label small mb-1">Libellé *</label>
+                                        <input type="text" class="form-control form-control-sm" id="cycleFormLibelle" placeholder="Ex: Cycle Primaire">
+                                    </div>
+                                    <div class="col-md-6 d-flex gap-2">
+                                        <button class="btn btn-primary btn-sm flex-fill" type="button" id="btnEnregistrerCycle"><i class="fa-solid fa-check me-1"></i><span id="btnEnregistrerCycleLabel">Ajouter</span></button>
+                                        <button class="btn btn-light btn-sm" type="button" id="btnAnnulerCycle">Annuler</button>
+                                    </div>
+                                </div>
+                                <div class="alert alert-danger py-1 px-2 small mt-2 mb-0 d-none" id="cycleFormAlert"></div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive border rounded-ta">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Libellé</th>
+                                        <th>Classes associées</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbodyCycles">
+                                    <tr><td colspan="3" class="text-center text-muted py-3">Chargement...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- TAB: CLASSES -->
+                    <div class="tab-pane fade" id="tab-classes">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <p class="mb-0 text-muted small">Gérez les classes rattachées aux cycles définis ci-dessus.</p>
+                            <button class="btn btn-primary btn-sm" id="btnAjouterClasse" type="button"><i class="fa-solid fa-plus me-1"></i> Ajouter une classe</button>
+                        </div>
+
+                        <!-- Formulaire inline Classe (création / édition) — masqué par défaut, affiché au-dessus du tableau -->
+                        <div class="card border-primary-subtle mb-3 d-none" id="panelFormClasse">
+                            <div class="card-body">
+                                <h6 class="mb-3" id="panelFormClasseTitle"><i class="fa-solid fa-plus me-1 text-primary"></i>Nouvelle classe</h6>
+                                <input type="hidden" id="classeFormId" value="">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Cycle *</label>
+                                        <select class="form-select form-select-sm" id="classeFormCycle"></select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Option</label>
+                                        <input type="text" class="form-control form-control-sm" id="classeFormOption" placeholder="Ex: Scientifique">
+                                    </div>
+                                    <div class="col-md-4 d-flex gap-2">
+                                        <button class="btn btn-primary btn-sm flex-fill" type="button" id="btnEnregistrerClasse"><i class="fa-solid fa-check me-1"></i><span id="btnEnregistrerClasseLabel">Ajouter</span></button>
+                                        <button class="btn btn-light btn-sm" type="button" id="btnAnnulerClasse">Annuler</button>
+                                    </div>
+                                </div>
+                                <div class="alert alert-danger py-1 px-2 small mt-2 mb-0 d-none" id="classeFormAlert"></div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive border rounded-ta">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Cycle</th>
+                                        <th>Option</th>
+                                        <th>Effectif</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbodyClasses">
+                                    <tr><td colspan="4" class="text-center text-muted py-3">Chargement...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- TAB: ANNÉES SCOLAIRES -->
+                    <div class="tab-pane fade" id="tab-annees">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <p class="mb-0 text-muted small">Configurez les années scolaires et leur état d'activation.</p>
+                            <button class="btn btn-primary btn-sm" id="btnAjouterAnnee" type="button"><i class="fa-solid fa-plus me-1"></i> Nouvelle année</button>
+                        </div>
+
+                        <!-- Formulaire inline Année scolaire (création / édition) — masqué par défaut, affiché au-dessus du tableau -->
+                        <div class="card border-primary-subtle mb-3 d-none" id="panelFormAnnee">
+                            <div class="card-body">
+                                <h6 class="mb-3" id="panelFormAnneeTitle"><i class="fa-solid fa-plus me-1 text-primary"></i>Nouvelle année scolaire</h6>
+                                <input type="hidden" id="anneeFormId" value="">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-4">
+                                        <label class="form-label small mb-1">Libellé *</label>
+                                        <input type="text" class="form-control form-control-sm" id="anneeFormLibelle" placeholder="Ex: 2025-2026">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-check mt-4">
+                                            <input class="form-check-input" type="checkbox" id="anneeFormActive">
+                                            <label class="form-check-label small" for="anneeFormActive">Activer immédiatement</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 d-flex gap-2">
+                                        <button class="btn btn-primary btn-sm flex-fill" type="button" id="btnEnregistrerAnnee"><i class="fa-solid fa-check me-1"></i><span id="btnEnregistrerAnneeLabel">Ajouter</span></button>
+                                        <button class="btn btn-light btn-sm" type="button" id="btnAnnulerAnnee">Annuler</button>
+                                    </div>
+                                </div>
+                                <div class="alert alert-danger py-1 px-2 small mt-2 mb-0 d-none" id="anneeFormAlert"></div>
+                            </div>
+                        </div>
+
+                        <div class="table-responsive border rounded-ta">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Libellé</th>
+                                        <th>État</th>
+                                        <th class="text-end">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tbodyAnnees">
+                                    <tr><td colspan="3" class="text-center text-muted py-3">Chargement...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- TAB: TRIMESTRES & SÉQUENCES -->
+                    <div class="tab-pane fade" id="tab-trimestres">
+                        <div class="mb-3 d-flex align-items-center gap-2">
+                            <label class="form-label small text-muted mb-0">Année scolaire :</label>
+                            <select class="form-select form-select-sm" style="max-width:220px;" id="selectAnneeTrimestres"></select>
+                            <button class="btn btn-primary btn-sm ms-auto" id="btnAjouterTrimestre" type="button"><i class="fa-solid fa-plus me-1"></i> Ajouter un trimestre</button>
+                        </div>
+
+                        <!-- Formulaire inline Trimestre (création / édition) — masqué par défaut, affiché au-dessus de la liste -->
+                        <div class="card border-primary-subtle mb-3 d-none" id="panelFormTrimestre">
+                            <div class="card-body">
+                                <h6 class="mb-3" id="panelFormTrimestreTitle"><i class="fa-solid fa-plus me-1 text-primary"></i>Nouveau trimestre</h6>
+                                <input type="hidden" id="trimestreFormId" value="">
+                                <div class="row g-2 align-items-end">
+                                    <div class="col-md-3">
+                                        <label class="form-label small mb-1">Libellé *</label>
+                                        <input type="text" class="form-control form-control-sm" id="trimestreFormLibelle" placeholder="Ex: 1er Trimestre">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small mb-1">Début</label>
+                                        <input type="date" class="form-control form-control-sm" id="trimestreFormDateDebut">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label small mb-1">Fin</label>
+                                        <input type="date" class="form-control form-control-sm" id="trimestreFormDateFin">
+                                    </div>
+                                    <div class="col-md-3 d-flex gap-2">
+                                        <button class="btn btn-primary btn-sm flex-fill" type="button" id="btnEnregistrerTrimestre"><i class="fa-solid fa-check me-1"></i><span id="btnEnregistrerTrimestreLabel">Ajouter</span></button>
+                                        <button class="btn btn-light btn-sm" type="button" id="btnAnnulerTrimestre">Annuler</button>
+                                    </div>
+                                </div>
+                                <div class="alert alert-danger py-1 px-2 small mt-2 mb-0 d-none" id="trimestreFormAlert"></div>
+                            </div>
+                        </div>
+
+                        <div class="row g-3" id="containerTrimestres">
+                            <div class="col-12 text-center text-muted py-3">Sélectionnez une année scolaire.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Fermer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MODALE : CONFIRMATION GÉNÉRIQUE
+     (remplace les confirm() natifs pour les suppressions de
+     cycle / classe / année scolaire / trimestre / séquence)
+     ════════════════════════════════════════════ -->
+<div class="modal fade" id="modalConfirmAction" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-danger-subtle">
+                <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i><span id="confirmActionTitle">Confirmation</span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2" id="confirmActionMessage">—</p>
+                <div class="alert alert-warning d-none mb-0" id="confirmActionDetails">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <div id="confirmActionDetailsText"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal" id="btnConfirmActionAnnuler">Annuler</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmActionValider"><i class="fa-solid fa-trash me-1"></i> Confirmer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     MODALE : CONFIRMER SUPPRESSION
+     ════════════════════════════════════════════ -->
+<div class="modal fade" id="modalSupprimer" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header border-danger-subtle">
+                <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirmer la suppression</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2">Vous êtes sur le point de supprimer :</p>
+                <p class="fw-semibold fs-5 mb-3" id="supprimerNomEtab">—</p>
+                <div class="alert alert-danger mb-3">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                    <div>Cette action est irréversible. Toutes les données associées seront définitivement effacées côté serveur (cycles, classes, années scolaires, trimestres, séquences rattachés à cet établissement).</div>
+                </div>
+                <p class="small text-muted mt-3 fst-italic">Pensez à exporter les données avant confirmation.</p>
+                <div id="supprimerAlert" class="alert alert-danger d-none mb-0"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-danger" id="btnConfirmerSuppression"><i class="fa-solid fa-trash me-1"></i> Oui, supprimer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TOASTS
+     ════════════════════════════════════════════ -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="toastSuccess" class="toast align-items-center border-0 shadow-ta" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body d-flex align-items-center gap-2">
+                <i class="fa-solid fa-circle-check text-success"></i>
+                <span id="toastSuccessMessage">Opération réussie.</span>
+            </div>
+            <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+    <div id="toastError" class="toast align-items-center border-0 shadow-ta" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body d-flex align-items-center gap-2">
+                <i class="fa-solid fa-circle-exclamation text-danger"></i>
+                <span id="toastErrorMessage">Une erreur est survenue.</span>
+            </div>
+            <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+<script src="{{ url_for('static', filename='js/auth-admin.js') }}"></script>
+<script src="{{ url_for('static', filename='js/etablissements.js') }}"></script>
+
+<script>
+// ============================================================
+// GARDE D'AUTHENTIFICATION — page SuperAdmin protégée
+// requireAuth() interroge /api/auth/superadmin/me (source de vérité
+// serveur) et redirige vers /superadmin/login si la session n'est pas
+// valide. sidebar_admin.js n'est chargé qu'APRÈS confirmation, pour qu'il
+// dispose de window.GESTIONNAIRE_USER (vraies données, plus le mock en dur).
+// ============================================================
+(async () => {
+  const ok = await GestionnaireAuthAdmin.requireAuth();
+  if (!ok) return; // requireAuth() a déjà redirigé vers /superadmin/login
+
+  const superadmin = GestionnaireAuthAdmin.getUser();
+  window.GESTIONNAIRE_USER = {
+    nom: superadmin.nom,
+    role: 'Administrateur Plateforme',
+    avatar: null // Utilisera les initiales
+  };
+
+  document.body.classList.add('auth-checked');
+
+  const sidebarScript = document.createElement('script');
+  sidebarScript.src = "{{ url_for('static', filename='js/sidebar_admin.js') }}";
+  document.body.appendChild(sidebarScript);
+
+  // Initialise la page (chargement des établissements + tous les
+  // gestionnaires d'évènements CRUD) — voir static/js/etablissements.js.
+  if (window.EtablissementsPage) {
+    window.EtablissementsPage.init();
+  }
+})();
+</script>
+
+</body>
+</html>
