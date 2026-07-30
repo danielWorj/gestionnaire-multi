@@ -1,0 +1,1274 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Élèves — Gestionnaire</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style-extras.css') }}" rel="stylesheet">
+</head>
+<body data-page="eleves">
+
+<div class="app-wrapper">
+  <div class="main-content" id="mainContent">
+    <main class="page-content">
+
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+          <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+          <li class="breadcrumb-item active" aria-current="page">Élèves</li>
+        </ol>
+      </nav>
+
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="page-title mb-1">Élèves</h1>
+          <p class="mb-0 text-muted" style="font-size:12px;">
+            Le répertoire des élèves de l'établissement. La classe affichée est celle de l'année scolaire choisie dans les filtres.
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-light btn-sm" type="button" id="btnExportCsv">
+            <i class="fa-solid fa-file-csv"></i> Exporter la sélection
+          </button>
+          <button class="btn btn-light btn-sm" type="button" id="btnRefresh">
+            <i class="fa-solid fa-rotate"></i> Actualiser
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" id="btnNouvelEleve">
+            <i class="fa-solid fa-plus"></i> Ajouter un élève
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══════════════ CHIFFRES CLÉS ═══════════════ -->
+      <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon primary"><i class="fa-solid fa-child-reaching"></i></div>
+            <div class="stat-label">Élèves au répertoire</div>
+            <div class="stat-value" id="statTotal">—</div>
+            <div class="stat-change" id="statTotalSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon success"><i class="fa-solid fa-user-check"></i></div>
+            <div class="stat-label">Inscrits <span id="statAnneeLabel">—</span></div>
+            <div class="stat-value" id="statInscrits">—</div>
+            <div class="stat-change" id="statInscritsSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon info"><i class="fa-solid fa-venus-mars"></i></div>
+            <div class="stat-label">Garçons / Filles</div>
+            <div class="stat-value" id="statSexe">—</div>
+            <div class="stat-change" id="statSexeSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon warning"><i class="fa-solid fa-user-clock"></i></div>
+            <div class="stat-label">Sans classe cette année</div>
+            <div class="stat-value" id="statSansClasse">—</div>
+            <div class="stat-change" id="statSansClasseSub">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ GRAPHIQUES REPLIABLES ═══════════════ -->
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h2 class="h6 mb-0">Analyses</h2>
+        <span class="text-muted" style="font-size:11px;">Ouvrez un panneau pour charger son graphique</span>
+        <button class="btn btn-light btn-sm ms-auto" type="button" id="btnToggleAllCharts">
+          <i class="fa-solid fa-angles-down"></i> Tout ouvrir
+        </button>
+      </div>
+
+      <!-- Effectifs par classe -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#panelClasses"
+                aria-expanded="true" aria-controls="panelClasses">
+          <span class="chart-toggle-title"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Effectifs par classe</span>
+          <span class="chart-toggle-meta" id="metaClasses"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse show" id="panelClasses" data-render="classes">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeClasses">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeClasses"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCycleClasses">Cycle</label>
+              <select class="form-select form-select-sm" id="chCycleClasses"><option value="">Tous les cycles</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chDetailClasses">Détail</label>
+              <select class="form-select form-select-sm" id="chDetailClasses">
+                <option value="total">Effectif total</option>
+                <option value="sexe">Réparti par sexe</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap tall"><canvas id="chartClasses"></canvas></div>
+            <div class="chart-empty" id="chartClassesEmpty" hidden>
+              <i class="fa-solid fa-chart-column"></i>
+              <span>Aucune inscription pour cette année scolaire.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Évolution par année -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelAnnees"
+                aria-expanded="false" aria-controls="panelAnnees">
+          <span class="chart-toggle-title"><i class="fa-solid fa-arrow-trend-up me-2 text-primary"></i>Évolution des effectifs par année</span>
+          <span class="chart-toggle-meta" id="metaAnnees"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelAnnees" data-render="annees">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chClasseAnnees">Classe suivie</label>
+              <select class="form-select form-select-sm" id="chClasseAnnees"><option value="">Toutes les classes</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chSexeAnnees">Sexe</label>
+              <select class="form-select form-select-sm" id="chSexeAnnees">
+                <option value="">Tous</option>
+                <option value="M">Garçons</option>
+                <option value="F">Filles</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap"><canvas id="chartAnnees"></canvas></div>
+            <div class="chart-empty" id="chartAnneesEmpty" hidden>
+              <i class="fa-solid fa-arrow-trend-up"></i>
+              <span>Il faut au moins une année scolaire avec des inscriptions.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Profil : sexe + âge -->
+      <div class="chart-panel mb-4">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelProfil"
+                aria-expanded="false" aria-controls="panelProfil">
+          <span class="chart-toggle-title"><i class="fa-solid fa-users-between-lines me-2 text-primary"></i>Profil des élèves — sexe et âge</span>
+          <span class="chart-toggle-meta" id="metaProfil"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelProfil" data-render="profil">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeProfil">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeProfil"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chClasseProfil">Classe</label>
+              <select class="form-select form-select-sm" id="chClasseProfil"><option value="">Toutes les classes</option></select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="row g-4">
+              <div class="col-lg-4">
+                <div class="chart-canvas-wrap short"><canvas id="chartSexe"></canvas></div>
+              </div>
+              <div class="col-lg-8">
+                <div class="chart-canvas-wrap short"><canvas id="chartAges"></canvas></div>
+              </div>
+            </div>
+            <div class="chart-kpis">
+              <div><div class="chart-kpi-label">Âge moyen</div><div class="chart-kpi-value" id="kpiAgeMoyen">—</div></div>
+              <div><div class="chart-kpi-label">Plus jeune</div><div class="chart-kpi-value" id="kpiAgeMin">—</div></div>
+              <div><div class="chart-kpi-label">Plus âgé</div><div class="chart-kpi-value" id="kpiAgeMax">—</div></div>
+              <div><div class="chart-kpi-label">Date de naissance manquante</div><div class="chart-kpi-value" id="kpiAgeNr">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ FILTRES ═══════════════ -->
+      <div class="card filters-card mb-3">
+        <div class="card-body">
+          <div class="filters-title">
+            <i class="fa-solid fa-filter"></i> Filtres
+            <span class="filters-count" id="filtersCount" hidden>0</span>
+          </div>
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label" for="fSearch">Rechercher</label>
+              <input type="search" class="form-control form-control-sm" id="fSearch" placeholder="Nom, prénom, matricule…">
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fAnnee">Année scolaire</label>
+              <select class="form-select form-select-sm" id="fAnnee"></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fClasse">Classe</label>
+              <select class="form-select form-select-sm" id="fClasse"><option value="">Toutes</option></select>
+            </div>
+            <div class="col-lg-1 col-md-4">
+              <label class="form-label" for="fSexe">Sexe</label>
+              <select class="form-select form-select-sm" id="fSexe">
+                <option value="">Tous</option>
+                <option value="M">Garçons</option>
+                <option value="F">Filles</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fStatut">Statut de l'élève</label>
+              <select class="form-select form-select-sm" id="fStatut">
+                <option value="">Tous</option>
+                <option value="Actif">Actif</option>
+                <option value="Inactif">Inactif</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fScolarite">Scolarité</label>
+              <select class="form-select form-select-sm" id="fScolarite">
+                <option value="">Tous</option>
+                <option value="inscrit">Inscrits cette année</option>
+                <option value="non-inscrit">Non inscrits cette année</option>
+                <option value="sans-parent">Sans parent rattaché</option>
+              </select>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mt-1">
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fAgeMin">Âge minimum</label>
+              <input type="number" min="0" max="40" class="form-control form-control-sm" id="fAgeMin" placeholder="—">
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fAgeMax">Âge maximum</label>
+              <input type="number" min="0" max="40" class="form-control form-control-sm" id="fAgeMax" placeholder="—">
+            </div>
+            <div class="col-lg-8 d-flex justify-content-end gap-2">
+              <button class="btn btn-light btn-sm" type="button" id="btnResetFilters">
+                <i class="fa-solid fa-rotate-left"></i> Réinitialiser
+              </button>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-3" id="activeChips"></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ TABLEAU ═══════════════ -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title"><i class="fa-solid fa-list me-2 text-primary"></i>Répertoire</h2>
+          <span class="badge badge-primary" id="badgeCount">0</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive table-scroll">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th data-sort="nom" role="button">Élève <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th data-sort="matricule" role="button">Matricule</th>
+                  <th>Sexe</th>
+                  <th data-sort="age" role="button">Âge</th>
+                  <th>Classe</th>
+                  <th>Parent</th>
+                  <th>Statut</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                <tr><td colspan="8" class="text-center text-muted py-5">
+                  <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <span id="rangeInfo">—</span>
+          <select class="form-select form-select-sm" id="pageSize" aria-label="Élèves par page">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="0">Tout afficher</option>
+          </select>
+          <div class="pager" id="pager"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL FICHE ÉLÈVE ═══════════════ -->
+<div class="modal fade" id="modalEleve" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalEleveTitle"><i class="fa-solid fa-child-reaching me-2 text-primary"></i>Ajouter un élève</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formEleve" novalidate>
+          <input type="hidden" id="fId">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label required" for="fMatricule">Matricule</label>
+              <input type="text" class="form-control" id="fMatricule" required>
+              <div class="form-text">Unique au sein de l'établissement.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label required" for="fNom">Nom</label>
+              <input type="text" class="form-control" id="fNom" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label required" for="fPrenom">Prénom(s)</label>
+              <input type="text" class="form-control" id="fPrenom" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label required" for="fSexeForm">Sexe</label>
+              <select class="form-select" id="fSexeForm" required>
+                <option value="">—</option>
+                <option value="M">Masculin</option>
+                <option value="F">Féminin</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="fNaissance">Date de naissance</label>
+              <input type="date" class="form-control" id="fNaissance">
+            </div>
+            <div class="col-md-3">
+              <label class="form-label required" for="fLieu">Lieu de naissance</label>
+              <input type="text" class="form-control" id="fLieu" required>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="fStatutForm">Statut</label>
+              <select class="form-select" id="fStatutForm">
+                <option value="Actif">Actif</option>
+                <option value="Inactif">Inactif</option>
+              </select>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="d-flex align-items-center gap-3 mb-2">
+            <strong style="font-size:12px;">Parent / tuteur</strong>
+            <div class="btn-group btn-group-sm" role="group">
+              <input type="radio" class="btn-check" name="parentMode" id="pmExist" value="exist" checked>
+              <label class="btn btn-light btn-sm" for="pmExist">Parent déjà enregistré</label>
+              <input type="radio" class="btn-check" name="parentMode" id="pmNew" value="new">
+              <label class="btn btn-light btn-sm" for="pmNew">Créer un parent</label>
+            </div>
+          </div>
+
+          <div id="blocParentExist">
+            <label class="form-label required" for="fParentId">Parent</label>
+            <select class="form-select" id="fParentId"></select>
+            <div class="form-text">Un élève ne peut pas être enregistré sans parent rattaché.</div>
+          </div>
+
+          <div id="blocParentNew" hidden>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label required" for="fpNom">Nom du parent</label>
+                <input type="text" class="form-control" id="fpNom">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label required" for="fpPrenom">Prénom du parent</label>
+                <input type="text" class="form-control" id="fpPrenom">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label required" for="fpTel">Téléphone</label>
+                <input type="tel" class="form-control" id="fpTel">
+              </div>
+              <div class="col-md-6">
+                <label class="form-label required" for="fpEmail">E-mail</label>
+                <input type="email" class="form-control" id="fpEmail">
+              </div>
+            </div>
+            <div class="form-text mt-2">Le parent est créé en même temps que l'élève, puis rattaché automatiquement.</div>
+          </div>
+
+          <div class="alert alert-danger mt-3" id="formError" hidden></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSaveEleve">
+          <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL DÉTAIL ═══════════════ -->
+<div class="modal fade" id="modalDetail" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-id-card me-2 text-primary"></i>Fiche élève</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="detailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Fermer</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnEditFromDetail"><i class="fa-solid fa-pen"></i> Modifier</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL SUPPRESSION ═══════════════ -->
+<div class="modal fade" id="modalDelete" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-triangle-exclamation me-2 text-danger"></i>Supprimer l'élève</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-2">Vous êtes sur le point de supprimer <strong id="deleteName">—</strong>.</p>
+        <p class="mb-0 text-muted">Ses inscriptions et son historique disparaîtront aussi. Pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btnConfirmDelete"><i class="fa-solid fa-trash"></i> Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1200;">
+  <div class="toast" id="appToast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <i id="toastIcon" class="fa-solid fa-circle-check text-success me-2"></i>
+      <strong class="me-auto" id="toastTitle">Succès</strong>
+      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="toast" aria-label="Fermer"></button>
+    </div>
+    <div class="toast-body" id="toastBody"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ═══════════════════════════════════════════
+     ACCÈS API
+     Endpoints réels : inscription_api.py / structure_api.py.
+     Un SuperAdmin doit préciser l'établissement : soit auth.js le
+     fournit, soit on le lit dans l'URL (/eleve?etablissement_id=3).
+  ═══════════════════════════════════════════ */
+  const AUTH = window.GestionnaireAuth || null;
+  const ETAB_ID = new URLSearchParams(location.search).get("etablissement_id")
+    || (AUTH && AUTH.getEtablissementId ? AUTH.getEtablissementId() : null);
+
+  function url(path) {
+    const u = new URL(path, location.origin);
+    if (ETAB_ID) u.searchParams.set("etablissement_id", ETAB_ID);
+    return u.pathname + u.search;
+  }
+
+  async function api(path, options) {
+    const opts = Object.assign({}, options || {});
+    opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    const doFetch = (AUTH && AUTH.authFetch) ? AUTH.authFetch.bind(AUTH) : window.fetch.bind(window);
+    const res = await doFetch(path, opts);
+    let payload = null;
+    try { payload = await res.json(); } catch (e) { payload = null; }
+    if (!res.ok) throw new Error((payload && (payload.erreur || payload.error)) || "Erreur " + res.status);
+    return payload;
+  }
+
+  /* ═══════════════════════════════════════════
+     ÉTAT
+  ═══════════════════════════════════════════ */
+  let eleves = [], parents = [], inscriptions = [], classes = [], cycles = [], annees = [];
+  let parentById = {}, classeById = {}, cycleById = {}, anneeById = {};
+  let charts = {};
+  let sortKey = "nom", sortAsc = true;
+  let page = 1;
+  let deleteId = null;
+
+  /* ═══════════════════════════════════════════
+     OUTILS
+  ═══════════════════════════════════════════ */
+  const $ = (id) => document.getElementById(id);
+
+  function cssVar(n) {
+    return getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#94A3B8";
+  }
+  const PALETTE = () => [
+    cssVar("--ta-primary"), cssVar("--ta-success"), cssVar("--ta-warning"),
+    cssVar("--ta-info"), cssVar("--ta-danger"), "#8B5CF6", "#F97316", "#0EA5E9",
+    "#14B8A6", "#EC4899", "#6366F1", "#84CC16"
+  ];
+
+  function esc(s) {
+    return (s == null ? "" : String(s))
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function fullName(e) { return ((e.prenom || "") + " " + (e.nom || "")).trim(); }
+
+  function initials(e) {
+    const a = (e.prenom || "").trim().charAt(0), b = (e.nom || "").trim().charAt(0);
+    return ((a + b) || "?").toUpperCase();
+  }
+
+  function age(iso) {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (isNaN(d)) return null;
+    const now = new Date();
+    let a = now.getFullYear() - d.getFullYear();
+    const m = now.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && now.getDate() < d.getDate())) a--;
+    return a >= 0 && a < 100 ? a : null;
+  }
+
+  function dateFr(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? "—" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  function classeLabel(c) {
+    if (!c) return "—";
+    const cy = cycleById[c.cycle_id];
+    const parts = [];
+    if (cy && cy.libelle) parts.push(cy.libelle);
+    if (c.option) parts.push(c.option);
+    return parts.join(" · ") || ("Classe #" + c.id);
+  }
+
+  function anneeLabel(id) {
+    const a = anneeById[id];
+    return a ? a.libelle : (id ? "Année #" + id : "—");
+  }
+
+  function toast(msg, type) {
+    const el = $("appToast"), err = type === "error";
+    $("toastIcon").className = err ? "fa-solid fa-circle-xmark text-danger me-2" : "fa-solid fa-circle-check text-success me-2";
+    $("toastTitle").textContent = err ? "Échec" : "C'est fait";
+    $("toastBody").textContent = msg;
+    bootstrap.Toast.getOrCreateInstance(el, { delay: 4000 }).show();
+  }
+
+  function downloadCsv(filename, rows) {
+    const csv = rows.map((r) => r.map((v) => {
+      const s = v == null ? "" : String(v);
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(";")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /* ═══════════════════════════════════════════
+     CHARGEMENT
+  ═══════════════════════════════════════════ */
+  async function loadAll() {
+    $("tableBody").innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">' +
+      '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
+    try {
+      const [rEleves, rParents, rInscr, rClasses, rCycles, rAnnees] = await Promise.all([
+        api(url("/api/eleves/")), api(url("/api/parents/")), api(url("/api/inscriptions/")),
+        api(url("/api/classes/")), api(url("/api/cycles/")), api(url("/api/annees-scolaires/"))
+      ]);
+      eleves = rEleves || []; parents = rParents || []; inscriptions = rInscr || [];
+      classes = rClasses || []; cycles = rCycles || []; annees = rAnnees || [];
+
+      parentById = Object.fromEntries(parents.map((p) => [p.id, p]));
+      classeById = Object.fromEntries(classes.map((c) => [c.id, c]));
+      cycleById = Object.fromEntries(cycles.map((c) => [c.id, c]));
+      anneeById = Object.fromEntries(annees.map((a) => [a.id, a]));
+      annees.sort((a, b) => String(b.libelle).localeCompare(String(a.libelle)));
+
+      fillSelects();
+      renderStats();
+      renderTable();
+      renderVisibleCharts();
+    } catch (e) {
+      $("tableBody").innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
+        '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
+        '<div class="empty-state-title">Les élèves n\'ont pas pu être chargés</div>' +
+        '<div>' + esc(e.message) + '</div></div></td></tr>';
+      toast(e.message, "error");
+    }
+  }
+
+  /** Année scolaire par défaut : celle marquée active, sinon la plus récente. */
+  function defaultAnneeId() {
+    const act = annees.find((a) => a.active);
+    return act ? act.id : (annees[0] ? annees[0].id : "");
+  }
+
+  function fillSelects() {
+    const optAnnees = annees.map((a) => '<option value="' + a.id + '">' + esc(a.libelle) + (a.active ? " (en cours)" : "") + "</option>").join("");
+    const def = defaultAnneeId();
+
+    ["fAnnee", "chAnneeClasses", "chAnneeProfil"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      s.innerHTML = optAnnees || '<option value="">Aucune année</option>';
+      s.value = prev || def;
+    });
+
+    const optClasses = classes
+      .slice()
+      .sort((a, b) => classeLabel(a).localeCompare(classeLabel(b)))
+      .map((c) => '<option value="' + c.id + '">' + esc(classeLabel(c)) + "</option>").join("");
+    ["fClasse", "chClasseAnnees", "chClasseProfil"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      s.innerHTML = s.options[0].outerHTML + optClasses;
+      s.value = prev;
+    });
+
+    const sc = $("chCycleClasses"), prevC = sc.value;
+    sc.innerHTML = '<option value="">Tous les cycles</option>' +
+      cycles.map((c) => '<option value="' + c.id + '">' + esc(c.libelle) + "</option>").join("");
+    sc.value = prevC;
+
+    const sp = $("fParentId"), prevP = sp.value;
+    sp.innerHTML = '<option value="">— Choisir un parent —</option>' +
+      parents.slice().sort((a, b) => (a.nom || "").localeCompare(b.nom || ""))
+        .map((p) => '<option value="' + p.id + '">' + esc((p.nom || "") + " " + (p.prenom || "") + (p.telephone ? " — " + p.telephone : "")) + "</option>").join("");
+    sp.value = prevP;
+
+    $("statAnneeLabel").textContent = anneeLabel(Number($("fAnnee").value));
+  }
+
+  /** Inscription d'un élève pour une année donnée (la plus récente si doublon). */
+  function inscriptionDe(eleveId, anneeId) {
+    let found = null;
+    for (const i of inscriptions) {
+      if (i.eleve_id !== eleveId) continue;
+      if (anneeId && i.annee_scolaire_id !== Number(anneeId)) continue;
+      if (!found || i.id > found.id) found = i;
+    }
+    return found;
+  }
+
+  /* ═══════════════════════════════════════════
+     CHIFFRES CLÉS
+  ═══════════════════════════════════════════ */
+  function renderStats() {
+    const anneeId = Number($("fAnnee").value) || null;
+    const total = eleves.length;
+    const inscrits = new Set(inscriptions.filter((i) => !anneeId || i.annee_scolaire_id === anneeId).map((i) => i.eleve_id));
+    const m = eleves.filter((e) => e.sexe === "M").length;
+    const f = eleves.filter((e) => e.sexe === "F").length;
+    const actifs = eleves.filter((e) => e.statut !== "Inactif").length;
+    const sansClasse = eleves.filter((e) => e.statut !== "Inactif" && !inscrits.has(e.id)).length;
+
+    $("statTotal").textContent = total;
+    $("statTotalSub").textContent = actifs + " actifs · " + (total - actifs) + " inactifs";
+    $("statInscrits").textContent = inscrits.size;
+    $("statInscritsSub").textContent = total ? Math.round((inscrits.size / total) * 100) + " % du répertoire" : "—";
+    $("statSexe").textContent = m + " / " + f;
+    $("statSexeSub").textContent = total ? Math.round((f / total) * 100) + " % de filles" : "—";
+    $("statSansClasse").textContent = sansClasse;
+    $("statSansClasseSub").textContent = sansClasse ? "à inscrire" : "tout le monde est inscrit";
+    $("statAnneeLabel").textContent = anneeLabel(anneeId);
+  }
+
+  /* ═══════════════════════════════════════════
+     FILTRES
+  ═══════════════════════════════════════════ */
+  function currentFilters() {
+    return {
+      q: $("fSearch").value.trim().toLowerCase(),
+      annee: Number($("fAnnee").value) || null,
+      classe: Number($("fClasse").value) || null,
+      sexe: $("fSexe").value,
+      statut: $("fStatut").value,
+      scolarite: $("fScolarite").value,
+      ageMin: $("fAgeMin").value === "" ? null : Number($("fAgeMin").value),
+      ageMax: $("fAgeMax").value === "" ? null : Number($("fAgeMax").value)
+    };
+  }
+
+  function filtered() {
+    const f = currentFilters();
+    return eleves.filter((e) => {
+      if (f.q) {
+        const hay = ((e.nom || "") + " " + (e.prenom || "") + " " + (e.matricule || "")).toLowerCase();
+        if (!hay.includes(f.q)) return false;
+      }
+      if (f.sexe && e.sexe !== f.sexe) return false;
+      if (f.statut && (e.statut || "Actif") !== f.statut) return false;
+
+      const insc = inscriptionDe(e.id, f.annee);
+      if (f.classe && (!insc || insc.classe_id !== f.classe)) return false;
+      if (f.scolarite === "inscrit" && !insc) return false;
+      if (f.scolarite === "non-inscrit" && insc) return false;
+      if (f.scolarite === "sans-parent" && e.parent_id) return false;
+
+      const a = age(e.date_naissance);
+      if (f.ageMin != null && (a == null || a < f.ageMin)) return false;
+      if (f.ageMax != null && (a == null || a > f.ageMax)) return false;
+      return true;
+    });
+  }
+
+  function renderChips() {
+    const f = currentFilters();
+    const chips = [];
+    if (f.q) chips.push(["q", '« ' + f.q + ' »']);
+    if (f.classe) chips.push(["classe", classeLabel(classeById[f.classe])]);
+    if (f.sexe) chips.push(["sexe", f.sexe === "M" ? "Garçons" : "Filles"]);
+    if (f.statut) chips.push(["statut", f.statut]);
+    if (f.scolarite) chips.push(["scolarite", $("fScolarite").selectedOptions[0].textContent]);
+    if (f.ageMin != null) chips.push(["ageMin", "≥ " + f.ageMin + " ans"]);
+    if (f.ageMax != null) chips.push(["ageMax", "≤ " + f.ageMax + " ans"]);
+
+    $("activeChips").innerHTML = chips.map((c) =>
+      '<button class="filter-chip" data-clear="' + c[0] + '">' + esc(c[1]) + ' <i class="fa-solid fa-xmark"></i></button>'
+    ).join("");
+    const badge = $("filtersCount");
+    badge.hidden = chips.length === 0;
+    badge.textContent = chips.length;
+  }
+
+  const CLEAR_MAP = { q: "fSearch", classe: "fClasse", sexe: "fSexe", statut: "fStatut", scolarite: "fScolarite", ageMin: "fAgeMin", ageMax: "fAgeMax" };
+
+  /* ═══════════════════════════════════════════
+     TABLEAU
+  ═══════════════════════════════════════════ */
+  function sorted(list) {
+    const val = (e) => {
+      if (sortKey === "matricule") return (e.matricule || "").toLowerCase();
+      if (sortKey === "age") { const a = age(e.date_naissance); return a == null ? -1 : a; }
+      return ((e.nom || "") + " " + (e.prenom || "")).toLowerCase();
+    };
+    return list.slice().sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function renderTable() {
+    renderChips();
+    const anneeId = Number($("fAnnee").value) || null;
+    const list = sorted(filtered());
+    const size = Number($("pageSize").value) || list.length || 1;
+    const pages = Math.max(1, Math.ceil(list.length / size));
+    if (page > pages) page = pages;
+    const start = (page - 1) * size;
+    const slice = list.slice(start, start + size);
+
+    $("badgeCount").textContent = list.length;
+
+    if (!list.length) {
+      $("tableBody").innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
+        '<i class="fa-solid fa-user-group"></i>' +
+        '<div class="empty-state-title">Aucun élève ne correspond à ces filtres</div>' +
+        '<div>Élargissez la recherche ou ajoutez un élève.</div></div></td></tr>';
+    } else {
+      $("tableBody").innerHTML = slice.map((e) => {
+        const insc = inscriptionDe(e.id, anneeId);
+        const cls = insc ? classeById[insc.classe_id] : null;
+        const p = parentById[e.parent_id];
+        const a = age(e.date_naissance);
+        const sexeCls = e.sexe === "F" ? "f" : (e.sexe === "M" ? "m" : "");
+        return '<tr>' +
+          '<td><div class="d-flex align-items-center gap-2">' +
+            '<span class="avatar-initials ' + sexeCls + '">' + esc(initials(e)) + '</span>' +
+            '<div><div class="cell-primary">' + esc(fullName(e)) + '</div>' +
+            '<div class="cell-sub">' + esc(e.lieu_naissance || "—") + '</div></div></div></td>' +
+          '<td><code style="font-size:11px;">' + esc(e.matricule || "—") + '</code></td>' +
+          '<td>' + (e.sexe === "M" ? "Garçon" : e.sexe === "F" ? "Fille" : "—") + '</td>' +
+          '<td>' + (a == null ? '<span class="text-light-color">—</span>' : a + " ans") + '</td>' +
+          '<td>' + (cls
+            ? '<span class="badge badge-primary">' + esc(classeLabel(cls)) + '</span>'
+            : '<span class="badge badge-neutral">Non inscrit</span>') + '</td>' +
+          '<td>' + (p
+            ? '<div class="cell-primary">' + esc((p.nom || "") + " " + (p.prenom || "")) + '</div><div class="cell-sub">' + esc(p.telephone || "") + '</div>'
+            : '<span class="text-danger">Aucun</span>') + '</td>' +
+          '<td><span class="badge ' + ((e.statut || "Actif") === "Actif" ? "badge-success" : "badge-neutral") + '">' + esc(e.statut || "Actif") + '</span></td>' +
+          '<td class="text-end text-nowrap">' +
+            '<button class="btn btn-light btn-sm" data-act="view" data-id="' + e.id + '" title="Voir la fiche"><i class="fa-solid fa-eye"></i></button> ' +
+            '<button class="btn btn-light btn-sm" data-act="edit" data-id="' + e.id + '" title="Modifier"><i class="fa-solid fa-pen"></i></button> ' +
+            '<button class="btn btn-light btn-sm text-danger" data-act="del" data-id="' + e.id + '" title="Supprimer"><i class="fa-solid fa-trash"></i></button>' +
+          '</td></tr>';
+      }).join("");
+    }
+
+    $("rangeInfo").textContent = list.length
+      ? (start + 1) + "–" + Math.min(start + size, list.length) + " sur " + list.length + " élèves"
+      : "Aucun élève";
+    renderPager(pages);
+  }
+
+  function renderPager(pages) {
+    if (pages <= 1) { $("pager").innerHTML = ""; return; }
+    let html = '<button class="pager-btn" data-page="' + (page - 1) + '"' + (page === 1 ? " disabled" : "") + '><i class="fa-solid fa-chevron-left"></i></button>';
+    const from = Math.max(1, page - 2), to = Math.min(pages, from + 4);
+    for (let i = from; i <= to; i++) {
+      html += '<button class="pager-btn' + (i === page ? " active" : "") + '" data-page="' + i + '">' + i + "</button>";
+    }
+    html += '<button class="pager-btn" data-page="' + (page + 1) + '"' + (page === pages ? " disabled" : "") + '><i class="fa-solid fa-chevron-right"></i></button>';
+    $("pager").innerHTML = html;
+  }
+
+  /* ═══════════════════════════════════════════
+     GRAPHIQUES
+  ═══════════════════════════════════════════ */
+  function chartDefaults() {
+    if (!window.Chart) return;
+    Chart.defaults.font.family = "'Inter','Segoe UI',system-ui,sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = cssVar("--ta-text-muted");
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
+    Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  }
+
+  function draw(key, canvasId, config) {
+    if (!window.Chart) return;
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart($(canvasId), config);
+  }
+
+  function setEmpty(id, canvasSelector, isEmpty) {
+    const empty = $(id);
+    if (empty) empty.hidden = !isEmpty;
+    const wrap = document.querySelector(canvasSelector);
+    if (wrap) wrap.style.display = isEmpty ? "none" : "";
+  }
+
+  const GRID = () => ({ color: cssVar("--ta-border-light"), drawBorder: false });
+
+  function renderChartClasses() {
+    const anneeId = Number($("chAnneeClasses").value) || null;
+    const cycleId = Number($("chCycleClasses").value) || null;
+    const parSexe = $("chDetailClasses").value === "sexe";
+    const eleveById = Object.fromEntries(eleves.map((e) => [e.id, e]));
+
+    const buckets = {};
+    inscriptions.forEach((i) => {
+      if (anneeId && i.annee_scolaire_id !== anneeId) return;
+      const c = classeById[i.classe_id];
+      if (!c) return;
+      if (cycleId && c.cycle_id !== cycleId) return;
+      const k = i.classe_id;
+      buckets[k] = buckets[k] || { total: 0, M: 0, F: 0 };
+      buckets[k].total++;
+      const el = eleveById[i.eleve_id];
+      if (el && (el.sexe === "M" || el.sexe === "F")) buckets[k][el.sexe]++;
+    });
+
+    const ids = Object.keys(buckets).map(Number).sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])));
+    const labels = ids.map((id) => classeLabel(classeById[id]));
+    const total = ids.reduce((s, id) => s + buckets[id].total, 0);
+
+    $("metaClasses").textContent = anneeLabel(anneeId) + " · " + total + " inscription" + (total > 1 ? "s" : "");
+    setEmpty("chartClassesEmpty", "#panelClasses .chart-canvas-wrap", ids.length === 0);
+    if (!ids.length) { if (charts.classes) { charts.classes.destroy(); charts.classes = null; } return; }
+
+    const datasets = parSexe
+      ? [
+          { label: "Garçons", data: ids.map((id) => buckets[id].M), backgroundColor: cssVar("--ta-info"), borderRadius: 3, stack: "s" },
+          { label: "Filles", data: ids.map((id) => buckets[id].F), backgroundColor: "#EC4899", borderRadius: 3, stack: "s" }
+        ]
+      : [{ label: "Élèves inscrits", data: ids.map((id) => buckets[id].total), backgroundColor: cssVar("--ta-primary"), borderRadius: 4, maxBarThickness: 34 }];
+
+    draw("classes", "chartClasses", {
+      type: "bar",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        plugins: { legend: { display: parSexe, position: "bottom" } },
+        scales: {
+          x: { stacked: parSexe, grid: { display: false }, ticks: { maxRotation: 60, minRotation: 0 } },
+          y: { stacked: parSexe, beginAtZero: true, grid: GRID(), ticks: { precision: 0 } }
+        }
+      }
+    });
+  }
+
+  function renderChartAnnees() {
+    const classeId = Number($("chClasseAnnees").value) || null;
+    const sexe = $("chSexeAnnees").value;
+    const eleveById = Object.fromEntries(eleves.map((e) => [e.id, e]));
+
+    const ordered = annees.slice().sort((a, b) => String(a.libelle).localeCompare(String(b.libelle)));
+    const labels = ordered.map((a) => a.libelle);
+    const data = ordered.map((a) => inscriptions.filter((i) => {
+      if (i.annee_scolaire_id !== a.id) return false;
+      if (classeId && i.classe_id !== classeId) return false;
+      if (sexe) { const e = eleveById[i.eleve_id]; if (!e || e.sexe !== sexe) return false; }
+      return true;
+    }).length);
+
+    const somme = data.reduce((s, v) => s + v, 0);
+    const dernier = data.length ? data[data.length - 1] : 0;
+    const avant = data.length > 1 ? data[data.length - 2] : null;
+    const delta = avant ? Math.round(((dernier - avant) / avant) * 100) : null;
+    $("metaAnnees").textContent = ordered.length
+      ? (delta == null ? somme + " inscriptions au total" : (delta >= 0 ? "+" : "") + delta + " % sur la dernière année")
+      : "";
+
+    setEmpty("chartAnneesEmpty", "#panelAnnees .chart-canvas-wrap", somme === 0);
+    if (!somme) { if (charts.annees) { charts.annees.destroy(); charts.annees = null; } return; }
+
+    draw("annees", "chartAnnees", {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: "Inscriptions",
+          data: data,
+          borderColor: cssVar("--ta-primary"),
+          backgroundColor: "rgba(60,80,224,0.12)",
+          fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: cssVar("--ta-primary"), borderWidth: 2
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  function renderChartProfil() {
+    const anneeId = Number($("chAnneeProfil").value) || null;
+    const classeId = Number($("chClasseProfil").value) || null;
+
+    let cible = eleves;
+    if (anneeId || classeId) {
+      const ids = new Set(inscriptions.filter((i) =>
+        (!anneeId || i.annee_scolaire_id === anneeId) && (!classeId || i.classe_id === classeId)
+      ).map((i) => i.eleve_id));
+      cible = eleves.filter((e) => ids.has(e.id));
+    }
+
+    const m = cible.filter((e) => e.sexe === "M").length;
+    const f = cible.filter((e) => e.sexe === "F").length;
+    const nr = cible.length - m - f;
+    $("metaProfil").textContent = cible.length + " élève" + (cible.length > 1 ? "s" : "");
+
+    draw("sexe", "chartSexe", {
+      type: "doughnut",
+      data: {
+        labels: ["Garçons", "Filles", "Non renseigné"],
+        datasets: [{ data: [m, f, nr], backgroundColor: [cssVar("--ta-info"), "#EC4899", cssVar("--ta-border")], borderWidth: 0 }]
+      },
+      options: { cutout: "62%", plugins: { legend: { position: "bottom" } } }
+    });
+
+    const ages = cible.map((e) => age(e.date_naissance)).filter((a) => a != null);
+    const bornes = [[0, 10, "10 ans et moins"], [11, 12, "11–12 ans"], [13, 14, "13–14 ans"],
+                    [15, 16, "15–16 ans"], [17, 18, "17–18 ans"], [19, 99, "19 ans et plus"]];
+    const buckets = bornes.map((b) => ages.filter((a) => a >= b[0] && a <= b[1]).length);
+
+    draw("ages", "chartAges", {
+      type: "bar",
+      data: {
+        labels: bornes.map((b) => b[2]),
+        datasets: [{ label: "Élèves", data: buckets, backgroundColor: cssVar("--ta-primary"), borderRadius: 4, maxBarThickness: 40 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+
+    const moy = ages.length ? (ages.reduce((s, a) => s + a, 0) / ages.length) : null;
+    $("kpiAgeMoyen").textContent = moy == null ? "—" : moy.toFixed(1) + " ans";
+    $("kpiAgeMin").textContent = ages.length ? Math.min.apply(null, ages) + " ans" : "—";
+    $("kpiAgeMax").textContent = ages.length ? Math.max.apply(null, ages) + " ans" : "—";
+    $("kpiAgeNr").textContent = (cible.length - ages.length) + " élève(s)";
+  }
+
+  const RENDERERS = { classes: renderChartClasses, annees: renderChartAnnees, profil: renderChartProfil };
+
+  /** Ne dessine que les panneaux ouverts : un canvas caché mesure 0 px. */
+  function renderVisibleCharts() {
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      if (el.classList.contains("show")) RENDERERS[el.dataset.render]();
+    });
+  }
+
+  /* ═══════════════════════════════════════════
+     FORMULAIRE
+  ═══════════════════════════════════════════ */
+  function resetForm() {
+    $("formEleve").reset();
+    $("fId").value = "";
+    $("formError").hidden = true;
+    $("pmExist").checked = true;
+    setParentMode("exist");
+    $("modalEleveTitle").innerHTML = '<i class="fa-solid fa-child-reaching me-2 text-primary"></i>Ajouter un élève';
+  }
+
+  function setParentMode(mode) {
+    $("blocParentExist").hidden = mode !== "exist";
+    $("blocParentNew").hidden = mode !== "new";
+  }
+
+  function openEdit(id) {
+    const e = eleves.find((x) => x.id === id);
+    if (!e) return;
+    resetForm();
+    $("modalEleveTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier ' + esc(fullName(e));
+    $("fId").value = e.id;
+    $("fMatricule").value = e.matricule || "";
+    $("fNom").value = e.nom || "";
+    $("fPrenom").value = e.prenom || "";
+    $("fSexeForm").value = e.sexe || "";
+    $("fNaissance").value = e.date_naissance || "";
+    $("fLieu").value = e.lieu_naissance || "";
+    $("fStatutForm").value = e.statut || "Actif";
+    $("fParentId").value = e.parent_id || "";
+    bootstrap.Modal.getOrCreateInstance($("modalEleve")).show();
+  }
+
+  async function saveEleve() {
+    const err = $("formError");
+    err.hidden = true;
+
+    const payload = {
+      matricule: $("fMatricule").value.trim(),
+      nom: $("fNom").value.trim(),
+      prenom: $("fPrenom").value.trim(),
+      sexe: $("fSexeForm").value,
+      lieu_naissance: $("fLieu").value.trim(),
+      statut: $("fStatutForm").value
+    };
+    const naissance = $("fNaissance").value;
+    if (naissance) payload.date_naissance = naissance;
+    if (ETAB_ID) payload.etablissement_id = Number(ETAB_ID);
+
+    for (const [k, label] of [["matricule", "matricule"], ["nom", "nom"], ["prenom", "prénom"], ["sexe", "sexe"], ["lieu_naissance", "lieu de naissance"]]) {
+      if (!payload[k]) { err.textContent = "Renseignez le " + label + "."; err.hidden = false; return; }
+    }
+
+    const btn = $("btnSaveEleve");
+    btn.disabled = true;
+    try {
+      const mode = document.querySelector('input[name="parentMode"]:checked').value;
+      if (mode === "new") {
+        const np = {
+          nom: $("fpNom").value.trim(), prenom: $("fpPrenom").value.trim(),
+          telephone: $("fpTel").value.trim(), email: $("fpEmail").value.trim()
+        };
+        if (!np.nom || !np.prenom || !np.telephone || !np.email) {
+          throw new Error("Le nouveau parent a besoin d'un nom, d'un prénom, d'un téléphone et d'un e-mail.");
+        }
+        if (ETAB_ID) np.etablissement_id = Number(ETAB_ID);
+        const created = await api("/api/parents/", { method: "POST", body: JSON.stringify(np) });
+        payload.parent_id = created.id;
+      } else {
+        payload.parent_id = Number($("fParentId").value) || null;
+        if (!payload.parent_id) throw new Error("Choisissez le parent de l'élève.");
+      }
+
+      const id = $("fId").value;
+      if (id) {
+        await api("/api/eleves/" + id + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "PUT", body: JSON.stringify(payload) });
+        toast("Fiche de " + payload.prenom + " " + payload.nom + " mise à jour");
+      } else {
+        await api("/api/eleves/", { method: "POST", body: JSON.stringify(payload) });
+        toast(payload.prenom + " " + payload.nom + " a été ajouté");
+      }
+      bootstrap.Modal.getOrCreateInstance($("modalEleve")).hide();
+      await loadAll();
+    } catch (e2) {
+      err.textContent = e2.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function openDetail(id) {
+    const e = eleves.find((x) => x.id === id);
+    if (!e) return;
+    $("btnEditFromDetail").dataset.id = id;
+    const p = parentById[e.parent_id];
+    const hist = inscriptions.filter((i) => i.eleve_id === id)
+      .sort((a, b) => (anneeLabel(b.annee_scolaire_id)).localeCompare(anneeLabel(a.annee_scolaire_id)));
+
+    $("detailBody").innerHTML =
+      '<div class="d-flex align-items-center gap-3 mb-3">' +
+        '<span class="avatar-initials lg ' + (e.sexe === "F" ? "f" : "m") + '">' + esc(initials(e)) + '</span>' +
+        '<div><div style="font-size:15px;font-weight:700;">' + esc(fullName(e)) + '</div>' +
+        '<div class="text-muted">Matricule ' + esc(e.matricule || "—") + ' · ' +
+        (e.sexe === "M" ? "Garçon" : e.sexe === "F" ? "Fille" : "Sexe non renseigné") + '</div></div>' +
+      '</div>' +
+      '<div class="row g-3 mb-3">' +
+        '<div class="col-md-6"><div class="discipline-item"><span class="discipline-label">Né(e) le</span><span class="discipline-value">' + dateFr(e.date_naissance) + '</span></div>' +
+        '<div class="discipline-item"><span class="discipline-label">À</span><span class="discipline-value">' + esc(e.lieu_naissance || "—") + '</span></div>' +
+        '<div class="discipline-item"><span class="discipline-label">Âge</span><span class="discipline-value">' + (age(e.date_naissance) == null ? "—" : age(e.date_naissance) + " ans") + '</span></div></div>' +
+        '<div class="col-md-6"><div class="discipline-item"><span class="discipline-label">Parent</span><span class="discipline-value">' + esc(p ? p.nom + " " + p.prenom : "Aucun") + '</span></div>' +
+        '<div class="discipline-item"><span class="discipline-label">Téléphone</span><span class="discipline-value">' + esc(p && p.telephone ? p.telephone : "—") + '</span></div>' +
+        '<div class="discipline-item"><span class="discipline-label">E-mail</span><span class="discipline-value">' + esc(p && p.email ? p.email : "—") + '</span></div></div>' +
+      '</div>' +
+      '<h6 class="mb-2">Parcours scolaire</h6>' +
+      (hist.length
+        ? '<table class="table mb-0"><thead><tr><th>Année</th><th>Classe</th><th>Inscrit le</th><th>Statut</th></tr></thead><tbody>' +
+          hist.map((i) => '<tr><td>' + esc(anneeLabel(i.annee_scolaire_id)) + '</td><td>' + esc(classeLabel(classeById[i.classe_id])) +
+            '</td><td>' + dateFr(i.date_inscription) + '</td><td><span class="badge ' +
+            (i.statut === "Actif" ? "badge-success" : "badge-neutral") + '">' + esc(i.statut || "—") + '</span></td></tr>').join("") +
+          '</tbody></table>'
+        : '<p class="text-muted mb-0">Aucune inscription enregistrée pour cet élève.</p>');
+
+    bootstrap.Modal.getOrCreateInstance($("modalDetail")).show();
+  }
+
+  function openDelete(id) {
+    const e = eleves.find((x) => x.id === id);
+    if (!e) return;
+    deleteId = id;
+    $("deleteName").textContent = fullName(e);
+    bootstrap.Modal.getOrCreateInstance($("modalDelete")).show();
+  }
+
+  async function confirmDelete() {
+    if (!deleteId) return;
+    const btn = $("btnConfirmDelete");
+    btn.disabled = true;
+    try {
+      await api("/api/eleves/" + deleteId + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "DELETE" });
+      bootstrap.Modal.getOrCreateInstance($("modalDelete")).hide();
+      toast("Élève supprimé");
+      deleteId = null;
+      await loadAll();
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function exportCsv() {
+    const anneeId = Number($("fAnnee").value) || null;
+    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Date de naissance", "Lieu de naissance", "Classe", "Statut", "Parent", "Téléphone parent"]];
+    sorted(filtered()).forEach((e) => {
+      const insc = inscriptionDe(e.id, anneeId);
+      const p = parentById[e.parent_id];
+      rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || "", e.lieu_naissance,
+        insc ? classeLabel(classeById[insc.classe_id]) : "", e.statut || "Actif",
+        p ? p.nom + " " + p.prenom : "", p ? p.telephone : ""]);
+    });
+    downloadCsv("eleves-" + (anneeLabel(anneeId) || "tous").replace(/[^\w-]/g, "_") + ".csv", rows);
+    toast(rows.length - 1 + " élève(s) exporté(s)");
+  }
+
+  /* ═══════════════════════════════════════════
+     ÉVÉNEMENTS
+  ═══════════════════════════════════════════ */
+  function bind() {
+    ["fSearch", "fClasse", "fSexe", "fStatut", "fScolarite", "fAgeMin", "fAgeMax"].forEach((id) => {
+      $(id).addEventListener("input", () => { page = 1; renderTable(); });
+    });
+    $("fAnnee").addEventListener("change", () => {
+      page = 1;
+      $("chAnneeClasses").value = $("fAnnee").value;
+      $("chAnneeProfil").value = $("fAnnee").value;
+      renderStats(); renderTable(); renderVisibleCharts();
+    });
+
+    $("btnResetFilters").addEventListener("click", () => {
+      ["fSearch", "fAgeMin", "fAgeMax"].forEach((id) => { $(id).value = ""; });
+      ["fClasse", "fSexe", "fStatut", "fScolarite"].forEach((id) => { $(id).value = ""; });
+      page = 1; renderTable();
+    });
+
+    $("activeChips").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-clear]");
+      if (!b) return;
+      $(CLEAR_MAP[b.dataset.clear]).value = "";
+      page = 1; renderTable();
+    });
+
+    $("pageSize").addEventListener("change", () => { page = 1; renderTable(); });
+    $("pager").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-page]");
+      if (!b || b.disabled) return;
+      page = Number(b.dataset.page);
+      renderTable();
+      window.scrollTo({ top: document.querySelector(".table-scroll").offsetTop - 80, behavior: "smooth" });
+    });
+
+    document.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const k = th.dataset.sort;
+        if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
+        renderTable();
+      });
+    });
+
+    $("tableBody").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-act]");
+      if (!b) return;
+      const id = Number(b.dataset.id);
+      if (b.dataset.act === "view") openDetail(id);
+      if (b.dataset.act === "edit") openEdit(id);
+      if (b.dataset.act === "del") openDelete(id);
+    });
+
+    $("btnNouvelEleve").addEventListener("click", () => {
+      resetForm();
+      bootstrap.Modal.getOrCreateInstance($("modalEleve")).show();
+    });
+    $("btnSaveEleve").addEventListener("click", saveEleve);
+    $("btnConfirmDelete").addEventListener("click", confirmDelete);
+    $("btnEditFromDetail").addEventListener("click", (ev) => {
+      bootstrap.Modal.getOrCreateInstance($("modalDetail")).hide();
+      openEdit(Number(ev.currentTarget.dataset.id));
+    });
+    document.querySelectorAll('input[name="parentMode"]').forEach((r) => {
+      r.addEventListener("change", () => setParentMode(r.value));
+    });
+
+    $("btnRefresh").addEventListener("click", loadAll);
+    $("btnExportCsv").addEventListener("click", exportCsv);
+
+    // Graphiques : redessiner à l'ouverture du panneau, et à chaque changement de select
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      el.addEventListener("shown.bs.collapse", () => RENDERERS[el.dataset.render]());
+      el.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => RENDERERS[el.dataset.render]()));
+    });
+
+    $("btnToggleAllCharts").addEventListener("click", (ev) => {
+      const panels = Array.from(document.querySelectorAll("[data-render]"));
+      const openAll = panels.some((p) => !p.classList.contains("show"));
+      panels.forEach((p) => bootstrap.Collapse.getOrCreateInstance(p, { toggle: false })[openAll ? "show" : "hide"]());
+      ev.currentTarget.innerHTML = openAll
+        ? '<i class="fa-solid fa-angles-up"></i> Tout replier'
+        : '<i class="fa-solid fa-angles-down"></i> Tout ouvrir';
+    });
+
+    window.addEventListener("resize", () => {
+      Object.values(charts).forEach((c) => c && c.resize());
+    });
+  }
+
+  chartDefaults();
+  bind();
+  loadAll();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inscriptions — Gestionnaire</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style-extras.css') }}" rel="stylesheet">
+</head>
+<body data-page="inscriptions">
+
+<div class="app-wrapper">
+  <div class="main-content" id="mainContent">
+    <main class="page-content">
+
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+          <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+          <li class="breadcrumb-item active" aria-current="page">Inscriptions</li>
+        </ol>
+      </nav>
+
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="page-title mb-1">Inscriptions</h1>
+          <p class="mb-0 text-muted" style="font-size:12px;">
+            Qui est inscrit, dans quelle classe, à quelle date. Suivez les effectifs et sortez les listes de classe.
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-light btn-sm" type="button" id="btnExportCsv">
+            <i class="fa-solid fa-file-csv"></i> Exporter la sélection
+          </button>
+          <button class="btn btn-light btn-sm" type="button" id="btnRefresh">
+            <i class="fa-solid fa-rotate"></i> Actualiser
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" id="btnNouvelleInscription">
+            <i class="fa-solid fa-plus"></i> Inscrire un élève
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══════════════ CHIFFRES CLÉS ═══════════════ -->
+      <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon primary"><i class="fa-solid fa-clipboard-check"></i></div>
+            <div class="stat-label">Inscriptions <span id="statAnneeLabel">—</span></div>
+            <div class="stat-value" id="statTotal">—</div>
+            <div class="stat-change" id="statTotalSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon success"><i class="fa-solid fa-user-check"></i></div>
+            <div class="stat-label">Inscriptions actives</div>
+            <div class="stat-value" id="statActives">—</div>
+            <div class="stat-change" id="statActivesSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon info"><i class="fa-solid fa-school"></i></div>
+            <div class="stat-label">Classes ouvertes</div>
+            <div class="stat-value" id="statClasses">—</div>
+            <div class="stat-change" id="statClassesSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon warning"><i class="fa-solid fa-calendar-day"></i></div>
+            <div class="stat-label">Enregistrées ce mois</div>
+            <div class="stat-value" id="statMois">—</div>
+            <div class="stat-change" id="statMoisSub">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ GRAPHIQUES REPLIABLES ═══════════════ -->
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h2 class="h6 mb-0">Évolution des inscriptions</h2>
+        <span class="text-muted" style="font-size:11px;">Par classe, par année, par mois</span>
+        <button class="btn btn-light btn-sm ms-auto" type="button" id="btnToggleAllCharts">
+          <i class="fa-solid fa-angles-down"></i> Tout ouvrir
+        </button>
+      </div>
+
+      <!-- 1. PAR CLASSE -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#panelClasse"
+                aria-expanded="true" aria-controls="panelClasse">
+          <span class="chart-toggle-title"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Par classe</span>
+          <span class="chart-toggle-meta" id="metaClasse"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse show" id="panelClasse" data-render="classe">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeClasse">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeClasse"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCycleClasse">Cycle</label>
+              <select class="form-select form-select-sm" id="chCycleClasse"><option value="">Tous les cycles</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chDetailClasse">Détail</label>
+              <select class="form-select form-select-sm" id="chDetailClasse">
+                <option value="total">Effectif total</option>
+                <option value="sexe">Garçons / filles</option>
+                <option value="statut">Par statut</option>
+              </select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCompareClasse">Comparer avec</label>
+              <select class="form-select form-select-sm" id="chCompareClasse"><option value="">Aucune comparaison</option></select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap tall"><canvas id="chartClasse"></canvas></div>
+            <div class="chart-empty" id="chartClasseEmpty" hidden>
+              <i class="fa-solid fa-chart-column"></i>
+              <span>Aucune inscription sur cette année scolaire.</span>
+            </div>
+            <div class="chart-kpis">
+              <div><div class="chart-kpi-label">Classe la plus chargée</div><div class="chart-kpi-value" id="kpiClasseMax">—</div></div>
+              <div><div class="chart-kpi-label">Classe la moins chargée</div><div class="chart-kpi-value" id="kpiClasseMin">—</div></div>
+              <div><div class="chart-kpi-label">Effectif moyen</div><div class="chart-kpi-value" id="kpiClasseMoy">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. PAR ANNÉE -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelAnnee"
+                aria-expanded="false" aria-controls="panelAnnee">
+          <span class="chart-toggle-title"><i class="fa-solid fa-arrow-trend-up me-2 text-primary"></i>Par année scolaire</span>
+          <span class="chart-toggle-meta" id="metaAnnee"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelAnnee" data-render="annee">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chClasseAnnee">Classe suivie</label>
+              <select class="form-select form-select-sm" id="chClasseAnnee"><option value="">Toutes les classes</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCycleAnnee">Cycle</label>
+              <select class="form-select form-select-sm" id="chCycleAnnee"><option value="">Tous les cycles</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chDetailAnnee">Détail</label>
+              <select class="form-select form-select-sm" id="chDetailAnnee">
+                <option value="total">Effectif total</option>
+                <option value="sexe">Garçons / filles</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap"><canvas id="chartAnnee"></canvas></div>
+            <div class="chart-empty" id="chartAnneeEmpty" hidden>
+              <i class="fa-solid fa-arrow-trend-up"></i>
+              <span>Il faut au moins une année scolaire avec des inscriptions.</span>
+            </div>
+            <div class="chart-kpis">
+              <div><div class="chart-kpi-label">Dernière année</div><div class="chart-kpi-value" id="kpiAnneeDerniere">—</div></div>
+              <div><div class="chart-kpi-label">Variation</div><div class="chart-kpi-value" id="kpiAnneeDelta">—</div></div>
+              <div><div class="chart-kpi-label">Meilleure année</div><div class="chart-kpi-value" id="kpiAnneeMax">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. PAR MOIS -->
+      <div class="chart-panel mb-4">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelMois"
+                aria-expanded="false" aria-controls="panelMois">
+          <span class="chart-toggle-title"><i class="fa-solid fa-calendar-days me-2 text-primary"></i>Par mois</span>
+          <span class="chart-toggle-meta" id="metaMois"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelMois" data-render="mois">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeMois">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeMois"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chClasseMois">Classe</label>
+              <select class="form-select form-select-sm" id="chClasseMois"><option value="">Toutes les classes</option></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chVueMois">Affichage</label>
+              <select class="form-select form-select-sm" id="chVueMois">
+                <option value="mois">Inscriptions du mois</option>
+                <option value="cumul">Effectif cumulé</option>
+              </select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCompareMois">Comparer avec</label>
+              <select class="form-select form-select-sm" id="chCompareMois"><option value="">Aucune comparaison</option></select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap"><canvas id="chartMois"></canvas></div>
+            <div class="chart-empty" id="chartMoisEmpty" hidden>
+              <i class="fa-solid fa-calendar-xmark"></i>
+              <span>Aucune inscription datée sur cette année scolaire.</span>
+            </div>
+            <p class="text-muted mt-3 mb-0" style="font-size:11px;">
+              Les mois sont rangés dans l'ordre de l'année scolaire, de septembre à août.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ GÉNÉRATEUR DE LISTES ═══════════════ -->
+      <div class="card mb-4">
+        <div class="card-header">
+          <h2 class="card-title"><i class="fa-solid fa-file-lines me-2 text-primary"></i>Liste des élèves inscrits</h2>
+          <span class="badge badge-neutral">Par classe et par date</span>
+        </div>
+        <div class="card-body">
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="lAnnee">Année scolaire</label>
+              <select class="form-select form-select-sm" id="lAnnee"></select>
+            </div>
+            <div class="col-lg-3 col-md-4">
+              <label class="form-label" for="lClasse">Classe</label>
+              <select class="form-select form-select-sm" id="lClasse">
+                <option value="">Toutes les classes (une section par classe)</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="lMode">Période</label>
+              <select class="form-select form-select-sm" id="lMode">
+                <option value="arret">Arrêtée à une date</option>
+                <option value="entre">Entre deux dates</option>
+                <option value="tout">Toute l'année</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4" id="lDateDebutWrap" hidden>
+              <label class="form-label" for="lDateDebut">Du</label>
+              <input type="date" class="form-control form-control-sm" id="lDateDebut">
+            </div>
+            <div class="col-lg-2 col-md-4" id="lDateFinWrap">
+              <label class="form-label" for="lDateFin"><span id="lDateFinLabel">Arrêtée au</span></label>
+              <input type="date" class="form-control form-control-sm" id="lDateFin">
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="lStatut">Statut</label>
+              <select class="form-select form-select-sm" id="lStatut">
+                <option value="Actif">Actives seulement</option>
+                <option value="">Tous statuts</option>
+                <option value="Suspendu">Suspendues</option>
+                <option value="Radié">Radiées</option>
+                <option value="Transféré">Transférées</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="lTri">Trier par</label>
+              <select class="form-select form-select-sm" id="lTri">
+                <option value="nom">Ordre alphabétique</option>
+                <option value="matricule">Matricule</option>
+                <option value="date">Date d'inscription</option>
+                <option value="sexe">Sexe puis nom</option>
+              </select>
+            </div>
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label" for="lColonnes">Colonnes supplémentaires</label>
+              <select class="form-select form-select-sm" id="lColonnes" multiple size="3">
+                <option value="naissance" selected>Date et lieu de naissance</option>
+                <option value="parent" selected>Parent et téléphone</option>
+                <option value="date" selected>Date d'inscription</option>
+                <option value="statut">Statut</option>
+                <option value="emargement">Colonne d'émargement</option>
+              </select>
+            </div>
+            <div class="col-lg-7 col-md-6 d-flex flex-wrap gap-2 justify-content-lg-end">
+              <button class="btn btn-primary btn-sm" type="button" id="btnGenererListe">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Générer la liste
+              </button>
+              <button class="btn btn-light btn-sm" type="button" id="btnImprimerListe" disabled>
+                <i class="fa-solid fa-print"></i> Imprimer
+              </button>
+              <button class="btn btn-light btn-sm" type="button" id="btnCsvListe" disabled>
+                <i class="fa-solid fa-file-csv"></i> Export CSV
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="card-body border-top bg-page" id="apercuWrap" hidden>
+          <div id="zoneImpression"></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ FILTRES ═══════════════ -->
+      <div class="card filters-card mb-3">
+        <div class="card-body">
+          <div class="filters-title">
+            <i class="fa-solid fa-filter"></i> Filtres
+            <span class="filters-count" id="filtersCount" hidden>0</span>
+          </div>
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label" for="fSearch">Rechercher un élève</label>
+              <input type="search" class="form-control form-control-sm" id="fSearch" placeholder="Nom, prénom, matricule…">
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fAnnee">Année scolaire</label>
+              <select class="form-select form-select-sm" id="fAnnee"></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fCycle">Cycle</label>
+              <select class="form-select form-select-sm" id="fCycle"><option value="">Tous</option></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fClasse">Classe</label>
+              <select class="form-select form-select-sm" id="fClasse"><option value="">Toutes</option></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fStatut">Statut</label>
+              <select class="form-select form-select-sm" id="fStatut">
+                <option value="">Tous</option>
+                <option value="Actif">Actif</option>
+                <option value="Suspendu">Suspendu</option>
+                <option value="Radié">Radié</option>
+                <option value="Transféré">Transféré</option>
+              </select>
+            </div>
+            <div class="col-lg-1 col-md-6">
+              <label class="form-label" for="fSexe">Sexe</label>
+              <select class="form-select form-select-sm" id="fSexe">
+                <option value="">Tous</option>
+                <option value="M">G</option>
+                <option value="F">F</option>
+              </select>
+            </div>
+          </div>
+          <div class="row g-2 align-items-end mt-1">
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fDu">Inscrit du</label>
+              <input type="date" class="form-control form-control-sm" id="fDu">
+            </div>
+            <div class="col-lg-2 col-md-4">
+              <label class="form-label" for="fAu">au</label>
+              <input type="date" class="form-control form-control-sm" id="fAu">
+            </div>
+            <div class="col-lg-3 col-md-4">
+              <label class="form-label" for="fRaccourci">Raccourci</label>
+              <select class="form-select form-select-sm" id="fRaccourci">
+                <option value="">Aucune période</option>
+                <option value="7">7 derniers jours</option>
+                <option value="30">30 derniers jours</option>
+                <option value="mois">Mois en cours</option>
+                <option value="rentree">Depuis la rentrée (1er septembre)</option>
+              </select>
+            </div>
+            <div class="col-lg-5 d-flex justify-content-end gap-2">
+              <button class="btn btn-light btn-sm" type="button" id="btnResetFilters">
+                <i class="fa-solid fa-rotate-left"></i> Réinitialiser
+              </button>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-3" id="activeChips"></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ TABLEAU ═══════════════ -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title"><i class="fa-solid fa-table-list me-2 text-primary"></i>Registre des inscriptions</h2>
+          <span class="badge badge-primary" id="badgeCount">0</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive table-scroll">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th data-sort="nom" role="button">Élève <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th>Matricule</th>
+                  <th data-sort="classe" role="button">Classe <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th>Année</th>
+                  <th data-sort="date" role="button">Inscrit le <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th>Statut</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                <tr><td colspan="7" class="text-center text-muted py-5">
+                  <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <span id="rangeInfo">—</span>
+          <select class="form-select form-select-sm" id="pageSize" aria-label="Inscriptions par page">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="0">Tout afficher</option>
+          </select>
+          <div class="pager" id="pager"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL INSCRIPTION ═══════════════ -->
+<div class="modal fade" id="modalInscription" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalTitle"><i class="fa-solid fa-clipboard-check me-2 text-primary"></i>Inscrire un élève</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formInscription" novalidate>
+          <input type="hidden" id="fId">
+
+          <div class="d-flex align-items-center gap-3 mb-3" id="eleveModeWrap">
+            <strong style="font-size:12px;">Élève</strong>
+            <div class="btn-group btn-group-sm" role="group">
+              <input type="radio" class="btn-check" name="eleveMode" id="emExist" value="exist" checked>
+              <label class="btn btn-light btn-sm" for="emExist">Élève déjà enregistré</label>
+              <input type="radio" class="btn-check" name="eleveMode" id="emNew" value="new">
+              <label class="btn btn-light btn-sm" for="emNew">Créer un nouvel élève</label>
+            </div>
+          </div>
+
+          <!-- ── Élève déjà enregistré ── -->
+          <div class="row g-3" id="blocEleveExist">
+            <div class="col-12">
+              <label class="form-label required" for="fEleve">Élève</label>
+              <input class="form-control" list="listeEleves" id="fEleve" placeholder="Tapez un nom ou un matricule…" autocomplete="off">
+              <datalist id="listeEleves"></datalist>
+              <div class="form-text" id="eleveHint">L'élève doit déjà exister au répertoire.</div>
+            </div>
+          </div>
+
+          <!-- ── Nouvel élève (+ parent) ── -->
+          <div id="blocEleveNew" hidden>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label class="form-label required" for="neMatricule">Matricule</label>
+                <input type="text" class="form-control" id="neMatricule">
+                <div class="form-text">Unique au sein de l'établissement.</div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label required" for="neNom">Nom</label>
+                <input type="text" class="form-control" id="neNom">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label required" for="nePrenom">Prénom(s)</label>
+                <input type="text" class="form-control" id="nePrenom">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label required" for="neSexe">Sexe</label>
+                <select class="form-select" id="neSexe">
+                  <option value="">—</option>
+                  <option value="M">Masculin</option>
+                  <option value="F">Féminin</option>
+                </select>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="neNaissance">Date de naissance</label>
+                <input type="date" class="form-control" id="neNaissance">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label required" for="neLieu">Lieu de naissance</label>
+                <input type="text" class="form-control" id="neLieu">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label" for="neStatut">Statut de l'élève</label>
+                <select class="form-select" id="neStatut">
+                  <option value="Actif">Actif</option>
+                  <option value="Inactif">Inactif</option>
+                </select>
+              </div>
+            </div>
+
+            <hr class="divider">
+
+            <div class="d-flex align-items-center gap-3 mb-2">
+              <strong style="font-size:12px;">Parent / tuteur</strong>
+              <div class="btn-group btn-group-sm" role="group">
+                <input type="radio" class="btn-check" name="parentMode" id="pmExist" value="exist" checked>
+                <label class="btn btn-light btn-sm" for="pmExist">Parent déjà enregistré</label>
+                <input type="radio" class="btn-check" name="parentMode" id="pmNew" value="new">
+                <label class="btn btn-light btn-sm" for="pmNew">Créer un parent</label>
+              </div>
+            </div>
+
+            <div id="blocParentExist">
+              <label class="form-label required" for="fParentId">Parent</label>
+              <select class="form-select" id="fParentId"></select>
+              <div class="form-text">Un élève ne peut pas être enregistré sans parent rattaché.</div>
+            </div>
+
+            <div id="blocParentNew" hidden>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <label class="form-label required" for="fpNom">Nom du parent</label>
+                  <input type="text" class="form-control" id="fpNom">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="fpPrenom">Prénom du parent</label>
+                  <input type="text" class="form-control" id="fpPrenom">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="fpTel">Téléphone</label>
+                  <input type="tel" class="form-control" id="fpTel">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label required" for="fpEmail">E-mail</label>
+                  <input type="email" class="form-control" id="fpEmail">
+                </div>
+              </div>
+              <div class="form-text mt-2">Le parent est créé en même temps que l'élève, puis rattaché automatiquement.</div>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label required" for="fClasseForm">Classe</label>
+              <select class="form-select" id="fClasseForm"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label required" for="fAnneeForm">Année scolaire</label>
+              <select class="form-select" id="fAnneeForm"></select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label required" for="fDate">Date d'inscription</label>
+              <input type="date" class="form-control" id="fDate">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="fStatutForm">Statut</label>
+              <select class="form-select" id="fStatutForm">
+                <option value="Actif">Actif</option>
+                <option value="Suspendu">Suspendu</option>
+                <option value="Radié">Radié</option>
+                <option value="Transféré">Transféré</option>
+              </select>
+            </div>
+          </div>
+          <div class="alert alert-danger mt-3" id="formError" hidden></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSave">
+          <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL SUPPRESSION ═══════════════ -->
+<div class="modal fade" id="modalDelete" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-triangle-exclamation me-2 text-danger"></i>Retirer l'inscription</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="deleteBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btnConfirmDelete"><i class="fa-solid fa-trash"></i> Retirer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1200;">
+  <div class="toast" id="appToast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <i id="toastIcon" class="fa-solid fa-circle-check text-success me-2"></i>
+      <strong class="me-auto" id="toastTitle">Succès</strong>
+      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="toast" aria-label="Fermer"></button>
+    </div>
+    <div class="toast-body" id="toastBody"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+<script>
+(function () {
+  "use strict";
+
+  const AUTH = window.GestionnaireAuth || null;
+  const ETAB_ID = new URLSearchParams(location.search).get("etablissement_id")
+    || (AUTH && AUTH.getEtablissementId ? AUTH.getEtablissementId() : null);
+
+  function url(path) {
+    const u = new URL(path, location.origin);
+    if (ETAB_ID) u.searchParams.set("etablissement_id", ETAB_ID);
+    return u.pathname + u.search;
+  }
+
+  async function api(path, options) {
+    const opts = Object.assign({}, options || {});
+    opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    const doFetch = (AUTH && AUTH.authFetch) ? AUTH.authFetch.bind(AUTH) : window.fetch.bind(window);
+    const res = await doFetch(path, opts);
+    let payload = null;
+    try { payload = await res.json(); } catch (e) { payload = null; }
+    if (!res.ok) throw new Error((payload && (payload.erreur || payload.error)) || "Erreur " + res.status);
+    return payload;
+  }
+
+  /* ═══════════════ ÉTAT ═══════════════ */
+  let inscriptions = [], eleves = [], parents = [], classes = [], cycles = [], annees = [];
+  let eleveById = {}, parentById = {}, classeById = {}, cycleById = {}, anneeById = {};
+  let etablissement = null;
+  let charts = {};
+  let sortKey = "nom", sortAsc = true;
+  let page = 1;
+  let deleteId = null;
+  let derniereListe = null;   // { titre, sections:[{classe, lignes:[]}], colonnes:[] }
+
+  // Ordre scolaire : septembre → août
+  const MOIS_SCOLAIRES = [8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7];
+  const MOIS_NOMS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+
+  const $ = (id) => document.getElementById(id);
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#94A3B8";
+  const GRID = () => ({ color: cssVar("--ta-border-light"), drawBorder: false });
+
+  function esc(s) {
+    return (s == null ? "" : String(s))
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function dateFr(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? "—" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+  function iso(d) { return d.toISOString().slice(0, 10); }
+  function eleveNom(e) { return e ? ((e.nom || "").toUpperCase() + " " + (e.prenom || "")).trim() : "—"; }
+  function classeLabel(c) {
+    if (!c) return "—";
+    const cy = cycleById[c.cycle_id];
+    const parts = [];
+    if (cy && cy.libelle) parts.push(cy.libelle);
+    if (c.option) parts.push(c.option);
+    return parts.join(" · ") || ("Classe #" + c.id);
+  }
+  const anneeLabel = (id) => (anneeById[id] ? anneeById[id].libelle : (id ? "Année #" + id : "—"));
+
+  function toast(msg, type) {
+    const err = type === "error";
+    $("toastIcon").className = err ? "fa-solid fa-circle-xmark text-danger me-2" : "fa-solid fa-circle-check text-success me-2";
+    $("toastTitle").textContent = err ? "Échec" : "C'est fait";
+    $("toastBody").textContent = msg;
+    bootstrap.Toast.getOrCreateInstance($("appToast"), { delay: 4000 }).show();
+  }
+
+  function downloadCsv(filename, rows) {
+    const csv = rows.map((r) => r.map((v) => {
+      const s = v == null ? "" : String(v);
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(";")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /* ═══════════════ CHARGEMENT ═══════════════ */
+  async function loadAll() {
+    $("tableBody").innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">' +
+      '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
+    try {
+      const [rI, rE, rP, rC, rCy, rA] = await Promise.all([
+        api(url("/api/inscriptions/")), api(url("/api/eleves/")), api(url("/api/parents/")),
+        api(url("/api/classes/")), api(url("/api/cycles/")), api(url("/api/annees-scolaires/"))
+      ]);
+      inscriptions = rI || []; eleves = rE || []; parents = rP || [];
+      classes = rC || []; cycles = rCy || []; annees = rA || [];
+
+      eleveById = Object.fromEntries(eleves.map((e) => [e.id, e]));
+      parentById = Object.fromEntries(parents.map((p) => [p.id, p]));
+      classeById = Object.fromEntries(classes.map((c) => [c.id, c]));
+      cycleById = Object.fromEntries(cycles.map((c) => [c.id, c]));
+      anneeById = Object.fromEntries(annees.map((a) => [a.id, a]));
+      annees.sort((a, b) => String(b.libelle).localeCompare(String(a.libelle)));
+
+      // En-tête des documents imprimés (best-effort : un rôle sans accès ne bloque rien)
+      if (ETAB_ID && !etablissement) {
+        try { etablissement = await api("/api/etablissements/" + ETAB_ID); } catch (e) { etablissement = null; }
+      }
+
+      fillSelects();
+      renderStats();
+      renderTable();
+      renderVisibleCharts();
+    } catch (e) {
+      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+        '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
+        '<div class="empty-state-title">Les inscriptions n\'ont pas pu être chargées</div>' +
+        '<div>' + esc(e.message) + '</div></div></td></tr>';
+      toast(e.message, "error");
+    }
+  }
+
+  function defaultAnneeId() {
+    const act = annees.find((a) => a.active);
+    return act ? act.id : (annees[0] ? annees[0].id : "");
+  }
+
+  function fillSelects() {
+    const optAnnees = annees.map((a) => '<option value="' + a.id + '">' + esc(a.libelle) + (a.active ? " (en cours)" : "") + "</option>").join("");
+    const def = defaultAnneeId();
+    ["fAnnee", "chAnneeClasse", "chAnneeMois", "lAnnee", "fAnneeForm"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      s.innerHTML = optAnnees || '<option value="">Aucune année</option>';
+      s.value = prev || def;
+    });
+
+    // Comparaison : "aucune" + les autres années
+    ["chCompareClasse", "chCompareMois"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      s.innerHTML = '<option value="">Aucune comparaison</option>' + optAnnees;
+      s.value = prev;
+    });
+
+    const optClasses = classes.slice()
+      .sort((a, b) => classeLabel(a).localeCompare(classeLabel(b)))
+      .map((c) => '<option value="' + c.id + '">' + esc(classeLabel(c)) + "</option>").join("");
+    ["fClasse", "chClasseAnnee", "chClasseMois", "lClasse", "fClasseForm"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      const first = s.options.length && s.options[0].value === "" ? s.options[0].outerHTML : "";
+      s.innerHTML = first + optClasses;
+      s.value = prev;
+    });
+
+    const optParents = parents.slice()
+      .sort((a, b) => ((a.nom || "") + (a.prenom || "")).localeCompare((b.nom || "") + (b.prenom || "")))
+      .map((p) => '<option value="' + p.id + '">' + esc((p.nom || "") + " " + (p.prenom || "")) +
+        (p.telephone ? " — " + p.telephone : "") + "</option>").join("");
+    {
+      const s = $("fParentId"), prev = s.value;
+      s.innerHTML = '<option value="">— Choisir un parent —</option>' + optParents;
+      s.value = prev;
+    }
+
+    const optCycles = '<option value="">Tous les cycles</option>' +
+      cycles.map((c) => '<option value="' + c.id + '">' + esc(c.libelle) + "</option>").join("");
+    ["chCycleClasse", "chCycleAnnee"].forEach((id) => {
+      const s = $(id), prev = s.value; s.innerHTML = optCycles; s.value = prev;
+    });
+    const fc = $("fCycle"), prevFc = fc.value;
+    fc.innerHTML = '<option value="">Tous</option>' +
+      cycles.map((c) => '<option value="' + c.id + '">' + esc(c.libelle) + "</option>").join("");
+    fc.value = prevFc;
+
+    $("listeEleves").innerHTML = eleves.map((e) =>
+      '<option value="' + esc((e.matricule || "") + " — " + (e.nom || "") + " " + (e.prenom || "")) + '"></option>'
+    ).join("");
+
+    if (!$("lDateFin").value) $("lDateFin").value = iso(new Date());
+    if (!$("fDate").value) $("fDate").value = iso(new Date());
+    $("statAnneeLabel").textContent = anneeLabel(Number($("fAnnee").value));
+  }
+
+  /* ═══════════════ CHIFFRES CLÉS ═══════════════ */
+  function renderStats() {
+    const anneeId = Number($("fAnnee").value) || null;
+    const list = inscriptions.filter((i) => !anneeId || i.annee_scolaire_id === anneeId);
+    const actives = list.filter((i) => (i.statut || "Actif") === "Actif").length;
+    const classesOuvertes = new Set(list.map((i) => i.classe_id)).size;
+    const now = new Date();
+    const ceMois = list.filter((i) => {
+      if (!i.date_inscription) return false;
+      const d = new Date(i.date_inscription);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length;
+
+    $("statTotal").textContent = list.length;
+    $("statTotalSub").textContent = new Set(list.map((i) => i.eleve_id)).size + " élèves distincts";
+    $("statActives").textContent = actives;
+    $("statActivesSub").textContent = list.length ? Math.round((actives / list.length) * 100) + " % du total" : "—";
+    $("statClasses").textContent = classesOuvertes;
+    $("statClassesSub").textContent = classesOuvertes
+      ? Math.round(list.length / classesOuvertes) + " élèves par classe en moyenne" : "—";
+    $("statMois").textContent = ceMois;
+    $("statMoisSub").textContent = MOIS_NOMS[now.getMonth()] + " " + now.getFullYear();
+    $("statAnneeLabel").textContent = anneeLabel(anneeId);
+  }
+
+  /* ═══════════════ FILTRES ═══════════════ */
+  function currentFilters() {
+    return {
+      q: $("fSearch").value.trim().toLowerCase(),
+      annee: Number($("fAnnee").value) || null,
+      cycle: Number($("fCycle").value) || null,
+      classe: Number($("fClasse").value) || null,
+      statut: $("fStatut").value,
+      sexe: $("fSexe").value,
+      du: $("fDu").value || null,
+      au: $("fAu").value || null
+    };
+  }
+
+  function filtered() {
+    const f = currentFilters();
+    return inscriptions.filter((i) => {
+      if (f.annee && i.annee_scolaire_id !== f.annee) return false;
+      if (f.classe && i.classe_id !== f.classe) return false;
+      if (f.cycle) {
+        const c = classeById[i.classe_id];
+        if (!c || c.cycle_id !== f.cycle) return false;
+      }
+      if (f.statut && (i.statut || "Actif") !== f.statut) return false;
+
+      const e = eleveById[i.eleve_id];
+      if (f.sexe && (!e || e.sexe !== f.sexe)) return false;
+      if (f.q) {
+        const hay = (((e && e.nom) || "") + " " + ((e && e.prenom) || "") + " " + ((e && e.matricule) || "")).toLowerCase();
+        if (!hay.includes(f.q)) return false;
+      }
+      if (f.du && (!i.date_inscription || i.date_inscription < f.du)) return false;
+      if (f.au && (!i.date_inscription || i.date_inscription > f.au)) return false;
+      return true;
+    });
+  }
+
+  function renderChips() {
+    const f = currentFilters();
+    const chips = [];
+    if (f.q) chips.push(["q", '« ' + f.q + ' »']);
+    if (f.cycle) chips.push(["cycle", cycleById[f.cycle] ? cycleById[f.cycle].libelle : "Cycle"]);
+    if (f.classe) chips.push(["classe", classeLabel(classeById[f.classe])]);
+    if (f.statut) chips.push(["statut", f.statut]);
+    if (f.sexe) chips.push(["sexe", f.sexe === "M" ? "Garçons" : "Filles"]);
+    if (f.du) chips.push(["du", "à partir du " + dateFr(f.du)]);
+    if (f.au) chips.push(["au", "jusqu'au " + dateFr(f.au)]);
+    $("activeChips").innerHTML = chips.map((c) =>
+      '<button class="filter-chip" data-clear="' + c[0] + '">' + esc(c[1]) + ' <i class="fa-solid fa-xmark"></i></button>'
+    ).join("");
+    const badge = $("filtersCount");
+    badge.hidden = chips.length === 0;
+    badge.textContent = chips.length;
+  }
+
+  const CLEAR_MAP = { q: "fSearch", cycle: "fCycle", classe: "fClasse", statut: "fStatut", sexe: "fSexe", du: "fDu", au: "fAu" };
+
+  function applyRaccourci() {
+    const v = $("fRaccourci").value;
+    const now = new Date();
+    if (!v) { $("fDu").value = ""; $("fAu").value = ""; }
+    else if (v === "mois") {
+      $("fDu").value = iso(new Date(now.getFullYear(), now.getMonth(), 1));
+      $("fAu").value = iso(now);
+    } else if (v === "rentree") {
+      const y = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+      $("fDu").value = iso(new Date(y, 8, 1));
+      $("fAu").value = iso(now);
+    } else {
+      const d = new Date(now);
+      d.setDate(d.getDate() - Number(v));
+      $("fDu").value = iso(d);
+      $("fAu").value = iso(now);
+    }
+    page = 1;
+    renderTable();
+  }
+
+  /* ═══════════════ TABLEAU ═══════════════ */
+  function sorted(list) {
+    const val = (i) => {
+      if (sortKey === "classe") return classeLabel(classeById[i.classe_id]).toLowerCase();
+      if (sortKey === "date") return i.date_inscription || "";
+      const e = eleveById[i.eleve_id];
+      return (((e && e.nom) || "") + " " + ((e && e.prenom) || "")).toLowerCase();
+    };
+    return list.slice().sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function statutBadge(s) {
+    const v = s || "Actif";
+    const cls = v === "Actif" ? "badge-success"
+      : v === "Suspendu" ? "badge-warning"
+      : v === "Radié" ? "badge-danger"
+      : v === "Transféré" ? "badge-info" : "badge-neutral";
+    return '<span class="badge ' + cls + '">' + esc(v) + "</span>";
+  }
+
+  function renderTable() {
+    renderChips();
+    const list = sorted(filtered());
+    const size = Number($("pageSize").value) || list.length || 1;
+    const pages = Math.max(1, Math.ceil(list.length / size));
+    if (page > pages) page = pages;
+    const start = (page - 1) * size;
+    const slice = list.slice(start, start + size);
+
+    $("badgeCount").textContent = list.length;
+
+    if (!list.length) {
+      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+        '<i class="fa-solid fa-clipboard-list"></i>' +
+        '<div class="empty-state-title">Aucune inscription ne correspond à ces filtres</div>' +
+        '<div>Changez d\'année scolaire, élargissez la période, ou inscrivez un élève.</div></div></td></tr>';
+    } else {
+      $("tableBody").innerHTML = slice.map((i) => {
+        const e = eleveById[i.eleve_id];
+        return '<tr>' +
+          '<td><div class="cell-primary">' + esc(e ? (e.prenom || "") + " " + (e.nom || "") : "Élève #" + i.eleve_id) + '</div>' +
+          '<div class="cell-sub">' + (e && e.sexe === "M" ? "Garçon" : e && e.sexe === "F" ? "Fille" : "—") + '</div></td>' +
+          '<td><code style="font-size:11px;">' + esc(e ? e.matricule : "—") + '</code></td>' +
+          '<td><span class="badge badge-primary">' + esc(classeLabel(classeById[i.classe_id])) + '</span></td>' +
+          '<td>' + esc(anneeLabel(i.annee_scolaire_id)) + '</td>' +
+          '<td>' + dateFr(i.date_inscription) + '</td>' +
+          '<td>' + statutBadge(i.statut) + '</td>' +
+          '<td class="text-end text-nowrap">' +
+            '<button class="btn btn-light btn-sm" data-act="edit" data-id="' + i.id + '" title="Modifier"><i class="fa-solid fa-pen"></i></button> ' +
+            '<button class="btn btn-light btn-sm text-danger" data-act="del" data-id="' + i.id + '" title="Retirer"><i class="fa-solid fa-trash"></i></button>' +
+          '</td></tr>';
+      }).join("");
+    }
+
+    $("rangeInfo").textContent = list.length
+      ? (start + 1) + "–" + Math.min(start + size, list.length) + " sur " + list.length + " inscriptions"
+      : "Aucune inscription";
+    renderPager(pages);
+  }
+
+  function renderPager(pages) {
+    if (pages <= 1) { $("pager").innerHTML = ""; return; }
+    let html = '<button class="pager-btn" data-page="' + (page - 1) + '"' + (page === 1 ? " disabled" : "") + '><i class="fa-solid fa-chevron-left"></i></button>';
+    const from = Math.max(1, page - 2), to = Math.min(pages, from + 4);
+    for (let i = from; i <= to; i++) {
+      html += '<button class="pager-btn' + (i === page ? " active" : "") + '" data-page="' + i + '">' + i + "</button>";
+    }
+    html += '<button class="pager-btn" data-page="' + (page + 1) + '"' + (page === pages ? " disabled" : "") + '><i class="fa-solid fa-chevron-right"></i></button>';
+    $("pager").innerHTML = html;
+  }
+
+  /* ═══════════════ GRAPHIQUES ═══════════════ */
+  function chartDefaults() {
+    if (!window.Chart) return;
+    Chart.defaults.font.family = "'Inter','Segoe UI',system-ui,sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = cssVar("--ta-text-muted");
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
+    Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  }
+
+  function draw(key, canvasId, config) {
+    if (!window.Chart) return;
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart($(canvasId), config);
+  }
+
+  function setEmpty(emptyId, wrapSelector, isEmpty) {
+    const e = $(emptyId);
+    if (e) e.hidden = !isEmpty;
+    const w = document.querySelector(wrapSelector);
+    if (w) w.style.display = isEmpty ? "none" : "";
+  }
+
+  /* --- 1. PAR CLASSE --- */
+  function renderChartClasse() {
+    const anneeId = Number($("chAnneeClasse").value) || null;
+    const compareId = Number($("chCompareClasse").value) || null;
+    const cycleId = Number($("chCycleClasse").value) || null;
+    const detail = $("chDetailClasse").value;
+
+    function agrege(aId) {
+      const b = {};
+      inscriptions.forEach((i) => {
+        if (aId && i.annee_scolaire_id !== aId) return;
+        const c = classeById[i.classe_id];
+        if (!c || (cycleId && c.cycle_id !== cycleId)) return;
+        const k = i.classe_id;
+        b[k] = b[k] || { total: 0, M: 0, F: 0, Actif: 0, Autre: 0 };
+        b[k].total++;
+        const e = eleveById[i.eleve_id];
+        if (e && (e.sexe === "M" || e.sexe === "F")) b[k][e.sexe]++;
+        if ((i.statut || "Actif") === "Actif") b[k].Actif++; else b[k].Autre++;
+      });
+      return b;
+    }
+
+    const base = agrege(anneeId);
+    const comp = compareId ? agrege(compareId) : null;
+    const ids = Array.from(new Set(Object.keys(base).concat(comp ? Object.keys(comp) : [])))
+      .map(Number)
+      .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])));
+
+    const totaux = ids.map((id) => (base[id] ? base[id].total : 0));
+    const total = totaux.reduce((s, v) => s + v, 0);
+    $("metaClasse").textContent = anneeLabel(anneeId) + " · " + total + " inscription" + (total > 1 ? "s" : "");
+
+    setEmpty("chartClasseEmpty", "#panelClasse .chart-canvas-wrap", ids.length === 0);
+    if (!ids.length) { if (charts.classe) { charts.classe.destroy(); charts.classe = null; } return; }
+
+    let datasets;
+    if (detail === "sexe") {
+      datasets = [
+        { label: "Garçons", data: ids.map((id) => (base[id] ? base[id].M : 0)), backgroundColor: cssVar("--ta-info"), borderRadius: 3, stack: "s" },
+        { label: "Filles", data: ids.map((id) => (base[id] ? base[id].F : 0)), backgroundColor: "#EC4899", borderRadius: 3, stack: "s" }
+      ];
+    } else if (detail === "statut") {
+      datasets = [
+        { label: "Actives", data: ids.map((id) => (base[id] ? base[id].Actif : 0)), backgroundColor: cssVar("--ta-success"), borderRadius: 3, stack: "s" },
+        { label: "Autres statuts", data: ids.map((id) => (base[id] ? base[id].Autre : 0)), backgroundColor: cssVar("--ta-warning"), borderRadius: 3, stack: "s" }
+      ];
+    } else {
+      datasets = [{ label: anneeLabel(anneeId), data: totaux, backgroundColor: cssVar("--ta-primary"), borderRadius: 4, maxBarThickness: 34 }];
+    }
+    if (comp) {
+      datasets.push({
+        label: anneeLabel(compareId),
+        data: ids.map((id) => (comp[id] ? comp[id].total : 0)),
+        backgroundColor: cssVar("--ta-text-light"), borderRadius: 4, maxBarThickness: 34
+      });
+    }
+
+    const stacked = detail !== "total" && !comp;
+    draw("classe", "chartClasse", {
+      type: "bar",
+      data: { labels: ids.map((id) => classeLabel(classeById[id])), datasets: datasets },
+      options: {
+        plugins: { legend: { display: datasets.length > 1, position: "bottom" } },
+        scales: {
+          x: { stacked: stacked, grid: { display: false }, ticks: { maxRotation: 60 } },
+          y: { stacked: stacked, beginAtZero: true, grid: GRID(), ticks: { precision: 0 } }
+        }
+      }
+    });
+
+    const nonVides = ids.filter((id) => base[id] && base[id].total > 0);
+    if (nonVides.length) {
+      const tri = nonVides.slice().sort((a, b) => base[b].total - base[a].total);
+      $("kpiClasseMax").textContent = classeLabel(classeById[tri[0]]) + " (" + base[tri[0]].total + ")";
+      const last = tri[tri.length - 1];
+      $("kpiClasseMin").textContent = classeLabel(classeById[last]) + " (" + base[last].total + ")";
+      $("kpiClasseMoy").textContent = Math.round(total / nonVides.length) + " élèves";
+    } else {
+      $("kpiClasseMax").textContent = $("kpiClasseMin").textContent = $("kpiClasseMoy").textContent = "—";
+    }
+  }
+
+  /* --- 2. PAR ANNÉE --- */
+  function renderChartAnnee() {
+    const classeId = Number($("chClasseAnnee").value) || null;
+    const cycleId = Number($("chCycleAnnee").value) || null;
+    const detail = $("chDetailAnnee").value;
+
+    const ordered = annees.slice().sort((a, b) => String(a.libelle).localeCompare(String(b.libelle)));
+    const labels = ordered.map((a) => a.libelle);
+
+    function compte(anneeId, sexe) {
+      return inscriptions.filter((i) => {
+        if (i.annee_scolaire_id !== anneeId) return false;
+        if (classeId && i.classe_id !== classeId) return false;
+        if (cycleId) {
+          const c = classeById[i.classe_id];
+          if (!c || c.cycle_id !== cycleId) return false;
+        }
+        if (sexe) {
+          const e = eleveById[i.eleve_id];
+          if (!e || e.sexe !== sexe) return false;
+        }
+        return true;
+      }).length;
+    }
+
+    const totaux = ordered.map((a) => compte(a.id, null));
+    const somme = totaux.reduce((s, v) => s + v, 0);
+
+    setEmpty("chartAnneeEmpty", "#panelAnnee .chart-canvas-wrap", somme === 0);
+    if (!somme) {
+      if (charts.annee) { charts.annee.destroy(); charts.annee = null; }
+      $("metaAnnee").textContent = "";
+      $("kpiAnneeDerniere").textContent = $("kpiAnneeDelta").textContent = $("kpiAnneeMax").textContent = "—";
+      return;
+    }
+
+    const datasets = detail === "sexe"
+      ? [
+          { label: "Garçons", data: ordered.map((a) => compte(a.id, "M")), backgroundColor: cssVar("--ta-info"), borderColor: cssVar("--ta-info"), borderRadius: 3, stack: "s" },
+          { label: "Filles", data: ordered.map((a) => compte(a.id, "F")), backgroundColor: "#EC4899", borderColor: "#EC4899", borderRadius: 3, stack: "s" }
+        ]
+      : [{
+          label: "Inscriptions", data: totaux,
+          borderColor: cssVar("--ta-primary"), backgroundColor: "rgba(60,80,224,0.12)",
+          fill: true, tension: 0.35, pointRadius: 4, pointBackgroundColor: cssVar("--ta-primary"), borderWidth: 2
+        }];
+
+    draw("annee", "chartAnnee", {
+      type: detail === "sexe" ? "bar" : "line",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        plugins: { legend: { display: detail === "sexe", position: "bottom" } },
+        scales: {
+          x: { stacked: detail === "sexe", grid: { display: false } },
+          y: { stacked: detail === "sexe", beginAtZero: true, grid: GRID(), ticks: { precision: 0 } }
+        }
+      }
+    });
+
+    const dernier = totaux[totaux.length - 1];
+    const avant = totaux.length > 1 ? totaux[totaux.length - 2] : null;
+    const delta = avant ? Math.round(((dernier - avant) / avant) * 100) : null;
+    const maxIdx = totaux.indexOf(Math.max.apply(null, totaux));
+
+    $("metaAnnee").textContent = ordered.length + " années · " + somme + " inscriptions";
+    $("kpiAnneeDerniere").textContent = labels[labels.length - 1] + " : " + dernier;
+    $("kpiAnneeDelta").textContent = delta == null ? "—" : (delta >= 0 ? "+" : "") + delta + " %";
+    $("kpiAnneeDelta").style.color = delta == null ? "" : (delta >= 0 ? cssVar("--ta-success") : cssVar("--ta-danger"));
+    $("kpiAnneeMax").textContent = labels[maxIdx] + " (" + totaux[maxIdx] + ")";
+  }
+
+  /* --- 3. PAR MOIS --- */
+  function renderChartMois() {
+    const anneeId = Number($("chAnneeMois").value) || null;
+    const compareId = Number($("chCompareMois").value) || null;
+    const classeId = Number($("chClasseMois").value) || null;
+    const cumul = $("chVueMois").value === "cumul";
+
+    function serie(aId) {
+      const parMois = new Array(12).fill(0);
+      inscriptions.forEach((i) => {
+        if (aId && i.annee_scolaire_id !== aId) return;
+        if (classeId && i.classe_id !== classeId) return;
+        if (!i.date_inscription) return;
+        const d = new Date(i.date_inscription);
+        if (isNaN(d)) return;
+        parMois[d.getMonth()]++;
+      });
+      let data = MOIS_SCOLAIRES.map((m) => parMois[m]);
+      const total = data.reduce((s, v) => s + v, 0);
+      if (cumul) { let acc = 0; data = data.map((v) => (acc += v)); }
+      return { data: data, total: total };
+    }
+
+    const base = serie(anneeId);
+    const comp = compareId ? serie(compareId) : null;
+    const labels = MOIS_SCOLAIRES.map((m) => MOIS_NOMS[m].slice(0, 4) + ".");
+
+    $("metaMois").textContent = anneeLabel(anneeId) + " · " + base.total + " inscription" + (base.total > 1 ? "s" : "");
+    setEmpty("chartMoisEmpty", "#panelMois .chart-canvas-wrap", base.total === 0 && (!comp || comp.total === 0));
+    if (!base.total && (!comp || !comp.total)) {
+      if (charts.mois) { charts.mois.destroy(); charts.mois = null; }
+      return;
+    }
+
+    const datasets = [{
+      label: anneeLabel(anneeId),
+      data: base.data,
+      borderColor: cssVar("--ta-primary"),
+      backgroundColor: cumul ? "rgba(60,80,224,0.12)" : cssVar("--ta-primary"),
+      fill: cumul, tension: 0.35, pointRadius: 3, borderWidth: 2, borderRadius: 4, maxBarThickness: 30
+    }];
+    if (comp) {
+      datasets.push({
+        label: anneeLabel(compareId),
+        data: comp.data,
+        borderColor: cssVar("--ta-text-light"),
+        backgroundColor: cumul ? "rgba(148,163,184,0.15)" : cssVar("--ta-text-light"),
+        fill: cumul, tension: 0.35, pointRadius: 3, borderWidth: 2, borderDash: cumul ? [5, 4] : [], borderRadius: 4, maxBarThickness: 30
+      });
+    }
+
+    draw("mois", "chartMois", {
+      type: cumul ? "line" : "bar",
+      data: { labels: labels, datasets: datasets },
+      options: {
+        plugins: { legend: { display: !!comp, position: "bottom" } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  const RENDERERS = { classe: renderChartClasse, annee: renderChartAnnee, mois: renderChartMois };
+
+  function renderVisibleCharts() {
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      if (el.classList.contains("show")) RENDERERS[el.dataset.render]();
+    });
+  }
+
+  /* ═══════════════════════════════════════════
+     GÉNÉRATEUR DE LISTES (par classe, par date)
+  ═══════════════════════════════════════════ */
+  function colonnesChoisies() {
+    return Array.from($("lColonnes").selectedOptions).map((o) => o.value);
+  }
+
+  function genererListe() {
+    const anneeId = Number($("lAnnee").value) || null;
+    const classeId = Number($("lClasse").value) || null;
+    const mode = $("lMode").value;
+    const debut = $("lDateDebut").value || null;
+    const fin = $("lDateFin").value || null;
+    const statut = $("lStatut").value;
+    const tri = $("lTri").value;
+    const cols = colonnesChoisies();
+
+    let lignes = inscriptions.filter((i) => {
+      if (anneeId && i.annee_scolaire_id !== anneeId) return false;
+      if (classeId && i.classe_id !== classeId) return false;
+      if (statut && (i.statut || "Actif") !== statut) return false;
+      if (mode === "arret" && fin && (!i.date_inscription || i.date_inscription > fin)) return false;
+      if (mode === "entre") {
+        if (debut && (!i.date_inscription || i.date_inscription < debut)) return false;
+        if (fin && (!i.date_inscription || i.date_inscription > fin)) return false;
+      }
+      return true;
+    });
+
+    const cmp = (a, b) => {
+      const ea = eleveById[a.eleve_id] || {}, eb = eleveById[b.eleve_id] || {};
+      if (tri === "matricule") return String(ea.matricule || "").localeCompare(String(eb.matricule || ""));
+      if (tri === "date") return String(a.date_inscription || "").localeCompare(String(b.date_inscription || ""));
+      if (tri === "sexe") {
+        const s = String(ea.sexe || "Z").localeCompare(String(eb.sexe || "Z"));
+        if (s !== 0) return s;
+      }
+      return (((ea.nom || "") + " " + (ea.prenom || "")).localeCompare((eb.nom || "") + " " + (eb.prenom || "")));
+    };
+    lignes.sort(cmp);
+
+    // Une section par classe (ou une seule si une classe est choisie)
+    const parClasse = {};
+    lignes.forEach((i) => { (parClasse[i.classe_id] = parClasse[i.classe_id] || []).push(i); });
+    const sections = Object.keys(parClasse).map(Number)
+      .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])))
+      .map((id) => ({ classeId: id, lignes: parClasse[id] }));
+
+    const periode = mode === "tout" ? "Toute l'année scolaire"
+      : mode === "arret" ? "Situation arrêtée au " + dateFr(fin)
+      : "Inscriptions du " + dateFr(debut) + " au " + dateFr(fin);
+
+    derniereListe = { anneeId, classeId, sections, cols, periode, statut, total: lignes.length };
+    renderApercu();
+
+    $("btnImprimerListe").disabled = lignes.length === 0;
+    $("btnCsvListe").disabled = lignes.length === 0;
+    $("apercuWrap").hidden = false;
+    $("apercuWrap").scrollIntoView({ behavior: "smooth", block: "start" });
+
+    toast(lignes.length
+      ? lignes.length + " élève(s) dans " + sections.length + " classe(s)"
+      : "Aucun élève ne correspond à ces critères", lignes.length ? undefined : "error");
+  }
+
+  function enteteEtablissement() {
+    const e = etablissement;
+    const logo = e && e.logo_url ? '<img src="' + esc(e.logo_url) + '" class="print-logo" alt="">' : "";
+    return '<div class="print-head">' + logo +
+      '<div><div class="print-etab">' + esc(e && e.nom ? e.nom : "Établissement") + '</div>' +
+      (e && e.nom_bilingue ? '<div class="print-etab-sub">' + esc(e.nom_bilingue) + '</div>' : "") +
+      '<div class="print-etab-sub">' +
+        [e && e.adresse, e && e.bp ? "BP " + e.bp : null, e && e.telephone ? "Tél. " + e.telephone : null]
+          .filter(Boolean).map(esc).join(" · ") +
+      '</div></div></div>';
+  }
+
+  function renderApercu() {
+    if (!derniereListe) return;
+    const L = derniereListe;
+    const cols = L.cols;
+
+    const th = ['<th class="num">N°</th>', "<th>Matricule</th>", "<th>Nom et prénoms</th>", "<th>Sexe</th>"];
+    if (cols.includes("naissance")) th.push("<th>Né(e) le</th>", "<th>À</th>");
+    if (cols.includes("parent")) th.push("<th>Parent</th>", "<th>Téléphone</th>");
+    if (cols.includes("date")) th.push("<th>Inscrit le</th>");
+    if (cols.includes("statut")) th.push("<th>Statut</th>");
+    if (cols.includes("emargement")) th.push("<th>Émargement</th>");
+
+    const sections = L.sections.map((sec) => {
+      const c = classeById[sec.classeId];
+      const g = sec.lignes.filter((i) => (eleveById[i.eleve_id] || {}).sexe === "M").length;
+      const f = sec.lignes.filter((i) => (eleveById[i.eleve_id] || {}).sexe === "F").length;
+
+      const rows = sec.lignes.map((i, idx) => {
+        const e = eleveById[i.eleve_id] || {};
+        const p = parentById[e.parent_id];
+        const td = ['<td class="num">' + (idx + 1) + "</td>",
+          "<td>" + esc(e.matricule || "—") + "</td>",
+          "<td>" + esc(eleveNom(e)) + "</td>",
+          "<td>" + esc(e.sexe || "—") + "</td>"];
+        if (cols.includes("naissance")) td.push("<td>" + dateFr(e.date_naissance) + "</td>", "<td>" + esc(e.lieu_naissance || "—") + "</td>");
+        if (cols.includes("parent")) td.push("<td>" + esc(p ? p.nom + " " + p.prenom : "—") + "</td>", "<td>" + esc(p && p.telephone ? p.telephone : "—") + "</td>");
+        if (cols.includes("date")) td.push("<td>" + dateFr(i.date_inscription) + "</td>");
+        if (cols.includes("statut")) td.push("<td>" + esc(i.statut || "Actif") + "</td>");
+        if (cols.includes("emargement")) td.push("<td></td>");
+        return "<tr>" + td.join("") + "</tr>";
+      }).join("");
+
+      return '<div style="margin-top:18px;">' +
+        '<div class="print-meta">' +
+          "<span><b>Classe :</b> " + esc(classeLabel(c)) + "</span>" +
+          "<span><b>Effectif :</b> " + sec.lignes.length + "</span>" +
+          "<span><b>Garçons :</b> " + g + "</span>" +
+          "<span><b>Filles :</b> " + f + "</span>" +
+        "</div>" +
+        '<table class="print-table"><thead><tr>' + th.join("") + "</tr></thead><tbody>" + rows + "</tbody></table>" +
+      "</div>";
+    }).join("");
+
+    $("zoneImpression").innerHTML =
+      '<div class="print-doc">' +
+        enteteEtablissement() +
+        '<div class="print-title">Liste des élèves inscrits</div>' +
+        '<div class="print-subtitle">' + esc(anneeLabel(L.anneeId)) + " — " + esc(L.periode) +
+          (L.statut ? " — inscriptions « " + esc(L.statut) + " »" : "") + "</div>" +
+        '<div class="print-meta">' +
+          "<span><b>Total :</b> " + L.total + " élève(s)</span>" +
+          "<span><b>Classes :</b> " + L.sections.length + "</span>" +
+          "<span><b>Éditée le :</b> " + dateFr(new Date().toISOString()) + "</span>" +
+        "</div>" +
+        (L.sections.length ? sections : '<p style="margin-top:20px;">Aucun élève ne correspond à ces critères.</p>') +
+        '<div class="print-signature">' +
+          "<div>Le Censeur<span></span></div>" +
+          "<div>Le Chef d'établissement<span></span></div>" +
+        "</div>" +
+      "</div>";
+  }
+
+  function exportListeCsv() {
+    if (!derniereListe) return;
+    const L = derniereListe, cols = L.cols;
+    const head = ["Classe", "N°", "Matricule", "Nom et prénoms", "Sexe"];
+    if (cols.includes("naissance")) head.push("Date de naissance", "Lieu de naissance");
+    if (cols.includes("parent")) head.push("Parent", "Téléphone");
+    if (cols.includes("date")) head.push("Date d'inscription");
+    if (cols.includes("statut")) head.push("Statut");
+    const rows = [head];
+
+    L.sections.forEach((sec) => {
+      sec.lignes.forEach((i, idx) => {
+        const e = eleveById[i.eleve_id] || {};
+        const p = parentById[e.parent_id];
+        const r = [classeLabel(classeById[sec.classeId]), idx + 1, e.matricule || "", eleveNom(e), e.sexe || ""];
+        if (cols.includes("naissance")) r.push(e.date_naissance || "", e.lieu_naissance || "");
+        if (cols.includes("parent")) r.push(p ? p.nom + " " + p.prenom : "", p ? p.telephone : "");
+        if (cols.includes("date")) r.push(i.date_inscription || "");
+        if (cols.includes("statut")) r.push(i.statut || "Actif");
+        rows.push(r);
+      });
+    });
+
+    const nom = "liste-" + String(anneeLabel(L.anneeId)).replace(/[^\w-]/g, "_") +
+      (L.classeId ? "-" + classeLabel(classeById[L.classeId]).replace(/[^\w-]/g, "_") : "") + ".csv";
+    downloadCsv(nom, rows);
+  }
+
+  /* ═══════════════ CRUD ═══════════════ */
+  function eleveDepuisSaisie() {
+    const v = $("fEleve").value.trim();
+    if (!v) return null;
+    const matricule = v.split("—")[0].trim().toLowerCase();
+    let found = eleves.find((e) => String(e.matricule || "").toLowerCase() === matricule);
+    if (!found) {
+      const low = v.toLowerCase();
+      found = eleves.find((e) => (((e.nom || "") + " " + (e.prenom || "")).toLowerCase() === low)) ||
+        eleves.find((e) => low.includes(String(e.matricule || "").toLowerCase()) && e.matricule);
+    }
+    return found || null;
+  }
+
+  function setEleveMode(mode) {
+    $("blocEleveExist").hidden = mode !== "exist";
+    $("blocEleveNew").hidden = mode !== "new";
+  }
+
+  function setParentMode(mode) {
+    $("blocParentExist").hidden = mode !== "exist";
+    $("blocParentNew").hidden = mode !== "new";
+  }
+
+  function resetForm() {
+    $("formInscription").reset();
+    $("fId").value = "";
+    $("formError").hidden = true;
+    $("fDate").value = iso(new Date());
+    $("fAnneeForm").value = $("fAnnee").value || defaultAnneeId();
+    $("fEleve").disabled = false;
+    $("eleveModeWrap").hidden = false;
+    $("emExist").checked = true;
+    setEleveMode("exist");
+    $("pmExist").checked = true;
+    setParentMode("exist");
+    $("modalTitle").innerHTML = '<i class="fa-solid fa-clipboard-check me-2 text-primary"></i>Inscrire un élève';
+  }
+
+  function openEdit(id) {
+    const i = inscriptions.find((x) => x.id === id);
+    if (!i) return;
+    resetForm();
+    const e = eleveById[i.eleve_id];
+    $("modalTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier l\'inscription';
+    $("fId").value = i.id;
+    // En modification, l'élève de l'inscription ne change pas.
+    $("eleveModeWrap").hidden = true;
+    setEleveMode("exist");
+    $("fEleve").value = e ? (e.matricule || "") + " — " + (e.nom || "") + " " + (e.prenom || "") : "";
+    $("fEleve").disabled = true;
+    $("fClasseForm").value = i.classe_id;
+    $("fAnneeForm").value = i.annee_scolaire_id;
+    $("fDate").value = i.date_inscription || "";
+    $("fStatutForm").value = i.statut || "Actif";
+    bootstrap.Modal.getOrCreateInstance($("modalInscription")).show();
+  }
+
+  /**
+   * Résout l'eleve_id à utiliser pour l'inscription :
+   * - mode "exist" : l'élève doit déjà exister au répertoire (autocomplete)
+   * - mode "new"   : crée le parent (si besoin) puis l'élève, et retourne le nouvel id
+   * Lève une erreur avec un message utilisateur explicite en cas de souci.
+   */
+  async function resoudreEleveId() {
+    const mode = document.querySelector('input[name="eleveMode"]:checked').value;
+
+    if (mode === "exist") {
+      const e = eleveDepuisSaisie();
+      if (!e) throw new Error("Choisissez un élève dans la liste (tapez son matricule ou son nom).");
+      return { eleve_id: e.id, label: (e.prenom || "") + " " + (e.nom || "") };
+    }
+
+    // mode === "new" : créer l'élève (et éventuellement le parent) à la volée
+    const ep = {
+      matricule: $("neMatricule").value.trim(),
+      nom: $("neNom").value.trim(),
+      prenom: $("nePrenom").value.trim(),
+      sexe: $("neSexe").value,
+      lieu_naissance: $("neLieu").value.trim(),
+      statut: $("neStatut").value
+    };
+    const naissance = $("neNaissance").value;
+    if (naissance) ep.date_naissance = naissance;
+    if (ETAB_ID) ep.etablissement_id = Number(ETAB_ID);
+
+    for (const [k, label] of [["matricule", "matricule"], ["nom", "nom"], ["prenom", "prénom"], ["sexe", "sexe"], ["lieu_naissance", "lieu de naissance"]]) {
+      if (!ep[k]) throw new Error("Renseignez le " + label + " de l'élève.");
+    }
+
+    const parentMode = document.querySelector('input[name="parentMode"]:checked').value;
+    if (parentMode === "new") {
+      const np = {
+        nom: $("fpNom").value.trim(), prenom: $("fpPrenom").value.trim(),
+        telephone: $("fpTel").value.trim(), email: $("fpEmail").value.trim()
+      };
+      if (!np.nom || !np.prenom || !np.telephone || !np.email) {
+        throw new Error("Le nouveau parent a besoin d'un nom, d'un prénom, d'un téléphone et d'un e-mail.");
+      }
+      if (ETAB_ID) np.etablissement_id = Number(ETAB_ID);
+      const createdParent = await api("/api/parents/", { method: "POST", body: JSON.stringify(np) });
+      ep.parent_id = createdParent.id;
+    } else {
+      ep.parent_id = Number($("fParentId").value) || null;
+      if (!ep.parent_id) throw new Error("Choisissez le parent de l'élève, ou créez-en un nouveau.");
+    }
+
+    const createdEleve = await api("/api/eleves/", { method: "POST", body: JSON.stringify(ep) });
+    return { eleve_id: createdEleve.id, label: (ep.prenom || "") + " " + (ep.nom || "") };
+  }
+
+  async function save() {
+    const err = $("formError");
+    err.hidden = true;
+    const id = $("fId").value;
+
+    const payload = {
+      classe_id: Number($("fClasseForm").value) || null,
+      annee_scolaire_id: Number($("fAnneeForm").value) || null,
+      date_inscription: $("fDate").value || null,
+      statut: $("fStatutForm").value
+    };
+
+    if (!payload.classe_id) { err.textContent = "Choisissez la classe."; err.hidden = false; return; }
+    if (!payload.annee_scolaire_id) { err.textContent = "Choisissez l'année scolaire."; err.hidden = false; return; }
+    if (!payload.date_inscription) { err.textContent = "Indiquez la date d'inscription."; err.hidden = false; return; }
+
+    const btn = $("btnSave");
+    btn.disabled = true;
+    try {
+      if (id) {
+        await api("/api/inscriptions/" + id + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "PUT", body: JSON.stringify(payload) });
+        toast("Inscription mise à jour");
+      } else {
+        const resolu = await resoudreEleveId();
+        payload.eleve_id = resolu.eleve_id;
+        if (ETAB_ID) payload.etablissement_id = Number(ETAB_ID);
+        await api("/api/inscriptions/", { method: "POST", body: JSON.stringify(payload) });
+        toast(resolu.label.trim() + " inscrit(e) en " + classeLabel(classeById[payload.classe_id]));
+      }
+      bootstrap.Modal.getOrCreateInstance($("modalInscription")).hide();
+      await loadAll();
+    } catch (e2) {
+      err.textContent = /unicit/i.test(e2.message)
+        ? "Cet élève est déjà inscrit dans cette classe pour cette année scolaire."
+        : e2.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function openDelete(id) {
+    const i = inscriptions.find((x) => x.id === id);
+    if (!i) return;
+    deleteId = id;
+    const e = eleveById[i.eleve_id];
+    $("deleteBody").innerHTML =
+      '<p class="mb-2">Retirer <strong>' + esc(e ? (e.prenom || "") + " " + (e.nom || "") : "cet élève") +
+      "</strong> de <strong>" + esc(classeLabel(classeById[i.classe_id])) + "</strong> (" + esc(anneeLabel(i.annee_scolaire_id)) + ") ?</p>" +
+      '<p class="mb-0 text-muted">L\'élève reste au répertoire. Pour garder la trace du passage dans la classe, passez plutôt le statut à « Radié » ou « Transféré ».</p>';
+    bootstrap.Modal.getOrCreateInstance($("modalDelete")).show();
+  }
+
+  async function confirmDelete() {
+    if (!deleteId) return;
+    const btn = $("btnConfirmDelete");
+    btn.disabled = true;
+    try {
+      await api("/api/inscriptions/" + deleteId + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "DELETE" });
+      bootstrap.Modal.getOrCreateInstance($("modalDelete")).hide();
+      toast("Inscription retirée");
+      deleteId = null;
+      await loadAll();
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function exportCsv() {
+    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année", "Date d'inscription", "Statut", "Parent", "Téléphone"]];
+    sorted(filtered()).forEach((i) => {
+      const e = eleveById[i.eleve_id] || {};
+      const p = parentById[e.parent_id];
+      rows.push([e.matricule || "", e.nom || "", e.prenom || "", e.sexe || "",
+        classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id),
+        i.date_inscription || "", i.statut || "Actif",
+        p ? p.nom + " " + p.prenom : "", p ? p.telephone : ""]);
+    });
+    downloadCsv("inscriptions.csv", rows);
+    toast(rows.length - 1 + " inscription(s) exportée(s)");
+  }
+
+  /* ═══════════════ ÉVÉNEMENTS ═══════════════ */
+  function bind() {
+    ["fSearch", "fCycle", "fClasse", "fStatut", "fSexe", "fDu", "fAu"].forEach((id) => {
+      $(id).addEventListener("input", () => { page = 1; renderTable(); });
+    });
+    $("fAnnee").addEventListener("change", () => {
+      page = 1;
+      ["chAnneeClasse", "chAnneeMois", "lAnnee"].forEach((id) => { $(id).value = $("fAnnee").value; });
+      renderStats(); renderTable(); renderVisibleCharts();
+    });
+    $("fRaccourci").addEventListener("change", applyRaccourci);
+    $("btnResetFilters").addEventListener("click", () => {
+      ["fSearch", "fDu", "fAu"].forEach((id) => { $(id).value = ""; });
+      ["fCycle", "fClasse", "fStatut", "fSexe", "fRaccourci"].forEach((id) => { $(id).value = ""; });
+      page = 1; renderTable();
+    });
+    $("activeChips").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-clear]");
+      if (!b) return;
+      $(CLEAR_MAP[b.dataset.clear]).value = "";
+      if (b.dataset.clear === "du" || b.dataset.clear === "au") $("fRaccourci").value = "";
+      page = 1; renderTable();
+    });
+
+    $("pageSize").addEventListener("change", () => { page = 1; renderTable(); });
+    $("pager").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-page]");
+      if (!b || b.disabled) return;
+      page = Number(b.dataset.page);
+      renderTable();
+    });
+    document.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const k = th.dataset.sort;
+        if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
+        renderTable();
+      });
+    });
+
+    $("tableBody").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-act]");
+      if (!b) return;
+      const id = Number(b.dataset.id);
+      if (b.dataset.act === "edit") openEdit(id);
+      if (b.dataset.act === "del") openDelete(id);
+    });
+
+    $("btnNouvelleInscription").addEventListener("click", () => {
+      resetForm();
+      bootstrap.Modal.getOrCreateInstance($("modalInscription")).show();
+    });
+    $("btnSave").addEventListener("click", save);
+    $("btnConfirmDelete").addEventListener("click", confirmDelete);
+    $("btnRefresh").addEventListener("click", loadAll);
+    $("btnExportCsv").addEventListener("click", exportCsv);
+
+    $("fEleve").addEventListener("input", () => {
+      const e = eleveDepuisSaisie();
+      $("eleveHint").textContent = e
+        ? "Élève reconnu : " + (e.prenom || "") + " " + (e.nom || "") + " (matricule " + (e.matricule || "—") + ")"
+        : "L'élève doit déjà exister au répertoire.";
+      $("eleveHint").className = e ? "form-text text-success" : "form-text";
+    });
+
+    document.querySelectorAll('input[name="eleveMode"]').forEach((r) => {
+      r.addEventListener("change", () => setEleveMode(r.value));
+    });
+    document.querySelectorAll('input[name="parentMode"]').forEach((r) => {
+      r.addEventListener("change", () => setParentMode(r.value));
+    });
+
+    // Générateur de listes
+    $("lMode").addEventListener("change", () => {
+      const m = $("lMode").value;
+      $("lDateDebutWrap").hidden = m !== "entre";
+      $("lDateFinWrap").hidden = m === "tout";
+      $("lDateFinLabel").textContent = m === "entre" ? "au" : "Arrêtée au";
+    });
+    $("btnGenererListe").addEventListener("click", genererListe);
+    $("btnImprimerListe").addEventListener("click", () => window.print());
+    $("btnCsvListe").addEventListener("click", exportListeCsv);
+
+    // Graphiques
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      el.addEventListener("shown.bs.collapse", () => RENDERERS[el.dataset.render]());
+      el.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => RENDERERS[el.dataset.render]()));
+    });
+    $("btnToggleAllCharts").addEventListener("click", (ev) => {
+      const panels = Array.from(document.querySelectorAll("[data-render]"));
+      const openAll = panels.some((p) => !p.classList.contains("show"));
+      panels.forEach((p) => bootstrap.Collapse.getOrCreateInstance(p, { toggle: false })[openAll ? "show" : "hide"]());
+      ev.currentTarget.innerHTML = openAll
+        ? '<i class="fa-solid fa-angles-up"></i> Tout replier'
+        : '<i class="fa-solid fa-angles-down"></i> Tout ouvrir';
+    });
+
+    window.addEventListener("resize", () => { Object.values(charts).forEach((c) => c && c.resize()); });
+  }
+
+  chartDefaults();
+  bind();
+  loadAll();
+})();
+</script>
+</body>
+</html>

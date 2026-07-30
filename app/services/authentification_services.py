@@ -3,6 +3,11 @@ from models.authentification_models import (
     valider_force_mot_de_passe, TEMP_PASSWORD_VALIDITY_HOURS
 )
 from models.structure_models import Etablissement
+# Utilisé UNIQUEMENT par _build_claims ci-dessous, pour résoudre le claim
+# 'profil_id' (cf. Censeur.utilisateur_id / Surveillant.utilisateur_id dans
+# pedagogie_models.py). Pas de cycle : pedagogie_models.py n'importe rien de
+# ce module ni de authentification_models.py.
+from models.pedagogie_models import Censeur, Surveillant
 from extensions import db
 from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
@@ -34,12 +39,42 @@ def _build_claims(utilisateur):
     role/etablissement_id passent en additional_claims pour être lisibles
     directement via get_jwt() côté API. 'type' permet de distinguer un token
     Utilisateur d'un token SuperAdmin (identités numériques potentiellement identiques)."""
-    return {
+    claims = {
         'type': 'utilisateur',
         'role': utilisateur.role.libelle,
         'etablissement_id': utilisateur.etablissement_id,
         'doit_changer_mdp': utilisateur.doit_changer_mdp
     }
+
+    # 'profil_id' : identifiant du profil "métier" Censeur/Surveillant
+    # (pedagogie_models.py) lié à ce compte de connexion, via la colonne
+    # Censeur.utilisateur_id / Surveillant.utilisateur_id — cf. synthèse
+    # d'assignation Censeur/Surveillant ↔ Classe.
+    #
+    # ATTENTION : ce claim est désormais INFORMATIF UNIQUEMENT (affichage
+    # côté front, debug) — il n'est PLUS utilisé pour calculer le périmètre
+    # "classes assignées" d'un Censeur/Surveillant. Comme tout claim JWT, il
+    # n'est recalculé qu'au login/refresh et resterait donc périmé si le
+    # profil était relié (ou ses classes réassignées) APRÈS l'émission du
+    # token en cours — c'est exactement ce qui provoquait le bug "classe
+    # visible dans configuration.html mais invisible pour le Censeur
+    # connecté avec un token émis avant la liaison/l'assignation".
+    #
+    # L'autorisation réelle (pedagogie_services.resolve_classe_ids_
+    # restriction) résout désormais ce profil EN DIRECT à chaque requête,
+    # depuis get_jwt_identity() (l'identité du compte, toujours fiable —
+    # elle ne change jamais après création, contrairement à un profil_id
+    # dérivé et mis en cache). Vaut None pour tout autre rôle, ou si l'Admin
+    # d'établissement n'a pas encore relié ce compte à un profil (cf. PUT
+    # /api/censeurs/<id> / /api/surveillants/<id>).
+    if claims['role'] == 'Censeur':
+        profil = Censeur.query.filter_by(utilisateur_id=utilisateur.id).first()
+        claims['profil_id'] = profil.id if profil else None
+    elif claims['role'] == 'Surveillant':
+        profil = Surveillant.query.filter_by(utilisateur_id=utilisateur.id).first()
+        claims['profil_id'] = profil.id if profil else None
+
+    return claims
 
 
 def _build_superadmin_claims(superadmin):
@@ -61,13 +96,13 @@ def create_utilisateur(data):
     ceux ayant le rôle 'Admin' (rôle d'établissement). Le compte d'administration
     globale hors établissement se crée via create_superadmin().
 
-    Si 'password' n'est pas fourni (cas normal : le SuperAdmin crée l'Admin
-    d'un établissement, ou un Admin crée un membre de son personnel), un mot
-    de passe temporaire est généré aléatoirement. L'utilisateur devra le
-    changer dès sa première connexion (doit_changer_mdp=True), et ce mot de
-    passe temporaire n'est valable que 48h (mdp_expire_le) : passé ce délai,
-    il ne permet plus de se connecter et doit être régénéré par un admin
-    (cf. reset_temp_password).
+    Un mot de passe temporaire est TOUJOURS généré automatiquement, sans
+    exception : ni le SuperAdmin ni un Admin d'établissement ne peuvent
+    imposer un mot de passe définitif à la création (aucun champ 'password'
+    n'est accepté en entrée). L'utilisateur devra le changer dès sa première
+    connexion (doit_changer_mdp=True), et ce mot de passe temporaire n'est
+    valable que 48h (mdp_expire_le) : passé ce délai, il ne permet plus de se
+    connecter et doit être régénéré par un admin (cf. reset_temp_password).
     """
     try:
         if not data.get('etablissement_id'):
@@ -92,23 +127,12 @@ def create_utilisateur(data):
         if not role:
             return {"erreur": "Rôle invalide"}, 400
 
-        mot_de_passe_genere = None
-        if data.get('password'):
-            # Mot de passe explicitement fourni par l'appelant : pas de contrainte
-            # de changement forcé (cas d'usage rare, ex. script de migration).
-            # On applique quand même la politique de force du mot de passe :
-            # un appelant (même admin) ne doit pas pouvoir imposer "1234" à un compte.
-            valide, message = valider_force_mot_de_passe(data['password'])
-            if not valide:
-                return {"erreur": message}, 400
-            mot_de_passe_a_definir = data['password']
-            doit_changer_mdp = False
-            mdp_expire_le = None
-        else:
-            mot_de_passe_genere = generate_temp_password()
-            mot_de_passe_a_definir = mot_de_passe_genere
-            doit_changer_mdp = True
-            mdp_expire_le = datetime.utcnow() + TEMP_PASSWORD_VALIDITY
+        # Mot de passe temporaire : jamais fourni par l'appelant (même admin),
+        # toujours généré ici. C'est la seule façon d'obtenir un compte
+        # Utilisateur, quel que soit son rôle (y compris 'Admin' d'établissement).
+        mot_de_passe_genere = generate_temp_password()
+        doit_changer_mdp = True
+        mdp_expire_le = datetime.utcnow() + TEMP_PASSWORD_VALIDITY
 
         utilisateur = Utilisateur(
             nom=data['nom'],
@@ -120,16 +144,15 @@ def create_utilisateur(data):
             mdp_expire_le=mdp_expire_le
         )
 
-        utilisateur.set_password(mot_de_passe_a_definir)
+        utilisateur.set_password(mot_de_passe_genere)
 
         db.session.add(utilisateur)
         db.session.commit()
 
         result = utilisateur.to_dict()
-        if mot_de_passe_genere:
-            # Communiqué UNE SEULE FOIS ici : le hash bcrypt n'est pas réversible,
-            # donc ce mot de passe en clair ne sera plus jamais récupérable ensuite.
-            result['mot_de_passe_temporaire'] = mot_de_passe_genere
+        # Communiqué UNE SEULE FOIS ici : le hash bcrypt n'est pas réversible,
+        # donc ce mot de passe en clair ne sera plus jamais récupérable ensuite.
+        result['mot_de_passe_temporaire'] = mot_de_passe_genere
         return result, 201
 
     except IntegrityError:
@@ -337,8 +360,11 @@ def update_utilisateur(user_id, data):
     if 'actif' in data:
         utilisateur.actif = data['actif']
 
-    if 'password' in data:
-        utilisateur.set_password(data['password'])
+    # NB : le mot de passe ne se modifie JAMAIS via cette mise à jour générique
+    # (pas de validation de force, pas de doit_changer_mdp forcé, pas de
+    # révocation de session ici). Utiliser change_password() (self-service,
+    # avec ancien mot de passe) ou reset_temp_password() (réinitialisation
+    # admin), qui appliquent tous deux les règles complètes.
 
     try:
         db.session.commit()

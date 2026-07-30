@@ -1,50 +1,31 @@
-/**
- * sidebar.js — Gestionnaire SaaS Bulletins de Notes
- * ─────────────────────────────────────────────────
- * Injecte le sidebar dans n'importe quelle page HTML.
- *
- * UTILISATION :
- *   1. Inclure ce fichier dans chaque page :
- *      <script src="/js/sidebar.js" defer></script>
- *
- *   2. Ajouter la structure minimale dans le <body> :
- *      <div class="app-wrapper">
- *        <!-- le sidebar sera injecté ici automatiquement -->
- *        <div class="main-content" id="mainContent">
- *          <!-- topbar + contenu de la page -->
- *        </div>
- *      </div>
- *
- *   3. Pour marquer le lien actif, ajouter sur le <body> ou sur le <main> :
- *      data-page="eleves"   (voir PAGES_MAP ci-dessous)
- *
- *   4. Ce fichier dépend de auth.js (doit être inclus AVANT sidebar.js) :
- *      <script src="/static/js/auth.js"></script>
- *      <script src="/static/js/sidebar.js" defer></script>
- *
- *      L'utilisateur connecté et son rôle sont lus automatiquement depuis
- *      la session stockée par auth.js (GestionnaireAuth.getUser() /
- *      GestionnaireAuth.getRole()), elle-même alimentée par la réponse de
- *      /api/auth/login ou /api/auth/superadmin/login.
- *
- *      Chaque entrée du menu peut définir "roles: [...]" pour restreindre
- *      sa visibilité (libellés de Role : Admin, Proviseur, Censeur,
- *      Surveillant, Secretaire, Comptable, Infirmier, Enseignant, Parent,
- *      ou "SuperAdmin"). Une entrée sans "roles" est visible par tous les
- *      utilisateurs connectés.
- * ─────────────────────────────────────────────────
- */
-
 (function () {
   "use strict";
 
   /* ═══════════════════════════════════════════════
      CONFIGURATION DU MENU
      Modifier ici pour ajouter / retirer des entrées.
-     "key" correspond à la valeur de data-page="..."
+     "key" correspond à la valeur de data-page="..." sur la page cible.
+
+     ⚠️ Chaque "href" ci-dessous correspond à une route réellement
+     enregistrée dans app.py au moment de cette révision :
+       /dashboard                    → dashboard_etablissement
+       /configuration                → configuration_etablissement
+       /matiere                      → matiere_etablissement
+       /enseignant                   → enseignant_etablissement
+       /emploi-du-temps              → emploi_du_temps_etablissement
+       /pedagogie                    → pedagogie_censeur
+       /emploi-du-temps-censeur      → emploi_du_temps_censeur
+       /superadmin/dashboard         → superadmin_dashboard_page
+       /superadmin/etablissements    → superadmin_etablissements_page
+       /change-password              → change_password_page
+     Si tu ajoutes une route dans app.py, ajoute l'entrée correspondante
+     ici ; si tu retires une entrée d'ici, vérifie qu'aucune page ne pointe
+     encore dessus.
   ════════════════════════════════════════════════ */
   const MENU = [
-    /* ── Tableau de bord ── */
+    /* ── Tableau de bord (une seule des deux entrées est visible : elles
+           partagent la même "key" pour que data-page="dashboard" fonctionne
+           quel que soit le rôle connecté) ── */
     {
       section: null,
       items: [
@@ -53,149 +34,111 @@
           label: "Tableau de bord",
           icon: "fa-gauge-high",
           href: "/dashboard",
-          // Pas de "roles" => visible par tout utilisateur connecté
+          roles: ["Admin"],
+        },
+        {
+          key: "dashboard",
+          label: "Tableau de bord",
+          icon: "fa-gauge-high",
+          href: "/superadmin/dashboard",
+          roles: ["SuperAdmin"],
         },
       ],
     },
 
-    /* ── Pédagogie ── */
+    /* ── Établissement (comptes Admin uniquement) ── */
     {
-      section: "Pédagogie",
+      section: "Établissement",
       items: [
         {
-          key: "etablissement",
-          label: "Établissement",
-          icon: "fa-school",
-          href: "/etablissement",
-          roles: ["SuperAdmin", "Admin", "Proviseur"],
-        },
-        {
-          key: "annees",
-          label: "Années scolaires",
-          icon: "fa-calendar-days",
-          href: "/annees-scolaires",
-          roles: ["Admin", "Proviseur", "Censeur"],
-        },
-        {
-          key: "classes",
-          label: "Classes & Niveaux",
-          icon: "fa-chalkboard",
-          href: "/classes",
-          roles: ["Admin", "Proviseur", "Censeur", "Enseignant"],
+          key: "config",
+          label: "Configuration",
+          icon: "fa-gear",
+          href: "/configuration",
+          roles: ["Admin"],
         },
         {
           key: "enseignants",
           label: "Enseignants",
           icon: "fa-user-tie",
-          href: "/enseignants",
-          roles: ["Admin", "Proviseur"],
+          href: "/enseignant",
+          roles: ["Admin"],
         },
         {
           key: "matieres",
-          label: "Matières & Coefficients",
+          label: "Matières",
           icon: "fa-book-open",
-          href: "/matieres",
-          roles: ["Admin", "Proviseur", "Censeur"],
+          href: "/matiere",
+          roles: ["Admin"],
         },
-      ],
-    },
-
-    /* ── Bulletins ── */
-    {
-      section: "Bulletins",
-      items: [
         {
-          key: "eleves",
-          label: "Élèves & Inscriptions",
-          icon: "fa-users",
+          key: "horaire",
+          label: "Emploi du temps",
+          icon: "fa-calendar-days",
+          href: "/emploi-du-temps",
+          roles: ["Admin"],
+        },
+         {
+          key: "inscription",
+          label: "Inscriptions",
+          icon: "fa-user-plus",
+          href: "/inscriptions",
+          roles: ["Admin"],
+        },
+         {
+          key: "parent",
+          label: "Parents",
+          icon: "fa-user-friends",
+          href: "/parents",
+          roles: ["Admin"],
+        },
+        {
+          key: "eleve",
+          label: "Élèves",
+          icon: "fa-user-graduate",
           href: "/eleves",
-          roles: ["Admin", "Proviseur", "Censeur", "Secretaire", "Surveillant", "Enseignant"],
+          roles: ["Admin"],
+        },
+      ],
+
+    },
+
+    /* ── Mes classes (compte Censeur uniquement) — périmètre restreint aux
+           classes qui lui ont été assignées par l'Admin d'établissement,
+           cf. CenseurClasse dans pedagogie_models.py. Avant cette révision,
+           aucune entrée de menu n'existait pour ce rôle : la page était
+           accessible en tapant l'URL directement, mais invisible dans la
+           navigation. ── */
+    {
+      section: "Mes classes",
+      items: [
+        {
+          key: "pedagogie-censeur",
+          label: "Pédagogie",
+          icon: "fa-people-arrows",
+          href: "/pedagogie",
+          roles: ["Censeur"],
         },
         {
-          key: "notes",
-          label: "Saisie des notes",
-          icon: "fa-pen-to-square",
-          href: "/notes",
-          roles: ["Admin", "Proviseur", "Censeur", "Enseignant"],
-          submenu: [
-            { key: "notes-saisie",  label: "Saisie manuelle", href: "/notes/saisie" },
-            { key: "notes-import",  label: "Import Excel",     href: "/notes/import" },
-          ],
-        },
-        {
-          key: "bulletins",
-          label: "Bulletins",
-          icon: "fa-file-lines",
-          href: "/bulletins",
-          roles: ["Admin", "Proviseur", "Censeur", "Secretaire", "Parent"],
-          submenu: [
-            { key: "bulletins-generer",   label: "Générer",         href: "/bulletins/generer" },
-            { key: "bulletins-telecharger", label: "Télécharger",   href: "/bulletins/telecharger" },
-          ],
-        },
-        {
-          key: "discipline",
-          label: "Discipline",
-          icon: "fa-triangle-exclamation",
-          href: "/discipline",
-          roles: ["Admin", "Proviseur", "Censeur", "Surveillant"],
+          key: "horaire-censeur",
+          label: "Emploi du temps",
+          icon: "fa-calendar-days",
+          href: "/emploi-du-temps-censeur",
+          roles: ["Censeur"],
         },
       ],
     },
 
-    /* ── Scolarité ── */
+    /* ── Super Administration (compte SuperAdmin uniquement) ── */
     {
-      section: "Scolarité",
+      section: "Super Administration",
       items: [
         {
-          key: "paiements",
-          label: "Paiements",
-          icon: "fa-money-bill-wave",
-          href: "/paiements",
-          roles: ["Admin", "Comptable", "Secretaire"],
-        },
-        {
-          key: "recus",
-          label: "Reçus",
-          icon: "fa-receipt",
-          href: "/recus",
-          roles: ["Admin", "Comptable", "Secretaire"],
-        },
-      ],
-    },
-
-    /* ── Administration ── */
-    {
-      section: "Administration",
-      items: [
-        {
-          key: "utilisateurs",
-          label: "Utilisateurs & Rôles",
-          icon: "fa-user-shield",
-          href: "/utilisateurs",
-          roles: ["SuperAdmin", "Admin"],
-        },
-        {
-          key: "abonnement",
-          label: "Abonnement",
-          icon: "fa-crown",
-          href: "/abonnement",
-          roles: ["SuperAdmin", "Admin"],
-        },
-        {
-          key: "notifications",
-          label: "Notifications",
-          icon: "fa-bell",
-          href: "/notifications",
-          badge: "3",
-          // Visible par tout utilisateur connecté
-        },
-        {
-          key: "parametres",
-          label: "Paramètres",
-          icon: "fa-gear",
-          href: "/parametres",
-          roles: ["SuperAdmin", "Admin"],
+          key: "superadmin-etablissements",
+          label: "Établissements",
+          icon: "fa-school",
+          href: "/superadmin/etablissements",
+          roles: ["SuperAdmin"],
         },
       ],
     },
@@ -301,19 +244,28 @@
   }
 
   /** Construit l'objet utilisateur { nom, role, avatar } à partir de la
-   *  session stockée par auth.js (utilisateur ou superadmin connecté). */
+   *  session mise en cache par auth.js (GestionnaireAuth.getUser()).
+   *
+   *  ⚠️ auth.js n'expose PAS de méthode isAuthenticated() (voir son objet
+   *  exporté : getUser, getRole, getEtablissementId, checkSession,
+   *  requireAuth, logout, authFetch) — l'appeler plantait ici sur toutes
+   *  les pages. L'absence d'utilisateur en cache se détecte simplement par
+   *  GestionnaireAuth.getUser() qui renvoie null. */
   function getCurrentUser() {
-    if (!window.GestionnaireAuth || !GestionnaireAuth.isAuthenticated()) {
-      return { nom: "Utilisateur", role: "" };
+    const stored = window.GestionnaireAuth ? GestionnaireAuth.getUser() : null;
+    if (!stored) {
+      return { nom: "Utilisateur", role: "", avatar: null };
     }
 
-    const stored = GestionnaireAuth.getUser() || {};
-    const role = GestionnaireAuth.getRole() || (stored.role && stored.role.libelle) || "";
+    const role = (window.GestionnaireAuth && GestionnaireAuth.getRole())
+      || (stored.role && stored.role.libelle)
+      || "";
+    const nomComplet = `${stored.prenom || ""} ${stored.nom || ""}`.trim() || stored.nom || "Utilisateur";
 
     return {
-      nom: stored.nom || "Utilisateur",
+      nom: nomComplet,
       role: role,
-      avatar: stored.avatar || null,
+      avatar: stored.avatar_url || stored.avatar || null,
     };
   }
 
@@ -345,6 +297,19 @@
 
     const navHTML = visibleMenu.map((g) => buildMenuGroup(g, activePage)).join("");
     const avatarHTML = buildAvatar(user, "sidebar-user-avatar", 34);
+
+    // /change-password existe pour tout compte d'établissement (Utilisateur),
+    // pas pour le SuperAdmin (modèle distinct, cf. authentification_models.py) :
+    // on ne propose donc le lien qu'en dehors du rôle SuperAdmin.
+    const changePasswordHtml = user.role && user.role !== "SuperAdmin"
+      ? `<a href="/change-password" title="Changer mon mot de passe"
+            style="color:var(--ta-text-light);font-size:14px;margin-left:8px;
+                   transition:color var(--ta-transition);"
+            onmouseover="this.style.color='var(--ta-primary)'"
+            onmouseout="this.style.color='var(--ta-text-light)'">
+           <i class="fa-solid fa-key"></i>
+         </a>`
+      : "";
 
     return `
     <!-- ── Overlay mobile ── -->
@@ -383,8 +348,9 @@
             <div class="sidebar-user-name">${user.nom}</div>
             <div class="sidebar-user-role">${user.role}</div>
           </div>
+          ${changePasswordHtml}
           <button type="button" id="sidebarLogoutBtn" title="Se déconnecter"
-             style="margin-left:auto;background:none;border:none;cursor:pointer;
+             style="margin-left:${changePasswordHtml ? "8px" : "auto"};background:none;border:none;cursor:pointer;
                     color:var(--ta-text-light);font-size:14px;
                     transition:color var(--ta-transition);"
              onmouseover="this.style.color='var(--ta-danger)'"
@@ -420,24 +386,13 @@
             <i class="fa-solid fa-magnifying-glass" style="font-size:12px;"></i>
           </span>
           <input type="search" class="form-control"
-                 placeholder="Rechercher un élève, une classe…"
+                 placeholder="Rechercher…"
                  aria-label="Recherche">
         </div>
       </div>
 
       <!-- Actions droite -->
       <div class="topbar-right">
-        <!-- Notifications -->
-        <button class="topbar-icon-btn" title="Notifications" type="button">
-          <i class="fa-regular fa-bell"></i>
-          <span class="topbar-badge"></span>
-        </button>
-
-        <!-- Aide -->
-        <button class="topbar-icon-btn" title="Aide" type="button">
-          <i class="fa-regular fa-circle-question"></i>
-        </button>
-
         <!-- Séparateur -->
         <div style="width:1px;height:20px;background:var(--ta-border);margin:0 4px;"></div>
 
@@ -562,10 +517,15 @@
      POINT D'ENTRÉE
   ════════════════════════════════════════════════ */
 
-  function init() {
-    /* Page protégée : redirige vers /login si non authentifié */
-    if (window.GestionnaireAuth && !GestionnaireAuth.requireAuth()) {
-      return;
+  async function init() {
+    /* Page protégée : redirige vers /login si non authentifié.
+       ⚠️ requireAuth() est une fonction ASYNC (elle interroge /api/auth/me) :
+       il faut l'attendre. L'ancien code faisait `!GestionnaireAuth.requireAuth()`
+       sans await, donc testait la véracité d'une Promise (toujours vraie) —
+       la redirection n'était en pratique jamais bloquante ici. */
+    if (window.GestionnaireAuth) {
+      const ok = await GestionnaireAuth.requireAuth();
+      if (!ok) return; // requireAuth() a déjà redirigé vers /login
     }
 
     inject();

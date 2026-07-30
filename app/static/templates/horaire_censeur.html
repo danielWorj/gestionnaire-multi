@@ -1,0 +1,1704 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Emploi du temps</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <!-- ═══════════════════════════════════════════════
+       Styles spécifiques à la page Emploi du temps (Censeur)
+       (grille horaire, chips de cours, créneaux)
+       Repose entièrement sur les variables --ta-* de style.css
+
+       Adaptation de horaire.html (page Admin) au périmètre du Censeur :
+       même structure et même style, mais /api/classes/, /api/horaires/ et
+       /api/matieres-classe/ sont désormais filtrés côté back aux seules
+       classes assignées à ce Censeur par l'Admin d'établissement (cf.
+       CenseurClasse dans pedagogie_models.py) — cette page n'a donc RIEN à
+       filtrer elle-même : elle affiche fidèlement ce que l'API lui renvoie,
+       comme le ferait la page Admin. Seuls les créneaux horaires (grille
+       type "8h-9h") restent établissement-larges : un Censeur peut gérer
+       les créneaux de son établissement, ils ne sont pas rattachés à une
+       classe précise.
+  ═══════════════════════════════════════════════ -->
+  <style>
+    /* Logo de l'établissement affiché sous le titre de la page (écran,
+       distinct de .print-etab-logo qui ne concerne que le document imprimé).
+       Taille volontairement modeste pour ne pas déséquilibrer l'en-tête. */
+    .page-etab-logo { max-height: 46px; max-width: 150px; object-fit: contain; margin-top: 6px; display: block; }
+
+    /* Barre de filtres */
+    .filter-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; font-weight: 600; color: var(--ta-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+    /* Légende matières (générée dynamiquement) */
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ta-text-muted); margin-right: 16px; margin-bottom: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex-shrink: 0; }
+
+    /* Grille horaire */
+    .horaire-grid-wrap { overflow-x: auto; }
+    .horaire-table { width: 100%; min-width: 900px; border-collapse: separate; border-spacing: 0; }
+    .horaire-table thead th {
+      background: var(--ta-bg);
+      font-size: 10.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      color: var(--ta-text-muted);
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--ta-border);
+      text-align: center;
+      white-space: nowrap;
+    }
+    .horaire-table thead th.time-col { width: 100px; text-align: left; padding-left: 14px; }
+    .horaire-table td { border: 1px solid var(--ta-border-light); padding: 5px; vertical-align: top; height: 70px; }
+    .horaire-table td.time-col { background: var(--ta-bg); vertical-align: middle; padding: 6px 10px; }
+    .time-slot-label { font-size: 11.5px; font-weight: 700; color: var(--ta-text); }
+    .time-slot-range { font-size: 10px; color: var(--ta-text-light); }
+
+    /* Chip de cours */
+    .cours-chip {
+      position: relative;
+      height: 100%;
+      min-height: 58px;
+      border-radius: var(--ta-radius-sm);
+      padding: 6px 22px 6px 8px;
+      font-size: 11px;
+      cursor: pointer;
+      border-left: 3px solid;
+      transition: box-shadow .15s ease, transform .15s ease;
+    }
+    .cours-chip:hover { box-shadow: var(--ta-shadow); }
+    .cours-chip .chip-matiere { font-weight: 700; display: block; margin-bottom: 2px; line-height: 1.25; }
+    .cours-chip .chip-meta { font-size: 10px; opacity: .85; display: flex; align-items: center; gap: 4px; line-height: 1.3; }
+    .cours-chip .chip-meta + .chip-meta { margin-top: 1px; }
+    .cours-chip .chip-actions { position: absolute; top: 4px; right: 4px; display: none; flex-direction: column; gap: 3px; }
+    .cours-chip:hover .chip-actions { display: flex; }
+    .cours-chip .chip-actions button {
+      border: none; background: rgba(255,255,255,.75); width: 17px; height: 17px; border-radius: 4px;
+      font-size: 8.5px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: inherit;
+    }
+    .cours-chip .chip-actions button:hover { background: #fff; }
+
+    .chip-c1 { background: var(--ta-primary-light); border-left-color: var(--ta-primary); color: var(--ta-primary-dark); }
+    .chip-c2 { background: var(--ta-success-light); border-left-color: var(--ta-success); color: #15803d; }
+    .chip-c3 { background: var(--ta-warning-light); border-left-color: var(--ta-warning); color: #92400E; }
+    .chip-c4 { background: var(--ta-info-light);    border-left-color: var(--ta-info);    color: #0e7490; }
+    .chip-c5 { background: #EDE9FE;                  border-left-color: #6D28D9;           color: #6D28D9; }
+
+    /* Cellule vide (ajout rapide) */
+    .cell-empty {
+      display: flex; align-items: center; justify-content: center; height: 100%; min-height: 58px;
+      border: 1.5px dashed var(--ta-border); border-radius: var(--ta-radius-sm);
+      color: var(--ta-text-light); cursor: pointer; font-size: 13px; transition: all .15s ease;
+    }
+    .cell-empty:hover { border-color: var(--ta-primary); color: var(--ta-primary); background: var(--ta-primary-light); }
+
+    .grid-loading, .grid-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: var(--ta-text-light); font-size: 13px; }
+
+    @media (max-width: 575.98px) {
+      .horaire-table { min-width: 760px; }
+    }
+
+    /* ═══════════════════════════════════════════════
+       IMPRESSION — feuille au format "emploi du temps"
+       de l'établissement (voir modèle papier)
+    ═══════════════════════════════════════════════ */
+    #zoneImpression { display: none; }
+
+    .print-sheet { font-family: Arial, Helvetica, sans-serif; color: #111; }
+    .print-header-top {
+      display: flex; justify-content: space-between; align-items: center; gap: 14px;
+      border-bottom: 2px solid #111; padding-bottom: 10px; margin-bottom: 10px;
+    }
+    .print-etab { flex: 1 1 0; }
+    .print-etab-nom { font-weight: 800; font-size: 14px; text-transform: uppercase; }
+    .print-etab-bilingue { font-size: 10px; font-style: italic; color: #444; margin-top: 1px; }
+    .print-etab-detail { font-size: 10px; color: #333; margin-top: 1px; }
+    .print-annee { font-size: 11px; margin-top: 3px; color: #333; }
+    /* Logo de l'établissement, affiché AU MILIEU de l'en-tête imprimé,
+       entre les informations (à gauche) et le titre "EMPLOI DU TEMPS" (à droite) */
+    .print-etab-logo { flex: 0 0 auto; min-width: 60px; display: flex; align-items: center; justify-content: center; }
+    .print-etab-logo img { max-height: 68px; max-width: 100px; object-fit: contain; }
+    .print-titre { flex: 1 1 0; }
+    .print-titre-principal { font-weight: 800; font-size: 18px; text-align: right; letter-spacing: .06em; }
+    .print-titre-secondaire { font-size: 11.5px; text-align: right; text-transform: uppercase; color: #333; margin-top: 2px; }
+    .print-champs {
+      display: flex; flex-wrap: wrap; column-gap: 28px; row-gap: 4px;
+      font-size: 11.5px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #ccc;
+    }
+    .print-champ span { color: #555; }
+    .print-table { width: 100%; border-collapse: collapse; font-size: 10.5px; table-layout: fixed; }
+    .print-table th, .print-table td { border: 1px solid #333; padding: 5px 3px; text-align: center; word-wrap: break-word; }
+    .print-jour-header, .print-jour { background: #eaeaea; font-weight: 700; white-space: nowrap; width: 90px; }
+    .print-horaire-cell { font-size: 9px; font-weight: 400; line-height: 1.3; }
+    .print-periode-cell { font-weight: 700; }
+    .pc-matiere { font-weight: 700; font-size: 10.5px; line-height: 1.25; }
+    .pc-sub { font-size: 9px; color: #444; margin-top: 1px; }
+    .print-cell-vide { background: #fbfbfb; }
+    .print-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 30px; font-size: 11.5px; }
+    .print-signatures { display: flex; gap: 60px; }
+    .print-signature { border-top: 1px solid #333; padding-top: 5px; width: 130px; text-align: center; font-weight: 600; }
+
+    @media print {
+      body.mode-impression .app-wrapper { display: none !important; }
+      body.mode-impression #zoneImpression { display: block !important; }
+      @page { size: landscape; margin: 10mm; }
+    }
+  </style>
+</head>
+<body data-page="horaire-censeur">
+
+  <div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+
+      <!-- Contenu de la page -->
+      <main class="page-content">
+
+        <!-- Fil d'ariane -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/pedagogie"><i class="fa-solid fa-house me-1"></i>Mes classes</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Emploi du temps</li>
+          </ol>
+        </nav>
+
+        <!-- Titre + actions -->
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+          <div>
+            <h1 class="page-title mb-1">Emploi du temps</h1>
+            <p class="mb-0 text-muted" style="font-size:12px;">
+              Construisez et consultez les grilles horaires des classes dont vous avez la charge.
+            </p>
+          </div>
+          <div class="d-flex gap-2">
+            <button class="btn btn-light btn-sm" type="button" id="btnImprimerClasse" title="Imprimer l'emploi du temps de la classe sélectionnée">
+              <i class="fa-solid fa-print"></i> Imprimer (classe)
+            </button>
+            <button class="btn btn-light btn-sm" type="button" id="btnImprimerEnseignant" title="Imprimer l'emploi du temps de l'enseignant sélectionné">
+              <i class="fa-solid fa-print"></i> Imprimer (enseignant)
+            </button>
+            <button class="btn btn-light btn-sm" type="button" id="btnExportExcel" title="Exporter la vue active en Excel/CSV">
+              <i class="fa-solid fa-file-excel"></i> Exporter Excel
+            </button>
+            <button class="btn btn-primary btn-sm" type="button" id="btnNouveauCours" data-bs-toggle="modal" data-bs-target="#modalNouveauCours">
+              <i class="fa-solid fa-plus"></i> Nouveau cours
+            </button>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             STATS GLOBALES (contextuelles selon l'onglet actif)
+        ═══════════════════════════════════════════════ -->
+        <div class="row g-3 mb-4" id="statsRow"></div>
+
+        <!-- ═══════════════════════════════════════════════
+             FILTRES COMMUNS
+        ═══════════════════════════════════════════════ -->
+        <div class="card mb-3">
+          <div class="card-body py-3">
+            <div class="filter-bar">
+              <div class="filter-group">
+                <label for="filterAnnee">Année scolaire</label>
+                <select class="form-select form-select-sm" id="filterAnnee" style="min-width:160px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group" id="filterClasseGroup">
+                <label for="filterClasse">Classe</label>
+                <select class="form-select form-select-sm" id="filterClasse" style="min-width:160px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group d-none" id="filterEnseignantGroup">
+                <label for="filterEnseignant">Enseignant</label>
+                <select class="form-select form-select-sm" id="filterEnseignant" style="min-width:220px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group flex-grow-1"></div>
+
+              <div class="filter-group">
+                <label>Légende</label>
+                <div id="legendZone">
+                  <span class="text-muted" style="font-size:11px;">La couleur de chaque matière apparaît une fois la grille chargée.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             ONGLETS PRINCIPAUX
+        ═══════════════════════════════════════════════ -->
+        <ul class="nav nav-tabs mb-3" id="horaireTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-classe" data-bs-toggle="tab"
+                    data-bs-target="#pane-classe" type="button" role="tab">
+              <i class="fa-solid fa-chalkboard me-1"></i>Grille par classe
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-enseignant" data-bs-toggle="tab"
+                    data-bs-target="#pane-enseignant" type="button" role="tab">
+              <i class="fa-solid fa-user-tie me-1"></i>Grille par enseignant
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-creneaux" data-bs-toggle="tab"
+                    data-bs-target="#pane-creneaux" type="button" role="tab">
+              <i class="fa-solid fa-clock me-1"></i>Créneaux horaires
+            </button>
+          </li>
+        </ul>
+
+        <!-- ═══════════════════════════════════════════════
+             CONTENU DES ONGLETS
+        ═══════════════════════════════════════════════ -->
+        <div class="tab-content" id="horaireTabsContent">
+
+          <!-- ─────────── ONGLET 1 : GRILLE PAR CLASSE ─────────── -->
+          <div class="tab-pane fade show active" id="pane-classe" role="tabpanel">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i class="fa-solid fa-chalkboard me-2 text-primary"></i>Emploi du temps — <span id="classeGridTitle">—</span>
+                </h2>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge badge-neutral" id="classeGridCount">0 cours / semaine</span>
+                  <button class="btn btn-icon btn-sm btn-light js-print-classe" title="Imprimer cette grille"><i class="fa-solid fa-print"></i></button>
+                </div>
+              </div>
+              <div class="card-body p-0">
+                <div class="horaire-grid-wrap">
+                  <table class="horaire-table" id="grilleClasse">
+                    <thead>
+                      <tr>
+                        <th class="time-col">Créneau</th>
+                        <th>Lundi</th>
+                        <th>Mardi</th>
+                        <th>Mercredi</th>
+                        <th>Jeudi</th>
+                        <th>Vendredi</th>
+                        <th>Samedi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td colspan="7" class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Chargement de la grille…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="card-footer">
+                <small class="text-muted"><i class="fa-solid fa-circle-info me-1"></i>Cliquez sur un cours pour le modifier ou le supprimer, ou sur une case vide pour en ajouter un.</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- ─────────── ONGLET 2 : GRILLE PAR ENSEIGNANT ─────────── -->
+          <div class="tab-pane fade" id="pane-enseignant" role="tabpanel">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i class="fa-solid fa-user-tie me-2 text-primary"></i>Charge horaire — <span id="enseignantGridTitle">—</span>
+                </h2>
+                <div class="d-flex align-items-center gap-2">
+                  <span class="badge badge-neutral" id="enseignantGridCount">0 cours / semaine</span>
+                  <button class="btn btn-icon btn-sm btn-light js-print-enseignant" title="Imprimer cette grille"><i class="fa-solid fa-print"></i></button>
+                </div>
+              </div>
+              <div class="card-body p-0">
+                <div class="horaire-grid-wrap">
+                  <table class="horaire-table" id="grilleEnseignant">
+                    <thead>
+                      <tr>
+                        <th class="time-col">Créneau</th>
+                        <th>Lundi</th>
+                        <th>Mardi</th>
+                        <th>Mercredi</th>
+                        <th>Jeudi</th>
+                        <th>Vendredi</th>
+                        <th>Samedi</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td colspan="7" class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Chargement de la grille…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="card-footer">
+                <small class="text-muted"><i class="fa-solid fa-circle-info me-1"></i>Cette vue permet de repérer rapidement les créneaux libres d'un enseignant avant de lui affecter un nouveau cours.</small>
+              </div>
+            </div>
+          </div>
+
+          <!-- ─────────── ONGLET 3 : CRÉNEAUX HORAIRES ─────────── -->
+          <div class="tab-pane fade" id="pane-creneaux" role="tabpanel">
+            <div class="card">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i class="fa-solid fa-clock me-2 text-primary"></i>Créneaux horaires
+                  <span class="badge badge-primary ms-2" id="creneauxCount">0</span>
+                </h2>
+                <button class="btn btn-primary btn-sm" id="btnNouveauCreneau" data-bs-toggle="modal" data-bs-target="#modalNouveauCreneau">
+                  <i class="fa-solid fa-plus"></i> Nouveau créneau
+                </button>
+              </div>
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0" id="tableCreneaux">
+                    <thead>
+                      <tr>
+                        <th>Libellé</th>
+                        <th>Heure de début</th>
+                        <th>Heure de fin</th>
+                        <th>Durée</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td colspan="5" class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Chargement…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="card-footer">
+                <small class="text-muted"><i class="fa-solid fa-circle-info me-1"></i>Les créneaux sont propres à votre établissement et triés automatiquement par heure de début.</small>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouveau / Modifier cours (Horaire)
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalNouveauCours" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalCoursTitle"><i class="fa-solid fa-calendar-plus me-2 text-primary"></i>Nouveau cours</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info mb-3">
+            <i class="fa-solid fa-circle-info"></i>
+            <div>La disponibilité de la classe et de l'enseignant sur ce créneau sera vérifiée automatiquement avant l'enregistrement.</div>
+          </div>
+          <div class="alert alert-danger d-none" id="coursFormError"></div>
+          <form id="formCours">
+            <input type="hidden" id="coursId">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label">Année scolaire</label>
+                <select class="form-select" id="coursAnnee" disabled>
+                  <option value="">—</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Classe *</label>
+                <select class="form-select" id="coursClasse" required>
+                  <option value="">-- Choisir --</option>
+                </select>
+              </div>
+              <div class="col-12">
+                <label class="form-label">Matière — Enseignant *</label>
+                <select class="form-select" id="coursMatiereClasse" required disabled>
+                  <option value="">-- Choisir la classe d'abord --</option>
+                </select>
+                <div class="form-text">Liste filtrée selon les matières affectées à la classe sélectionnée.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Jour de la semaine *</label>
+                <select class="form-select" id="coursJour" required>
+                  <option value="">-- Choisir --</option>
+                  <option>Lundi</option>
+                  <option>Mardi</option>
+                  <option>Mercredi</option>
+                  <option>Jeudi</option>
+                  <option>Vendredi</option>
+                  <option>Samedi</option>
+                </select>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Créneau horaire *</label>
+                <select class="form-select" id="coursCreneau" required>
+                  <option value="">-- Choisir --</option>
+                </select>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnEnregistrerCours"><i class="fa-solid fa-check"></i> Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouveau / Modifier créneau horaire
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalNouveauCreneau" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalCreneauTitle"><i class="fa-solid fa-clock me-2 text-primary"></i>Nouveau créneau</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-danger d-none" id="creneauFormError"></div>
+          <form id="formCreneau">
+            <input type="hidden" id="creneauId">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label">Libellé *</label>
+                <input type="text" class="form-control" id="creneauLibelle" maxlength="50" placeholder="Ex : Créneau 8" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Heure de début *</label>
+                <input type="time" class="form-control" id="creneauDebut" required>
+              </div>
+              <div class="col-md-6">
+                <label class="form-label">Heure de fin *</label>
+                <input type="time" class="form-control" id="creneauFin" required>
+              </div>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnEnregistrerCreneau"><i class="fa-solid fa-check"></i> Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Confirmation suppression
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalConfirmSuppression" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirmer la suppression</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0">Supprimer ce cours de l'emploi du temps ? Cette action est irréversible.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-danger btn-sm" id="btnConfirmerSuppression"><i class="fa-solid fa-trash"></i> Oui, supprimer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       ZONE D'IMPRESSION (générée dynamiquement en JS)
+       Invisible à l'écran, affichée uniquement au print
+  ═══════════════════════════════════════════════ -->
+  <div id="zoneImpression"></div>
+
+  <!-- Toast notifications -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+    <div id="toastExport" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="fa-solid fa-circle-check text-success me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Info</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastExportBody"></div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Transport HTTP + session -->
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script>
+    (function () {
+      const cached = window.GestionnaireAuth.getUser();
+      const role = window.GestionnaireAuth.getRole() || "";
+      window.GESTIONNAIRE_USER = {
+        nom: cached ? `${cached.prenom || ""} ${cached.nom || ""}`.trim() : "",
+        role: role,
+        avatar: (cached && cached.avatar_url) || null
+      };
+      // Cette page est servie à la fois pour le Censeur (/emploi-du-temps-censeur)
+      // et pour le Surveillant (/emploi-du-temps-surveillant, cf. app.py) : le
+      // seul habillage qui dépend du rôle exact est ce label, réutilisé pour le
+      // <title> et pour la signature du document imprimé (cf. buildPiedImpression).
+      window.ROLE_LABEL = (role === "Surveillant") ? "Surveillant" : "Censeur";
+      document.title = `Emploi du temps — ${window.ROLE_LABEL}`;
+    })();
+  </script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <!-- Script spécifique à la page Emploi du temps -->
+  <script>
+    (function () {
+      "use strict";
+
+      /* ═══════════════════════════════════════
+         CONFIGURATION DES ENDPOINTS
+         Alignés sur les VRAIES routes de emploi_du_temps_api.py :
+           - creneau_horaire_bp : url_prefix '/api/creneaux-horaires', verbes
+             GET/POST '/' et GET/PUT/DELETE '/<id>' — CLOISONNÉ par
+             établissement uniquement (pas de restriction par classe : les
+             créneaux ne sont pas rattachés à une classe précise, un Censeur
+             gère donc la même grille que l'Admin de son établissement).
+           - horaire_bp : url_prefix '/api/horaires', mêmes verbes, cloisonné
+             par établissement ET, pour un Censeur/Surveillant, restreint aux
+             seules classes qui lui ont été assignées (cf. CenseurClasse dans
+             pedagogie_models.py et classe_scoped=True dans
+             emploi_du_temps_api._current_classe_restriction) — GET
+             /api/horaires/ ne renvoie donc QUE les cours des classes de ce
+             Censeur, de façon totalement transparente pour cette page (rien
+             à filtrer côté front au-delà de ce qui existait déjà). Pas de
+             sous-routes /classes/.../horaires ni /enseignants/.../horaires :
+             Horaire.to_dict() ne renvoie que des id bruts, sans objet
+             matiere_classe imbriqué — l'enrichissement avec les noms
+             (matière, enseignant, classe) se fait donc côté front, cf.
+             buildMatiereClasseIndex() et loadHoraires().
+           - Pour le SuperAdmin, etablissement_id est un ?query param requis
+             sur les 4 verbes de /api/horaires ET de /api/creneaux-horaires
+             (cf. _resolve_etablissement_id dans emploi_du_temps_api.py) ;
+             pour un Admin ou un Censeur/Surveillant d'établissement il est
+             déduit automatiquement du JWT et ce paramètre est ignoré. On le
+             rajoute systématiquement via GestionnaireAuth.getEtablissementId()
+             quand elle est disponible, ce qui reste inoffensif pour ces rôles.
+      ═══════════════════════════════════════ */
+      const ENDPOINTS = {
+        creneaux: "/api/creneaux-horaires/",
+        creneauById: (id) => `/api/creneaux-horaires/${id}`,
+        horaires: "/api/horaires/",
+        horaireById: (id) => `/api/horaires/${id}`,
+
+        // Routes réelles (structure_api.py / pedagogie_api.py) : blueprints
+        // scoped par établissement, réponses en LISTE BRUTE
+        // (jsonify(get_all_entities_scoped(...))) — cf. asArray().
+        // Classe n'a pas de libellé propre (juste cycle_id + option) : on
+        // recompose l'affichage via cycles, cf. classeLabel().
+        // classes et matieresClasse sont EN PLUS restreints, pour un Censeur/
+        // Surveillant, aux classes qui lui ont été assignées (classe_bp et
+        // matiere_classe_bp, cf. commentaire ENDPOINTS ci-dessus) — cycles,
+        // enseignants et matieres restent des référentiels
+        // établissement-larges, réutilisés en lecture seule ici.
+        cycles: "/api/cycles/",
+        classes: "/api/classes/",
+        enseignants: "/api/enseignants/",
+        matieres: "/api/matieres/",
+        // MatiereClasse n'accepte PAS de filtre ?classe_id= côté back (le
+        // blueprint générique ne filtre que par établissement, et pour un
+        // Censeur/Surveillant, par classes assignées) : on charge la liste
+        // complète une fois, puis on filtre par classe côté front (cf.
+        // matieresClasseDeLaClasse()).
+        matieresClasse: "/api/matieres-classe/",
+        anneesScolaires: "/api/annees-scolaires/",
+        // Fiche établissement (nom, adresse, logo_url...) — cf. structure_api.py
+        // make_admin_crud_blueprint : un Admin d'établissement peut désormais
+        // consulter (GET) UNIQUEMENT sa propre fiche (id = son etablissement_id).
+        etablissementById: (id) => `/api/etablissements/${id}`
+      };
+
+      /* Ajoute ?etablissement_id=... à une URL quand GestionnaireAuth expose
+         l'info (utile pour le SuperAdmin consultant un établissement précis
+         via /api/horaires ; sans effet pour un Admin d'établissement). */
+      function withEtablissementId(url) {
+        const etabId = window.GestionnaireAuth && typeof GestionnaireAuth.getEtablissementId === "function"
+          ? GestionnaireAuth.getEtablissementId()
+          : null;
+        if (!etabId) return url;
+        const sep = url.includes("?") ? "&" : "?";
+        return `${url}${sep}etablissement_id=${encodeURIComponent(etabId)}`;
+      }
+
+      const JOURS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
+
+      const state = {
+        creneaux: [],
+        classes: [],
+        cycles: [],
+        enseignants: [],
+        matieres: [],
+        matieresClasseAll: [],  // liste complète (non filtrable côté API), cf. ENDPOINTS.matieresClasse
+        matiereClasseIndex: {}, // matiere_classe_id -> {id, classe_id, matiere_id, enseignant_id, matiere_nom, enseignant_nom, classe_nom}
+        annees: [],
+        anneeActiveId: null,
+        classeActiveId: null,
+        enseignantActiveId: null,
+        horaires: [],          // TOUS les horaires de l'établissement (bruts, enrichis via matiereClasseIndex)
+        horairesClasse: [],    // sous-ensemble filtré (classe + année actives)
+        horairesEnseignant: [], // sous-ensemble filtré (enseignant + année actifs)
+        etablissement: null    // fiche de l'établissement CONNECTÉ (nom, logo_url...), cf. loadEtablissement()
+      };
+
+      /* ═══════════════════════════════════════
+         HELPERS API
+         Les JWT voyagent en cookies httpOnly (cf. app.py) : on utilise
+         GestionnaireAuth.authFetch (auth.js, chargé via sidebar.js) quand elle
+         est disponible — elle gère l'envoi des cookies et le rafraîchissement
+         du token. Repli sur fetch(..., {credentials:"include"}) sinon.
+      ═══════════════════════════════════════ */
+      /* Lit un cookie non-httpOnly par son nom (ex: le cookie csrf_access_token
+         posé par flask-jwt-extended à côté du cookie access_token_cookie
+         httpOnly — cf. set_access_cookies dans authentification_api.py). */
+      function getCookie(name) {
+        const match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+        return match ? decodeURIComponent(match[1]) : null;
+      }
+
+      async function apiFetch(url, options = {}) {
+        const doFetch = window.GestionnaireAuth && typeof GestionnaireAuth.authFetch === "function"
+          ? GestionnaireAuth.authFetch
+          : (u, o) => fetch(u, { credentials: "include", ...o });
+
+        const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+
+        // flask-jwt-extended : les JWT étant en cookies httpOnly, la protection
+        // CSRF double-submit est active par défaut sur les verbes qui modifient
+        // l'état (GET en est exempté, d'où le 401 uniquement sur POST/PUT/DELETE).
+        // Il faut renvoyer la valeur du cookie csrf_access_token dans ce header.
+        const method = (options.method || "GET").toUpperCase();
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+          const csrfToken = getCookie("csrf_access_token");
+          if (csrfToken) headers["X-CSRF-TOKEN"] = csrfToken;
+        }
+
+        const res = await doFetch(url, {
+          ...options,
+          headers
+        });
+        let payload = null;
+        try { payload = await res.json(); } catch (e) { /* réponse vide */ }
+        if (!res.ok || (payload && payload.success === false)) {
+          const message = (payload && (payload.erreur || payload.error)) || `Erreur ${res.status}`;
+          const err = new Error(message);
+          err.status = res.status;
+          throw err;
+        }
+        return payload;
+      }
+
+      /* emploi_du_temps_api.py renvoie les listes SOUS FORME DE TABLEAU BRUT
+         (jsonify(get_all_entities(...)) / jsonify(get_all_entities_scoped(...))),
+         contrairement aux routes "à adapter" (structure/pedagogie) dont le
+         format exact n'est pas connu ici : on accepte les deux formes. */
+      function asArray(payload) {
+        if (Array.isArray(payload)) return payload;
+        if (payload && Array.isArray(payload.data)) return payload.data;
+        return [];
+      }
+
+      function heureCourte(iso) {
+        if (!iso) return "--:--";
+        return iso.slice(0, 5).replace(":", "h");
+      }
+
+      function dureeMinutes(debut, fin) {
+        if (!debut || !fin) return "--";
+        const [h1, m1] = debut.split(":").map(Number);
+        const [h2, m2] = fin.split(":").map(Number);
+        const total = (h2 * 60 + m2) - (h1 * 60 + m1);
+        return total > 0 ? `${total} min` : "--";
+      }
+
+      /* Couleur stable générée à partir d'une chaîne (nom de matière) */
+      const COLOR_CLASSES = ["chip-c1", "chip-c2", "chip-c3", "chip-c4", "chip-c5"];
+      function colorClassFor(key) {
+        let hash = 0;
+        const str = key || "";
+        for (let i = 0; i < str.length; i++) hash = (hash * 31 + str.charCodeAt(i)) >>> 0;
+        return COLOR_CLASSES[hash % COLOR_CLASSES.length];
+      }
+
+      /* Classe (structure_models.py) n'a pas de colonne libellé/nom, juste
+         cycle_id + option : on recompose "Cycle Option" (ex: "6ème A"), avec
+         repli défensif si cycles pas encore chargés ou libelle absent. */
+      function classeLabel(c) {
+        if (!c) return "Classe";
+        if (c.libelle || c.nom) return c.libelle || c.nom;
+        const cycle = state.cycles.find(cy => cy.id === c.cycle_id);
+        return [cycle && cycle.libelle, c.option].filter(Boolean).join(" ") || `Classe #${c.id}`;
+      }
+
+      /* Extraction défensive des champs imbriqués de matiere_classe,
+         dont la forme exacte dépend de MatiereClasse.to_dict() (non fourni) */
+      function getMatiereNom(mc) {
+        return (mc && (mc.matiere_nom || (mc.matiere && (mc.matiere.nom || mc.matiere.libelle)))) || "Matière";
+      }
+      function getEnseignantNom(mc) {
+        return (mc && (mc.enseignant_nom || (mc.enseignant && (mc.enseignant.nom_complet || mc.enseignant.nom)))) || "Enseignant";
+      }
+      function getClasseNom(mc) {
+        return (mc && (mc.classe_nom || (mc.classe && (mc.classe.libelle || mc.classe.nom)))) || "Classe";
+      }
+
+      /* Enseignant (pedagogie_models.py) expose nom + prenom, pas nom_complet. */
+      function enseignantLabel(e) {
+        if (!e) return "Enseignant";
+        return e.nom_complet || `${e.prenom || ""} ${e.nom || ""}`.trim() || `Enseignant #${e.id}`;
+      }
+
+      function showToast(message, type = "success") {
+        const body = document.getElementById("toastExportBody");
+        const title = document.getElementById("toastTitle");
+        const icon = document.getElementById("toastIcon");
+        body.textContent = message;
+        title.textContent = type === "error" ? "Erreur" : "Info";
+        icon.className = type === "error"
+          ? "fa-solid fa-circle-exclamation text-danger me-2"
+          : "fa-solid fa-circle-check text-success me-2";
+        new bootstrap.Toast(document.getElementById("toastExport"), { delay: 4000 }).show();
+      }
+
+      /* ═══════════════════════════════════════
+         STATS PAR ONGLET (calculées depuis les données réelles)
+      ═══════════════════════════════════════ */
+      function buildStatCard(icon, color, label, value, change, up) {
+        return `
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="d-flex align-items-start justify-content-between">
+                <div class="stat-icon ${color}"><i class="fa-solid ${icon}"></i></div>
+              </div>
+              <div class="stat-label">${label}</div>
+              <div class="stat-value">${value}</div>
+              <div class="stat-change ${up ? 'up' : 'down'}">
+                <i class="fa-solid ${up ? 'fa-arrow-up' : 'fa-minus'}"></i> ${change}
+              </div>
+            </div>
+          </div>`;
+      }
+
+      function updateStatsClasse() {
+        const total = state.creneaux.length * JOURS.length;
+        const programmes = state.horairesClasse.length;
+        const libres = Math.max(total - programmes, 0);
+        document.getElementById("statsRow").innerHTML = [
+          buildStatCard("fa-book-open", "primary", "Cours programmés", programmes, `sur ${total} créneaux`, true),
+          buildStatCard("fa-clock", "info", "Créneaux définis", state.creneaux.length, "dans la semaine", true),
+          buildStatCard("fa-square-check", "success", "Créneaux libres", libres, "à compléter", false),
+          buildStatCard("fa-calendar-week", "warning", "Jours couverts", JOURS.length, "Lundi à Samedi", true)
+        ].join("");
+      }
+
+      function updateStatsEnseignant() {
+        const total = state.creneaux.length * JOURS.length;
+        const cours = state.horairesEnseignant.length;
+        const classes = new Set(state.horairesEnseignant.map(h => getClasseNom(h.matiere_classe))).size;
+        document.getElementById("statsRow").innerHTML = [
+          buildStatCard("fa-book-open", "primary", "Cours enseignés", cours, `sur ${total} créneaux`, true),
+          buildStatCard("fa-chalkboard", "info", "Classes couvertes", classes, "classes distinctes", true),
+          buildStatCard("fa-square-check", "success", "Créneaux libres", Math.max(total - cours, 0), "disponibles", false),
+          buildStatCard("fa-calendar-week", "warning", "Jours couverts", JOURS.length, "Lundi à Samedi", true)
+        ].join("");
+      }
+
+      function updateStatsCreneaux() {
+        document.getElementById("statsRow").innerHTML = [
+          buildStatCard("fa-clock", "primary", "Créneaux définis", state.creneaux.length, "au total", true)
+        ].join("");
+      }
+
+      /* ═══════════════════════════════════════
+         BASCULEMENT DES FILTRES SELON L'ONGLET
+      ═══════════════════════════════════════ */
+      function updateFilterVisibility(tabId) {
+        const classeGroup = document.getElementById("filterClasseGroup");
+        const enseignantGroup = document.getElementById("filterEnseignantGroup");
+        if (tabId === "tab-enseignant") {
+          classeGroup.classList.add("d-none");
+          enseignantGroup.classList.remove("d-none");
+        } else if (tabId === "tab-classe") {
+          classeGroup.classList.remove("d-none");
+          enseignantGroup.classList.add("d-none");
+        } else {
+          classeGroup.classList.add("d-none");
+          enseignantGroup.classList.add("d-none");
+        }
+      }
+
+      function bindTabs() {
+        document.querySelectorAll("#horaireTabs button[data-bs-toggle='tab']").forEach((btn) => {
+          btn.addEventListener("shown.bs.tab", (e) => {
+            updateFilterVisibility(e.target.id);
+            if (e.target.id === "tab-classe") { updateStatsClasse(); renderGrilleClasse(); }
+            else if (e.target.id === "tab-enseignant") { updateStatsEnseignant(); renderGrilleEnseignant(); }
+            else { updateStatsCreneaux(); }
+          });
+        });
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT DES RÉFÉRENTIELS (années, cycles, classes, enseignants,
+         matières, matières-classe)
+      ═══════════════════════════════════════ */
+      async function loadAnnees() {
+        const select = document.getElementById("filterAnnee");
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.anneesScolaires));
+          state.annees = asArray(payload);
+          if (!state.annees.length) throw new Error("Aucune année scolaire trouvée");
+          select.innerHTML = state.annees.map(a =>
+            `<option value="${a.id}" ${a.active ? "selected" : ""}>${a.libelle}${a.active ? " (Active)" : ""}</option>`
+          ).join("");
+          const active = state.annees.find(a => a.active) || state.annees[0];
+          state.anneeActiveId = active.id;
+        } catch (e) {
+          select.innerHTML = `<option value="">Indisponible</option>`;
+          showToast(`Années scolaires : ${e.message}`, "error");
+        }
+      }
+
+      async function loadCycles() {
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.cycles));
+          state.cycles = asArray(payload);
+        } catch (e) {
+          state.cycles = [];
+          // Non bloquant : classeLabel() se rabat sur "Classe #id" si absent.
+        }
+      }
+
+      async function loadClasses() {
+        const select = document.getElementById("filterClasse");
+        const coursClasse = document.getElementById("coursClasse");
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.classes));
+          state.classes = asArray(payload);
+          const options = state.classes.map(c => `<option value="${c.id}">${classeLabel(c)}</option>`).join("");
+          // "Aucune classe assignée" plutôt que "Aucune classe" tout court :
+          // la liste peut être vide légitimement si l'Admin ne vous a pas
+          // encore assigné de classe (cf. CenseurClasse), pas seulement en
+          // l'absence de classes dans l'établissement.
+          select.innerHTML = options || `<option value="">Aucune classe assignée</option>`;
+          coursClasse.innerHTML = `<option value="">-- Choisir --</option>` + options;
+          if (state.classes.length) {
+            state.classeActiveId = state.classes[0].id;
+            document.getElementById("classeGridTitle").textContent = classeLabel(state.classes[0]);
+          } else {
+            document.getElementById("classeGridTitle").textContent = "Aucune classe assignée";
+          }
+        } catch (e) {
+          select.innerHTML = `<option value="">Indisponible</option>`;
+          showToast(`Classes : ${e.message}`, "error");
+        }
+      }
+
+      async function loadEnseignants() {
+        const select = document.getElementById("filterEnseignant");
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.enseignants));
+          // Enseignant (pedagogie_models.py) expose nom + prenom, pas de
+          // nom_complet précalculé côté back : on le construit ici.
+          state.enseignants = asArray(payload).map(e => ({
+            ...e,
+            nom_complet: `${e.prenom || ""} ${e.nom || ""}`.trim() || e.nom || `Enseignant #${e.id}`
+          }));
+          select.innerHTML = state.enseignants.map(e =>
+            `<option value="${e.id}">${e.nom_complet}</option>`
+          ).join("") || `<option value="">Aucun enseignant</option>`;
+          if (state.enseignants.length) {
+            state.enseignantActiveId = state.enseignants[0].id;
+            document.getElementById("enseignantGridTitle").textContent = state.enseignants[0].nom_complet;
+          }
+        } catch (e) {
+          select.innerHTML = `<option value="">Indisponible</option>`;
+          showToast(`Enseignants : ${e.message}`, "error");
+        }
+      }
+
+      async function loadMatieres() {
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.matieres));
+          state.matieres = asArray(payload);
+        } catch (e) {
+          state.matieres = [];
+          showToast(`Matières : ${e.message}`, "error");
+        }
+      }
+
+      /* MatiereClasse (pedagogie_models.py) ne renvoie que des id bruts
+         (classe_id, matiere_id, enseignant_id) et le back ne sait pas la
+         filtrer par classe (cf. ENDPOINTS.matieresClasse) : on charge la
+         liste complète UNE FOIS puis on l'enrichit avec les libellés
+         (matière/enseignant/classe) résolus depuis les référentiels déjà
+         chargés, avant de la répartir dans matiereClasseIndex. */
+      async function loadMatieresClasseAll() {
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.matieresClasse));
+          state.matieresClasseAll = asArray(payload);
+        } catch (e) {
+          state.matieresClasseAll = [];
+          showToast(`Matières-classe : ${e.message}`, "error");
+        }
+        buildMatiereClasseIndex();
+      }
+
+      function buildMatiereClasseIndex() {
+        const matiereMap = new Map(state.matieres.map(m => [m.id, m]));
+        const enseignantMap = new Map(state.enseignants.map(en => [en.id, en]));
+        const classeMap = new Map(state.classes.map(c => [c.id, c]));
+
+        state.matiereClasseIndex = {};
+        state.matieresClasseAll.forEach(mc => {
+          const matiere = matiereMap.get(mc.matiere_id);
+          const enseignant = enseignantMap.get(mc.enseignant_id);
+          const classe = classeMap.get(mc.classe_id);
+          state.matiereClasseIndex[mc.id] = {
+            ...mc,
+            matiere_nom: matiere ? (matiere.libelle || matiere.nom) : "Matière",
+            enseignant_nom: enseignant ? enseignant.nom_complet : "Enseignant",
+            classe_nom: classe ? classeLabel(classe) : "Classe"
+          };
+        });
+      }
+
+      /* Sous-ensemble de matiereClasseIndex pour une classe donnée (filtrage
+         100% côté front, cf. note sur ENDPOINTS.matieresClasse). */
+      function matieresClasseDeLaClasse(classeId) {
+        const id = parseInt(classeId, 10);
+        return Object.values(state.matiereClasseIndex).filter(mc => mc.classe_id === id);
+      }
+
+      function loadMatieresClasse(classeId) {
+        const select = document.getElementById("coursMatiereClasse");
+        if (!classeId) {
+          select.innerHTML = `<option value="">-- Choisir la classe d'abord --</option>`;
+          select.disabled = true;
+          return;
+        }
+        select.disabled = false;
+        const items = matieresClasseDeLaClasse(classeId);
+        select.innerHTML = `<option value="">-- Choisir --</option>` + items.map(mc =>
+          `<option value="${mc.id}">${mc.matiere_nom} — ${mc.enseignant_nom}</option>`
+        ).join("") || `<option value="">Aucune matière affectée à cette classe</option>`;
+      }
+
+      /* ═══════════════════════════════════════
+         CRÉNEAUX HORAIRES
+         Référentiel CLOISONNÉ par établissement (comme les horaires) : un
+         compte "Admin" gère la grille de son propre établissement, un
+         SuperAdmin doit préciser ?etablissement_id= (cf. withEtablissementId
+         plus haut). Plus de restriction SuperAdmin-only ni de bouton masqué :
+         même logique d'accès que pour les cours (horaires) ci-dessous.
+      ═══════════════════════════════════════ */
+      function sortCreneauxParHeure(liste) {
+        return [...liste].sort((a, b) => (a.heure_debut || "").localeCompare(b.heure_debut || ""));
+      }
+
+      async function loadCreneaux() {
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.creneaux));
+          state.creneaux = sortCreneauxParHeure(asArray(payload));
+        } catch (e) {
+          state.creneaux = [];
+          showToast(`Créneaux horaires : ${e.message}`, "error");
+        }
+        renderCreneauxTable();
+        renderCoursCreneauSelect();
+      }
+
+      /* ═══════════════════════════════════════
+         ÉTABLISSEMENT CONNECTÉ
+         Alimente dynamiquement l'en-tête des documents imprimés (nom, adresse,
+         téléphone, logo...) — cf. infosEtablissementImpression() et
+         buildEnteteImpression() plus bas. GET /api/etablissements/<id> :
+         accessible en lecture à un Admin, un Censeur ou un Surveillant
+         UNIQUEMENT pour leur propre etablissement_id, et à un SuperAdmin pour
+         n'importe quel établissement (cf. structure_api.py,
+         make_admin_crud_blueprint._require_admin/get_one). Le catch
+         ci-dessous reste néanmoins nécessaire pour absorber tout échec réseau
+         ou un profil sans etablissement_id : dans ce cas l'impression se
+         contente des valeurs de repli d'infosEtablissementImpression().
+      ═══════════════════════════════════════ */
+      async function loadEtablissement() {
+        const etabId = window.GestionnaireAuth && typeof GestionnaireAuth.getEtablissementId === "function"
+          ? GestionnaireAuth.getEtablissementId()
+          : null;
+        if (!etabId) return;
+        try {
+          state.etablissement = await apiFetch(ENDPOINTS.etablissementById(etabId));
+        } catch (e) {
+          // Non bloquant : le document s'imprime quand même, avec les valeurs
+          // par défaut de infosEtablissementImpression() en repli.
+          console.error("Impossible de charger les informations de l'établissement :", e);
+        }
+      }
+
+      function renderCreneauxTable() {
+        const tbody = document.querySelector("#tableCreneaux tbody");
+        document.getElementById("creneauxCount").textContent = state.creneaux.length;
+        if (!state.creneaux.length) {
+          tbody.innerHTML = `<tr><td colspan="5" class="grid-empty">Aucun créneau défini pour le moment.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = state.creneaux.map(c => `
+          <tr data-id="${c.id}" data-libelle="${c.libelle}" data-debut="${(c.heure_debut||'').slice(0,5)}" data-fin="${(c.heure_fin||'').slice(0,5)}">
+            <td><strong>${c.libelle}</strong></td>
+            <td>${heureCourte(c.heure_debut)}</td>
+            <td>${heureCourte(c.heure_fin)}</td>
+            <td>${dureeMinutes(c.heure_debut, c.heure_fin)}</td>
+            <td class="text-end">
+              <button class="btn btn-icon btn-sm btn-light js-creneau-edit" title="Modifier"><i class="fa-solid fa-pen"></i></button>
+              <button class="btn btn-icon btn-sm btn-light text-danger js-creneau-delete" title="Supprimer"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          </tr>`).join("");
+
+        tbody.querySelectorAll(".js-creneau-edit").forEach(btn => btn.addEventListener("click", () => openCreneauEdit(btn.closest("tr"))));
+        tbody.querySelectorAll(".js-creneau-delete").forEach(btn => btn.addEventListener("click", () => deleteCreneau(btn.closest("tr"))));
+      }
+
+      function renderCoursCreneauSelect() {
+        const select = document.getElementById("coursCreneau");
+        select.innerHTML = `<option value="">-- Choisir --</option>` + state.creneaux.map(c =>
+          `<option value="${c.id}">${c.libelle} — ${heureCourte(c.heure_debut)}-${heureCourte(c.heure_fin)}</option>`
+        ).join("");
+      }
+
+      const modalCreneau = new bootstrap.Modal(document.getElementById("modalNouveauCreneau"));
+      const modalCreneauTitle = document.getElementById("modalCreneauTitle");
+      const formCreneau = document.getElementById("formCreneau");
+      const creneauFormError = document.getElementById("creneauFormError");
+
+      function resetFormCreneau() {
+        formCreneau.reset();
+        document.getElementById("creneauId").value = "";
+        creneauFormError.classList.add("d-none");
+        modalCreneauTitle.innerHTML = '<i class="fa-solid fa-clock me-2 text-primary"></i>Nouveau créneau';
+      }
+
+      document.getElementById("btnNouveauCreneau").addEventListener("click", resetFormCreneau);
+
+      function openCreneauEdit(row) {
+        resetFormCreneau();
+        modalCreneauTitle.innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier le créneau';
+        document.getElementById("creneauId").value = row.dataset.id;
+        document.getElementById("creneauLibelle").value = row.dataset.libelle || "";
+        document.getElementById("creneauDebut").value = row.dataset.debut || "";
+        document.getElementById("creneauFin").value = row.dataset.fin || "";
+        modalCreneau.show();
+      }
+
+      document.getElementById("btnEnregistrerCreneau").addEventListener("click", async () => {
+        if (!formCreneau.checkValidity()) {
+          formCreneau.reportValidity();
+          return;
+        }
+        const id = document.getElementById("creneauId").value;
+        const data = {
+          libelle: document.getElementById("creneauLibelle").value.trim(),
+          heure_debut: document.getElementById("creneauDebut").value,
+          heure_fin: document.getElementById("creneauFin").value
+        };
+        try {
+          if (id) {
+            await apiFetch(withEtablissementId(ENDPOINTS.creneauById(id)), { method: "PUT", body: JSON.stringify(data) });
+          } else {
+            await apiFetch(withEtablissementId(ENDPOINTS.creneaux), { method: "POST", body: JSON.stringify(data) });
+          }
+          modalCreneau.hide();
+          showToast("Créneau horaire enregistré avec succès.");
+          await loadCreneaux();
+          refreshActiveGrid();
+        } catch (e) {
+          creneauFormError.textContent = e.message;
+          creneauFormError.classList.remove("d-none");
+        }
+      });
+
+      async function deleteCreneau(row) {
+        if (!confirm(`Supprimer le créneau "${row.dataset.libelle}" ? Les cours qui l'utilisent seront également supprimés.`)) return;
+        try {
+          await apiFetch(withEtablissementId(ENDPOINTS.creneauById(row.dataset.id)), { method: "DELETE" });
+          showToast("Créneau horaire supprimé.");
+          await loadCreneaux();
+          refreshActiveGrid();
+        } catch (e) {
+          showToast(e.message, "error");
+        }
+      }
+
+      /* ═══════════════════════════════════════
+         HORAIRES
+         GET /api/horaires/ renvoie TOUS les horaires de l'établissement
+         (Horaire n'a pas de etablissement_id direct, cf. emploi_du_temps_services
+         .scoped_query : cloisonnement fait côté back via une double jointure).
+         Il n'existe pas de route dédiée /classes/:id/horaires ni
+         /enseignants/:id/horaires : le filtrage par classe/enseignant/année
+         se fait donc ici, côté front, à partir de matiereClasseIndex.
+      ═══════════════════════════════════════ */
+      async function loadHoraires() {
+        try {
+          const payload = await apiFetch(withEtablissementId(ENDPOINTS.horaires));
+          state.horaires = asArray(payload).map(h => ({
+            ...h,
+            matiere_classe: state.matiereClasseIndex[h.matiere_classe_id] || null
+          }));
+        } catch (e) {
+          state.horaires = [];
+          showToast(`Horaires : ${e.message}`, "error");
+        }
+      }
+
+      /* ═══════════════════════════════════════
+         GRILLE PAR CLASSE
+      ═══════════════════════════════════════ */
+      function renderGrilleClasse() {
+        const tbody = document.querySelector("#grilleClasse tbody");
+        if (!state.classeActiveId || !state.anneeActiveId) {
+          tbody.innerHTML = `<tr><td colspan="7" class="grid-empty">Sélectionnez une classe.</td></tr>`;
+          return;
+        }
+        const classeId = parseInt(state.classeActiveId, 10);
+        const anneeId = parseInt(state.anneeActiveId, 10);
+        state.horairesClasse = state.horaires.filter(h =>
+          h.annee_scolaire_id === anneeId && h.matiere_classe && h.matiere_classe.classe_id === classeId
+        );
+        renderGrille("grilleClasse", state.horairesClasse, "classe");
+        document.getElementById("classeGridCount").textContent = `${state.horairesClasse.length} cours / semaine`;
+        updateStatsClasse();
+        renderLegende(state.horairesClasse.map(h => getMatiereNom(h.matiere_classe)));
+      }
+
+      /* Conservé sous forme async (await) : appelé après une création/modif/
+         suppression, ou lors d'un changement d'onglet/filtre — recharge les
+         horaires depuis le serveur puis réapplique le filtre classe actif. */
+      async function loadGrilleClasse() {
+        await loadHoraires();
+        renderGrilleClasse();
+      }
+
+      /* ═══════════════════════════════════════
+         GRILLE PAR ENSEIGNANT
+      ═══════════════════════════════════════ */
+      function renderGrilleEnseignant() {
+        const tbody = document.querySelector("#grilleEnseignant tbody");
+        if (!state.enseignantActiveId || !state.anneeActiveId) {
+          tbody.innerHTML = `<tr><td colspan="7" class="grid-empty">Sélectionnez un enseignant.</td></tr>`;
+          return;
+        }
+        const ensId = parseInt(state.enseignantActiveId, 10);
+        const anneeId = parseInt(state.anneeActiveId, 10);
+        state.horairesEnseignant = state.horaires.filter(h =>
+          h.annee_scolaire_id === anneeId && h.matiere_classe && h.matiere_classe.enseignant_id === ensId
+        );
+        renderGrille("grilleEnseignant", state.horairesEnseignant, "enseignant");
+        document.getElementById("enseignantGridCount").textContent = `${state.horairesEnseignant.length} cours / semaine`;
+        updateStatsEnseignant();
+      }
+
+      async function loadGrilleEnseignant() {
+        await loadHoraires();
+        renderGrilleEnseignant();
+      }
+
+      /* Rendu générique d'une grille (classe ou enseignant) à partir des créneaux + horaires */
+      function renderGrille(tableId, horaires, mode) {
+        const tbody = document.querySelector(`#${tableId} tbody`);
+        if (!state.creneaux.length) {
+          // Un Censeur/Surveillant a bien accès aux créneaux horaires de son
+          // établissement (cf. ROLES_ACCES_EMPLOI_DU_TEMPS dans
+          // emploi_du_temps_api.py) : le seul cas possible ici est une liste
+          // vide (aucun créneau encore défini), jamais une restriction de rôle.
+          tbody.innerHTML = `<tr><td colspan="7" class="grid-empty">Aucun créneau horaire défini. Créez-en dans l'onglet "Créneaux horaires".</td></tr>`;
+          return;
+        }
+
+        // Index rapide : "jour|creneau_id" -> horaire
+        const index = {};
+        horaires.forEach(h => { index[`${h.jour_semaine}|${h.creneau_id}`] = h; });
+
+        tbody.innerHTML = state.creneaux.map(creneau => {
+          const cells = JOURS.map(jour => {
+            const horaire = index[`${jour}|${creneau.id}`];
+            if (horaire) {
+              const mc = horaire.matiere_classe || {};
+              const matiereNom = getMatiereNom(mc);
+              const colorClass = colorClassFor(matiereNom);
+              const ligne1 = mode === "classe" ? matiereNom : getClasseNom(mc);
+              const ligne2 = mode === "classe"
+                ? `<span class="chip-meta"><i class="fa-solid fa-user-tie"></i> ${getEnseignantNom(mc)}</span>`
+                : `<span class="chip-meta"><i class="fa-solid fa-book"></i> ${matiereNom}</span>`;
+              return `<td>
+                <div class="cours-chip ${colorClass}" data-id="${horaire.id}" data-matiere-classe-id="${horaire.matiere_classe_id}" data-jour="${jour}" data-creneau="${creneau.id}">
+                  <div class="chip-actions"><button class="js-chip-edit" title="Modifier"><i class="fa-solid fa-pen"></i></button><button class="js-chip-delete" title="Supprimer"><i class="fa-solid fa-xmark"></i></button></div>
+                  <span class="chip-matiere">${ligne1}</span>
+                  ${ligne2}
+                </div>
+              </td>`;
+            }
+            if (mode === "classe") {
+              return `<td><div class="cell-empty js-cell-empty" data-jour="${jour}" data-creneau="${creneau.id}" title="Ajouter un cours"><i class="fa-solid fa-plus"></i></div></td>`;
+            }
+            return `<td><div class="cell-empty"></div></td>`;
+          }).join("");
+
+          return `<tr data-creneau="${creneau.id}">
+            <td class="time-col"><div class="time-slot-label">${creneau.libelle}</div><div class="time-slot-range">${heureCourte(creneau.heure_debut)} - ${heureCourte(creneau.heure_fin)}</div></td>
+            ${cells}
+          </tr>`;
+        }).join("");
+
+        if (mode === "classe") {
+          tbody.querySelectorAll(".js-cell-empty").forEach(cell => cell.addEventListener("click", () => openCoursCreate(cell.dataset.jour, cell.dataset.creneau)));
+          tbody.querySelectorAll(".cours-chip").forEach(chip => chip.addEventListener("click", (e) => {
+            if (e.target.closest(".js-chip-delete")) { openDeleteModal(chip); return; }
+            openCoursEdit(chip);
+          }));
+        }
+      }
+
+      function renderLegende(matieresNoms) {
+        const zone = document.getElementById("legendZone");
+        const uniques = [...new Set(matieresNoms)].filter(Boolean);
+        if (!uniques.length) {
+          zone.innerHTML = `<span class="text-muted" style="font-size:11px;">Aucune matière programmée pour l'instant.</span>`;
+          return;
+        }
+        zone.innerHTML = uniques.map(nom => {
+          const cls = colorClassFor(nom);
+          const bgVar = { "chip-c1": "var(--ta-primary)", "chip-c2": "var(--ta-success)", "chip-c3": "var(--ta-warning)", "chip-c4": "var(--ta-info)", "chip-c5": "#6D28D9" }[cls];
+          return `<span class="legend-item"><span class="legend-dot" style="background:${bgVar};"></span>${nom}</span>`;
+        }).join("");
+      }
+
+      /* Recharge les horaires depuis le serveur puis réapplique le filtre de
+         l'onglet actif (utilisé après une création/modif/suppression de
+         cours, ou de créneau puisque ça change le rendu de la grille). */
+      async function refreshActiveGrid() {
+        await loadHoraires();
+        const activeTab = document.querySelector("#horaireTabs .nav-link.active").id;
+        if (activeTab === "tab-classe") renderGrilleClasse();
+        else if (activeTab === "tab-enseignant") renderGrilleEnseignant();
+      }
+
+      /* Change de filtre (classe/enseignant/année) sans reformuler d'appel
+         réseau : state.horaires est déjà en cache. */
+      function refreshActiveGridLocal() {
+        const activeTab = document.querySelector("#horaireTabs .nav-link.active").id;
+        if (activeTab === "tab-classe") renderGrilleClasse();
+        else if (activeTab === "tab-enseignant") renderGrilleEnseignant();
+      }
+
+      /* ═══════════════════════════════════════
+         FILTRES : changement de classe / enseignant / année
+      ═══════════════════════════════════════ */
+      document.getElementById("filterClasse").addEventListener("change", function () {
+        state.classeActiveId = this.value || null;
+        const nom = this.options[this.selectedIndex] ? this.options[this.selectedIndex].textContent : "—";
+        document.getElementById("classeGridTitle").textContent = nom;
+        renderGrilleClasse();
+      });
+      document.getElementById("filterEnseignant").addEventListener("change", function () {
+        state.enseignantActiveId = this.value || null;
+        const nom = this.options[this.selectedIndex] ? this.options[this.selectedIndex].textContent : "—";
+        document.getElementById("enseignantGridTitle").textContent = nom;
+        renderGrilleEnseignant();
+      });
+      document.getElementById("filterAnnee").addEventListener("change", function () {
+        state.anneeActiveId = this.value || null;
+        document.getElementById("coursAnnee").innerHTML = `<option value="${this.value}">${this.options[this.selectedIndex].textContent}</option>`;
+        refreshActiveGridLocal();
+      });
+
+      /* ═══════════════════════════════════════
+         MODAL "NOUVEAU / MODIFIER COURS"
+      ═══════════════════════════════════════ */
+      const modalCoursEl = document.getElementById("modalNouveauCours");
+      const modalCours = new bootstrap.Modal(modalCoursEl);
+      const modalCoursTitle = document.getElementById("modalCoursTitle");
+      const formCours = document.getElementById("formCours");
+      const coursFormError = document.getElementById("coursFormError");
+
+      function resetFormCours() {
+        formCours.reset();
+        document.getElementById("coursId").value = "";
+        coursFormError.classList.add("d-none");
+        document.getElementById("coursClasse").value = state.classeActiveId || "";
+        loadMatieresClasse(document.getElementById("coursClasse").value);
+        modalCoursTitle.innerHTML = '<i class="fa-solid fa-calendar-plus me-2 text-primary"></i>Nouveau cours';
+      }
+
+      document.getElementById("btnNouveauCours").addEventListener("click", resetFormCours);
+
+      document.getElementById("coursClasse").addEventListener("change", function () {
+        loadMatieresClasse(this.value);
+      });
+
+      function openCoursCreate(jour, creneauId) {
+        resetFormCours();
+        document.getElementById("coursJour").value = jour || "";
+        document.getElementById("coursCreneau").value = creneauId || "";
+        modalCours.show();
+      }
+
+      async function openCoursEdit(chip) {
+        resetFormCours();
+        modalCoursTitle.innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier le cours';
+        document.getElementById("coursId").value = chip.dataset.id;
+        document.getElementById("coursJour").value = chip.dataset.jour || "";
+        document.getElementById("coursCreneau").value = chip.dataset.creneau || "";
+        document.getElementById("coursClasse").value = state.classeActiveId || "";
+        await loadMatieresClasse(document.getElementById("coursClasse").value);
+        document.getElementById("coursMatiereClasse").value = chip.dataset.matiereClasseId || "";
+        modalCours.show();
+      }
+
+      document.getElementById("btnEnregistrerCours").addEventListener("click", async () => {
+        if (!formCours.checkValidity()) {
+          formCours.reportValidity();
+          return;
+        }
+        const id = document.getElementById("coursId").value;
+        const data = {
+          matiere_classe_id: parseInt(document.getElementById("coursMatiereClasse").value, 10),
+          annee_scolaire_id: parseInt(state.anneeActiveId, 10),
+          jour_semaine: document.getElementById("coursJour").value,
+          creneau_id: parseInt(document.getElementById("coursCreneau").value, 10)
+        };
+        try {
+          if (id) {
+            await apiFetch(withEtablissementId(ENDPOINTS.horaireById(id)), { method: "PUT", body: JSON.stringify(data) });
+          } else {
+            await apiFetch(withEtablissementId(ENDPOINTS.horaires), { method: "POST", body: JSON.stringify(data) });
+          }
+          modalCours.hide();
+          showToast("Cours enregistré avec succès.");
+          await refreshActiveGrid();
+        } catch (e) {
+          coursFormError.textContent = e.message;
+          coursFormError.classList.remove("d-none");
+        }
+      });
+
+      /* ═══════════════════════════════════════
+         SUPPRESSION D'UN COURS
+      ═══════════════════════════════════════ */
+      const modalSuppr = new bootstrap.Modal(document.getElementById("modalConfirmSuppression"));
+      let chipToDeleteId = null;
+
+      function openDeleteModal(chip) {
+        chipToDeleteId = chip.dataset.id;
+        modalSuppr.show();
+      }
+
+      document.getElementById("btnConfirmerSuppression").addEventListener("click", async () => {
+        if (!chipToDeleteId) { modalSuppr.hide(); return; }
+        try {
+          await apiFetch(withEtablissementId(ENDPOINTS.horaireById(chipToDeleteId)), { method: "DELETE" });
+          showToast("Cours supprimé de l'emploi du temps.");
+          await refreshActiveGrid();
+        } catch (e) {
+          showToast(e.message, "error");
+        } finally {
+          chipToDeleteId = null;
+          modalSuppr.hide();
+        }
+      });
+
+      /* ═══════════════════════════════════════
+         IMPRESSION — grille classe / grille enseignant
+         Reproduit la mise en page du modèle papier de
+         l'établissement (en-tête, périodes, jours, signatures).
+      ═══════════════════════════════════════ */
+      // Valeurs de repli si la fiche établissement n'a pas pu être chargée
+      // (échec réseau, impression déclenchée avant la fin de loadEtablissement...).
+      const ETABLISSEMENT_DEFAUT = { nom: "Établissement" };
+
+      /* Fusionne state.etablissement (chargé dynamiquement, cf. loadEtablissement)
+         avec les valeurs de repli — utilisé par buildEnteteImpression et
+         buildPiedImpression pour que l'en-tête imprimé reflète TOUJOURS
+         l'établissement réellement connecté, jamais un établissement codé en dur. */
+      function infosEtablissementImpression() {
+        const e = state.etablissement || {};
+        return {
+          nom: e.nom || ETABLISSEMENT_DEFAUT.nom,
+          nom_bilingue: e.nom_bilingue || "",
+          adresse: e.adresse || "",
+          bp: e.bp || "",
+          telephone: e.telephone || "",
+          region: e.region || "",
+          logo_url: e.logo_url || ""
+        };
+      }
+
+      function escapeHtml(value) {
+        if (value === null || value === undefined) return "";
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function creneauxTries() {
+        return sortCreneauxParHeure(state.creneaux);
+      }
+
+      function anneeActiveLibelle() {
+        const a = state.annees.find(a => a.id == state.anneeActiveId);
+        return a ? a.libelle : "—";
+      }
+
+      function buildEnteteImpression(sousTitre, champs) {
+        const etab = infosEtablissementImpression();
+        const ligneAdresse = [etab.adresse, etab.bp ? `BP ${etab.bp}` : ""].filter(Boolean).join(" — ");
+
+        return `
+          <div class="print-header-top">
+            <div class="print-etab">
+              <div class="print-etab-nom">${escapeHtml(etab.nom)}</div>
+              ${etab.nom_bilingue ? `<div class="print-etab-bilingue">${escapeHtml(etab.nom_bilingue)}</div>` : ""}
+              ${ligneAdresse ? `<div class="print-etab-detail">${escapeHtml(ligneAdresse)}</div>` : ""}
+              ${etab.telephone ? `<div class="print-etab-detail">Tél : ${escapeHtml(etab.telephone)}</div>` : ""}
+              <div class="print-annee">Année scolaire : ${anneeActiveLibelle()}</div>
+            </div>
+            <div class="print-etab-logo">
+              ${etab.logo_url ? `<img src="${etab.logo_url}" alt="Logo ${escapeHtml(etab.nom)}" onerror="this.remove()">` : ""}
+            </div>
+            <div class="print-titre">
+              <div class="print-titre-principal">EMPLOI DU TEMPS</div>
+              <div class="print-titre-secondaire">${sousTitre}</div>
+            </div>
+          </div>
+          <div class="print-champs">
+            ${champs.map(c => `<div class="print-champ"><span>${c.label}</span> : <strong>${escapeHtml(c.valeur)}</strong></div>`).join("")}
+          </div>`;
+      }
+
+      function buildTableauImpression(horaires, mode) {
+        const creneaux = creneauxTries();
+        if (!creneaux.length) {
+          return `<p class="text-muted">Aucun créneau horaire défini.</p>`;
+        }
+
+        const index = {};
+        horaires.forEach(h => { index[`${h.jour_semaine}|${h.creneau_id}`] = h; });
+
+        const theadPeriodes = creneaux.map((c, i) => `<th class="print-periode-cell">${i + 1}</th>`).join("");
+        const theadHoraires = creneaux.map(c =>
+          `<th class="print-horaire-cell">${heureCourte(c.heure_debut)}<br>${heureCourte(c.heure_fin)}</th>`
+        ).join("");
+
+        const rows = JOURS.map(jour => {
+          const cells = creneaux.map(creneau => {
+            const h = index[`${jour}|${creneau.id}`];
+            if (!h) return `<td class="print-cell-vide"></td>`;
+            const mc = h.matiere_classe || {};
+            if (mode === "classe") {
+              return `<td><div class="pc-matiere">${getMatiereNom(mc)}</div><div class="pc-sub">${getEnseignantNom(mc)}</div></td>`;
+            }
+            return `<td><div class="pc-matiere">${getClasseNom(mc)}</div><div class="pc-sub">${getMatiereNom(mc)}</div></td>`;
+          }).join("");
+          return `<tr><td class="print-jour">${jour}</td>${cells}</tr>`;
+        }).join("");
+
+        return `
+          <table class="print-table">
+            <thead>
+              <tr><th class="print-jour-header">Jour</th>${theadPeriodes}</tr>
+              <tr><th class="print-jour-header">Horaires</th>${theadHoraires}</tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+      }
+
+      function buildPiedImpression() {
+        const etab = infosEtablissementImpression();
+        const lieu = etab.region || etab.adresse || "";
+        const aujourdhui = new Date().toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" });
+        return `
+          <div class="print-footer">
+            <div>${lieu ? `${escapeHtml(lieu)}, ` : ""}le ${aujourdhui}</div>
+            <div class="print-signatures">
+              <div class="print-signature">Le ${window.ROLE_LABEL || "Censeur"}</div>
+              <div class="print-signature">Le Proviseur</div>
+            </div>
+          </div>`;
+      }
+
+      function lancerImpression(contenuHtml) {
+        const zone = document.getElementById("zoneImpression");
+        zone.innerHTML = `<div class="print-sheet">${contenuHtml}</div>`;
+        document.body.classList.add("mode-impression");
+        window.print();
+      }
+
+      window.addEventListener("afterprint", () => {
+        document.body.classList.remove("mode-impression");
+        document.getElementById("zoneImpression").innerHTML = "";
+      });
+
+      async function imprimerGrilleClasse() {
+        if (!state.classeActiveId) {
+          showToast("Sélectionnez d'abord une classe à imprimer.", "error");
+          return;
+        }
+        if (!state.etablissement) await loadEtablissement();
+        await loadGrilleClasse();
+        const classeNom = (state.classes.find(c => c.id == state.classeActiveId) || {}).libelle
+          || document.getElementById("classeGridTitle").textContent;
+        const entete = buildEnteteImpression("GRILLE DE LA CLASSE", [
+          { label: "Classe", valeur: classeNom },
+          { label: "Cours / semaine", valeur: state.horairesClasse.length }
+        ]);
+        lancerImpression(entete + buildTableauImpression(state.horairesClasse, "classe") + buildPiedImpression());
+      }
+
+      async function imprimerGrilleEnseignant() {
+        if (!state.enseignantActiveId) {
+          showToast("Sélectionnez d'abord un enseignant à imprimer.", "error");
+          return;
+        }
+        if (!state.etablissement) await loadEtablissement();
+        await loadGrilleEnseignant();
+        const ens = state.enseignants.find(e => e.id == state.enseignantActiveId) || {};
+        const nomEns = ens.nom_complet || ens.nom || document.getElementById("enseignantGridTitle").textContent;
+        const entete = buildEnteteImpression("EMPLOI DU TEMPS INDIVIDUEL", [
+          { label: "Enseignant", valeur: nomEns },
+          { label: "Grade / Matière", valeur: ens.grade || ens.matiere || "—" },
+          { label: "Quota horaire", valeur: `${state.horairesEnseignant.length} h / semaine` }
+        ]);
+        lancerImpression(entete + buildTableauImpression(state.horairesEnseignant, "enseignant") + buildPiedImpression());
+      }
+
+      document.getElementById("btnImprimerClasse").addEventListener("click", imprimerGrilleClasse);
+      document.getElementById("btnImprimerEnseignant").addEventListener("click", imprimerGrilleEnseignant);
+      document.querySelector(".js-print-classe").addEventListener("click", imprimerGrilleClasse);
+      document.querySelector(".js-print-enseignant").addEventListener("click", imprimerGrilleEnseignant);
+
+      /* ═══════════════════════════════════════
+         EXPORT EXCEL (CSV)
+      ═══════════════════════════════════════ */
+
+      function csvEscape(value) {
+        const v = (value || "").toString().replace(/"/g, '""');
+        return `"${v}"`;
+      }
+
+      function downloadCSV(filename, rows) {
+        const csvContent = rows.map((r) => r.map(csvEscape).join(";")).join("\r\n");
+        const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+
+      function exportGrilleToCSV(tableId, filename) {
+        const table = document.getElementById(tableId);
+        const rows = [];
+        const headerCells = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent.trim());
+        rows.push(headerCells);
+
+        table.querySelectorAll("tbody tr").forEach((tr) => {
+          const cells = Array.from(tr.querySelectorAll("td")).map((td) => {
+            const chip = td.querySelector(".cours-chip");
+            if (chip) {
+              return `${chip.querySelector(".chip-matiere").textContent.trim()} (${(td.querySelector(".chip-meta") || {}).textContent || ""})`.trim();
+            }
+            const timeLabel = td.querySelector(".time-slot-label");
+            if (timeLabel) {
+              const range = td.querySelector(".time-slot-range");
+              return timeLabel.textContent.trim() + (range ? " (" + range.textContent.trim() + ")" : "");
+            }
+            return "";
+          });
+          rows.push(cells);
+        });
+        downloadCSV(filename, rows);
+      }
+
+      function exportCreneauxToCSV() {
+        const rows = [["Libellé", "Heure de début", "Heure de fin", "Durée"]];
+        state.creneaux.forEach(c => {
+          rows.push([c.libelle, heureCourte(c.heure_debut), heureCourte(c.heure_fin), dureeMinutes((c.heure_debut||'').slice(0,5), (c.heure_fin||'').slice(0,5))]);
+        });
+        downloadCSV("creneaux_horaires.csv", rows);
+      }
+
+      document.getElementById("btnExportExcel").addEventListener("click", () => {
+        const activeTab = document.querySelector("#horaireTabs .nav-link.active").id;
+        if (activeTab === "tab-classe") {
+          const classe = (document.getElementById("classeGridTitle").textContent || "classe").replace(/\s+/g, "_");
+          exportGrilleToCSV("grilleClasse", `emploi_du_temps_${classe}.csv`);
+        } else if (activeTab === "tab-enseignant") {
+          const ens = (document.getElementById("enseignantGridTitle").textContent || "enseignant").replace(/\s+/g, "_");
+          exportGrilleToCSV("grilleEnseignant", `charge_horaire_${ens}.csv`);
+        } else {
+          exportCreneauxToCSV();
+        }
+        showToast("Le fichier CSV a été téléchargé (compatible Excel).");
+      });
+
+      /* ═══════════════════════════════════════
+         INIT
+      ═══════════════════════════════════════ */
+      async function init() {
+        const ok = await window.GestionnaireAuth.requireAuth();
+        if (!ok) return; // requireAuth() a déjà redirigé vers /login
+
+        bindTabs();
+        updateFilterVisibility("tab-classe");
+
+        // 1) Référentiels indépendants (en parallèle), y compris les créneaux
+        //    horaires (cloisonnés par établissement comme les horaires,
+        //    cf. loadCreneaux).
+        await Promise.all([
+          loadAnnees(), loadCycles(), loadClasses(), loadEnseignants(), loadMatieres(), loadCreneaux(),
+          loadEtablissement()
+        ]);
+
+        document.getElementById("coursAnnee").innerHTML = state.annees.length
+          ? `<option value="${state.anneeActiveId}">${(state.annees.find(a => a.id == state.anneeActiveId) || {}).libelle || ''}</option>`
+          : `<option value="">—</option>`;
+
+        // 2) matieres-classe dépend de classes/enseignants/matieres déjà chargés
+        //    (résolution des libellés dans buildMatiereClasseIndex).
+        await loadMatieresClasseAll();
+
+        // 3) horaires dépend de matiereClasseIndex pour l'enrichissement.
+        await loadHoraires();
+
+        renderGrilleClasse();
+        updateStatsClasse();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+
+</body>
+</html>

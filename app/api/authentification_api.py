@@ -204,10 +204,11 @@ def get_utilisateurs():
 def create_utilisateur_endpoint():
     """
     Crée un nouvel utilisateur
-    Body: {nom, email, role_id, etablissement_id, password (optionnel)}
-    Si 'password' est omis (cas normal), un mot de passe temporaire est généré
-    et renvoyé une seule fois dans la réponse (clé 'mot_de_passe_temporaire').
-    L'utilisateur devra le changer dès sa première connexion, sous 48h.
+    Body: {nom, email, role_id, etablissement_id}
+    Aucun mot de passe n'est accepté dans le payload : un mot de passe
+    temporaire est TOUJOURS généré côté serveur et renvoyé une seule fois
+    dans la réponse (clé 'mot_de_passe_temporaire'). L'utilisateur devra le
+    changer dès sa première connexion, sous 48h.
     """
     claims = get_jwt()
 
@@ -227,6 +228,15 @@ def create_utilisateur_endpoint():
     # Un Admin d'établissement ne peut créer que des utilisateurs de son propre établissement
     if not _est_superadmin(claims) and data['etablissement_id'] != claims.get('etablissement_id'):
         return jsonify({"erreur": "Accès non autorisé pour cet établissement"}), 403
+
+    # Un Admin d'établissement ne peut pas créer un autre compte 'Admin' (privilège
+    # réservé au SuperAdmin). Un SuperAdmin, lui, est un compte global distinct
+    # (table super_admin, sans role_id) : il ne peut de toute façon pas être créé
+    # via cet endpoint, qui ne porte que sur Utilisateur.
+    if not _est_superadmin(claims):
+        role_cible = Role.query.get(data['role_id'])
+        if role_cible and role_cible.libelle == 'Admin':
+            return jsonify({"erreur": "Un administrateur ne peut pas créer un autre administrateur"}), 403
 
     result, status = create_utilisateur(data)
 
@@ -257,7 +267,10 @@ def get_utilisateur(user_id):
 def update_utilisateur_endpoint(user_id):
     """
     Met à jour un utilisateur
-    Body: {nom, email, role_id, etablissement_id, actif, password (optionnel)}
+    Body: {nom, email, role_id, etablissement_id, actif}
+    Le mot de passe ne se modifie jamais via cet endpoint : l'utilisateur
+    le change lui-même via /change-password, ou un admin le réinitialise
+    via /utilisateurs/<id>/reset-password (POST).
     """
     claims = get_jwt()
 
@@ -271,10 +284,21 @@ def update_utilisateur_endpoint(user_id):
     if not _est_superadmin(claims) and utilisateur.etablissement_id != claims.get('etablissement_id'):
         return jsonify({"erreur": "Accès non autorisé"}), 403
 
+    # Un Admin d'établissement ne gère pas les comptes Admin (y compris le sien) :
+    # ni modification d'un compte déjà Admin, ni promotion d'un autre utilisateur
+    # au rôle Admin. Seul le SuperAdmin le peut.
+    if not _est_superadmin(claims) and utilisateur.role and utilisateur.role.libelle == 'Admin':
+        return jsonify({"erreur": "Seul un SuperAdmin peut modifier un compte administrateur"}), 403
+
     data = request.get_json(silent=True)
 
     if not data:
         return jsonify({"erreur": "Données requises"}), 400
+
+    if not _est_superadmin(claims) and 'role_id' in data:
+        role_cible = Role.query.get(data['role_id'])
+        if role_cible and role_cible.libelle == 'Admin':
+            return jsonify({"erreur": "Un administrateur ne peut pas promouvoir un utilisateur au rôle administrateur"}), 403
 
     # Un Admin d'établissement ne peut pas déplacer un utilisateur vers un autre établissement
     if not _est_superadmin(claims) and 'etablissement_id' in data:
@@ -303,6 +327,9 @@ def delete_utilisateur_endpoint(user_id):
     if not _est_superadmin(claims) and utilisateur.etablissement_id != claims.get('etablissement_id'):
         return jsonify({"erreur": "Accès non autorisé"}), 403
 
+    if not _est_superadmin(claims) and utilisateur.role and utilisateur.role.libelle == 'Admin':
+        return jsonify({"erreur": "Seul un SuperAdmin peut désactiver un compte administrateur"}), 403
+
     result, status = delete_utilisateur(user_id)
 
     return jsonify(result), status
@@ -327,6 +354,9 @@ def reset_password_endpoint(user_id):
 
     if not _est_superadmin(claims) and utilisateur.etablissement_id != claims.get('etablissement_id'):
         return jsonify({"erreur": "Accès non autorisé"}), 403
+
+    if not _est_superadmin(claims) and utilisateur.role and utilisateur.role.libelle == 'Admin':
+        return jsonify({"erreur": "Seul un SuperAdmin peut réinitialiser le mot de passe d'un administrateur"}), 403
 
     result, status = reset_temp_password(user_id)
 

@@ -89,6 +89,11 @@
               <i class="fa-solid fa-chalkboard me-1"></i> Cycles &amp; Classes
             </button>
           </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="navtab-responsables" data-bs-toggle="tab" data-bs-target="#tab-responsables" type="button" role="tab">
+              <i class="fa-solid fa-user-shield me-1"></i> Responsables
+            </button>
+          </li>
         </ul>
 
         <div class="tab-content">
@@ -252,6 +257,58 @@
               </div>
             </div>
 
+          </div>
+
+          <!-- ===================== TAB : RESPONSABLES (Censeurs / Surveillants) ===================== -->
+          <div class="tab-pane fade" id="tab-responsables" role="tabpanel">
+            <div class="alert alert-info mb-3" style="font-size:12px;">
+              <i class="fa-solid fa-circle-info me-1"></i>
+              Un Censeur/Surveillant n'accède (pédagogie, emploi du temps) qu'aux classes qui lui ont été
+              assignées ici. La création crée en même temps le compte de connexion : un mot de passe temporaire
+              est généré et affiché une seule fois — la personne devra le changer dès sa première connexion.
+              Une classe ne peut avoir qu'un seul Censeur (une classe déjà prise ne peut pas lui être réassignée
+              tant qu'elle n'a pas été retirée d'abord), mais peut être suivie par plusieurs Surveillants.
+              Un profil marqué <strong>Non relié</strong> (ex : créé avant l'existence du compte de connexion)
+              peut être relié à tout moment via <i class="fa-solid fa-user-lock"></i>.
+            </div>
+
+            <!-- RESPONSABLES (Censeurs + Surveillants réunis) — mêmes champs (nom,
+                 prénom, email, téléphone, sexe, utilisateur_id), même workflow de
+                 création (profil + compte en une requête) : un seul tableau et un
+                 seul formulaire, avec un badge « Censeur »/« Surveillant » par
+                 ligne plutôt que deux sections dupliquées. cf. openCreationResponsable()
+                 plus bas : le profil est désormais choisi via un <select> dans la
+                 modale, et non plus par deux boutons distincts. -->
+            <div class="card">
+              <div class="card-header d-flex align-items-center justify-content-between">
+                <h2 class="card-title mb-0">
+                  <i class="fa-solid fa-user-shield me-2 text-primary"></i>Responsables
+                  <span class="badge badge-primary ms-2" id="badgeResponsablesCount">0</span>
+                </h2>
+                <button class="btn btn-primary btn-sm" onclick="openCreationResponsable()">
+                  <i class="fa-solid fa-plus me-1"></i>Nouveau responsable
+                </button>
+              </div>
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Nom</th>
+                        <th>Profil</th>
+                        <th>Email</th>
+                        <th>Compte de connexion</th>
+                        <th>Classes assignées</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tbodyResponsables">
+                      <tr><td colspan="6" class="text-center text-muted py-4"><i class="fa-solid fa-spinner fa-spin"></i> Chargement…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -436,6 +493,112 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════
+       MODAL : Assigner des classes à un Censeur / Surveillant
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalAssignation" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-chalkboard-user me-2 text-primary"></i>Classes de <span id="assignationNom">—</span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="text-muted mb-2" style="font-size:11.5px;">
+            Cochez les classes dont cette personne a la charge. Elle n'aura accès (pédagogie, emploi du temps)
+            qu'aux classes cochées ici.
+          </p>
+          <div id="assignationListe" style="max-height:320px; overflow-y:auto;" class="border rounded p-2">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnEnregistrerAssignation"><i class="fa-solid fa-check"></i> Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Créer un Censeur / Surveillant (profil + compte de connexion)
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalCreationResponsable" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <form id="formCreationResponsable">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fa-solid fa-user-plus me-2 text-primary"></i>Nouveau responsable</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Profil *</label>
+              <select class="form-select" id="creationProfilType" required>
+                <option value="censeur">Censeur</option>
+                <option value="surveillant">Surveillant</option>
+              </select>
+              <p class="text-muted mb-0 mt-1" style="font-size:11px;">
+                Une classe ne peut avoir qu'un seul Censeur, mais peut être suivie par plusieurs Surveillants.
+              </p>
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label">Prénom</label>
+                <input type="text" class="form-control" id="creationPrenom" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Nom</label>
+                <input type="text" class="form-control" id="creationNom" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Email</label>
+                <input type="email" class="form-control" id="creationEmail" required>
+              </div>
+              <div class="col-6">
+                <label class="form-label">Téléphone</label>
+                <input type="text" class="form-control" id="creationTelephone">
+              </div>
+            </div>
+
+            <label class="form-label mt-3 mb-1">Classes à assigner <span class="text-muted" style="font-size:11px;">(optionnel, modifiable plus tard)</span></label>
+            <div id="creationClassesListe" style="max-height:220px; overflow-y:auto;" class="border rounded p-2">
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-primary" id="btnCreerResponsable"><i class="fa-solid fa-check"></i> Créer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Mot de passe temporaire généré (affiché UNE SEULE FOIS)
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalMotDePasseTemp" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title text-success"><i class="fa-solid fa-circle-check me-2"></i>Compte créé</h5>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2" style="font-size:12.5px;">
+            Communiquez ce mot de passe temporaire à <strong id="mdpTempNom">—</strong>. Il devra le changer dès
+            sa première connexion (valable 48h). Il ne sera plus jamais affiché après fermeture de cette fenêtre.
+          </p>
+          <div class="input-group">
+            <input type="text" class="form-control text-center fw-bold" id="mdpTempValeur" readonly style="letter-spacing:1px;">
+            <button class="btn btn-light" type="button" id="btnCopierMdpTemp" title="Copier"><i class="fa-solid fa-copy"></i></button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary btn-sm" data-bs-dismiss="modal">J'ai noté, fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
        MODAL : Confirmation de suppression
   ═══════════════════════════════════════════════ -->
   <div class="modal fade" id="modalConfirm" tabindex="-1">
@@ -531,7 +694,16 @@
         anneeActiveId: null,
         trimestreActifId: null,
         filterCycle: "",
+        // Onglet Responsables (assignation Censeur/Surveillant ↔ Classe)
+        censeurs: [],
+        surveillants: [],
+        censeursClasses: [],     // liste brute /api/censeurs-classes/ (id, censeur_id, classe_id)
+        surveillantsClasses: [], // liste brute /api/surveillants-classes/ (id, surveillant_id, classe_id)
+        roles: [],                // /api/auth/roles — sert à résoudre role_id (Censeur/Surveillant)
+                                   // pour POST /api/auth/utilisateurs, cf. creerCompteResponsable().
       };
+      // État de la modale d'assignation en cours (rempli par openAssignation)
+      let assignationEnCours = null; // { type: 'censeur'|'surveillant', profilId, classesActuelles: Map(classe_id -> liaison_id) }
 
       /* ─────────────────────────────────────────
          HELPERS
@@ -1032,6 +1204,309 @@
       });
 
       /* ─────────────────────────────────────────
+         RESPONSABLES — Censeurs / Surveillants
+         Profils exposés par pedagogie_api.py (/api/censeurs/, /api/surveillants/,
+         réservés Admin/SuperAdmin), assignations par les nouveaux blueprints
+         /api/censeurs-classes/ et /api/surveillants-classes/ (mêmes rôles,
+         y compris en lecture). Aucun de ces endpoints n'accepte de filtre
+         côté back : on charge les listes complètes puis on filtre/regroupe
+         côté front, même logique que matieres-classe ailleurs dans l'appli.
+
+         Comptes de connexion : GET /api/auth/roles (authentification_api.py)
+         sert à résoudre le role_id de 'Censeur'/'Surveillant', requis par
+         POST /api/auth/utilisateurs — cf. creerCompteResponsable() plus bas,
+         qui relie un profil "Non relié" à un NOUVEAU compte (distinct du
+         flux .../creer-avec-compte qui crée profil + compte ENSEMBLE : ici
+         le profil existe déjà, seul le compte manque).
+      ───────────────────────────────────────── */
+      async function loadRoles() {
+        try { state.roles = await api.get("/api/auth/roles"); }
+        catch (e) { state.roles = []; }
+      }
+
+      async function loadCenseurs() {
+        try {
+          state.censeurs = await api.get("/api/censeurs/");
+        } catch (e) {
+          state.censeurs = [];
+          toast(e.message, "error");
+        }
+      }
+      async function loadSurveillants() {
+        try {
+          state.surveillants = await api.get("/api/surveillants/");
+        } catch (e) {
+          state.surveillants = [];
+          toast(e.message, "error");
+        }
+      }
+      async function loadCenseursClasses() {
+        try { state.censeursClasses = await api.get("/api/censeurs-classes/"); }
+        catch (e) { state.censeursClasses = []; }
+      }
+      async function loadSurveillantsClasses() {
+        try { state.surveillantsClasses = await api.get("/api/surveillants-classes/"); }
+        catch (e) { state.surveillantsClasses = []; }
+      }
+
+      function classeLabelCourt(classeId) {
+        const c = state.classes.find((x) => x.id === classeId);
+        if (!c) return `Classe #${classeId}`;
+        return [cycleLibelle(c.cycle_id), c.option].filter(Boolean).join(" ");
+      }
+
+      // Badge visuel du profil (Censeur/Surveillant) affiché dans la colonne
+      // "Profil" du tableau unifié — badge-primary pour Censeur, badge-neutral
+      // pour Surveillant (mêmes classes CSS que le reste de la page, pas de
+      // nouvelle couleur introduite).
+      function badgeProfil(type) {
+        return type === "censeur"
+          ? '<span class="badge badge-primary"><i class="fa-solid fa-user-shield me-1"></i>Censeur</span>'
+          : '<span class="badge badge-neutral"><i class="fa-solid fa-eye me-1"></i>Surveillant</span>';
+      }
+
+      // Fusionne state.censeurs et state.surveillants en une seule liste
+      // affichable, chaque entrée taguée _type pour retrouver la bonne
+      // table de liaison (censeursClasses/surveillantsClasses) et le bon
+      // endpoint d'assignation (openAssignation) au clic.
+      function tousResponsables() {
+        return [
+          ...state.censeurs.map((c) => ({ ...c, _type: "censeur" })),
+          ...state.surveillants.map((s) => ({ ...s, _type: "surveillant" })),
+        ];
+      }
+
+      function renderResponsables() {
+        const liste = tousResponsables().sort((a, b) =>
+          `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`));
+        $("#badgeResponsablesCount").textContent = liste.length;
+        const tbody = $("#tbodyResponsables");
+        if (!liste.length) {
+          tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">Aucun responsable (Censeur ou Surveillant) pour cet établissement.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = liste.map((r) => {
+          const liaisons = r._type === "censeur"
+            ? state.censeursClasses.filter((cc) => cc.censeur_id === r.id)
+            : state.surveillantsClasses.filter((sc) => sc.surveillant_id === r.id);
+          const badges = liaisons.length
+            ? liaisons.map((l) => `<span class="badge badge-neutral me-1 mb-1">${esc(classeLabelCourt(l.classe_id))}</span>`).join("")
+            : '<span class="text-muted" style="font-size:11px;">Aucune classe assignée</span>';
+          const compte = r.utilisateur_id
+            ? '<span class="badge badge-success"><i class="fa-solid fa-link"></i> Relié</span>'
+            : '<span class="badge badge-warning" title="Ce profil n\'est relié à aucun compte de connexion : les classes assignées ci-dessous ne seront pas encore effectives pour cette personne."><i class="fa-solid fa-triangle-exclamation"></i> Non relié</span>';
+          const btnLierCompte = r.utilisateur_id ? "" : `
+                <button class="btn btn-icon btn-sm btn-light text-success" title="Créer le compte de connexion"
+                        onclick="creerCompteResponsable('${r._type}', ${r.id}, '${esc(r.prenom)} ${esc(r.nom)}', '${esc(r.email)}')">
+                  <i class="fa-solid fa-user-lock"></i>
+                </button>`;
+          return `
+            <tr>
+              <td><strong>${esc(r.prenom)} ${esc(r.nom)}</strong></td>
+              <td>${badgeProfil(r._type)}</td>
+              <td>${esc(r.email)}</td>
+              <td>${compte}</td>
+              <td>${badges}</td>
+              <td class="text-end">
+                <button class="btn btn-icon btn-sm btn-light" title="Gérer les classes" onclick="openAssignation('${r._type}', ${r.id}, '${esc(r.prenom)} ${esc(r.nom)}')"><i class="fa-solid fa-chalkboard-user"></i></button>${btnLierCompte}
+              </td>
+            </tr>`;
+        }).join("");
+      }
+
+      async function loadResponsables() {
+        await Promise.all([loadCenseurs(), loadSurveillants(), loadCenseursClasses(), loadSurveillantsClasses()]);
+        renderResponsables();
+      }
+
+      // Crée un compte de connexion pour un profil Censeur/Surveillant déjà
+      // existant mais "Non relié" (utilisateur_id NULL — ex: profil créé via
+      // l'ancien POST /api/censeurs "brut", sans compte, avant l'introduction
+      // du flux .../creer-avec-compte). Deux appels réels :
+      //   1. POST /api/auth/utilisateurs {nom, email, role_id, etablissement_id}
+      //      -> génère le compte + un mot de passe temporaire (doit_changer_mdp=True)
+      //   2. PUT /api/censeurs/<id> ou /api/surveillants/<id> {utilisateur_id}
+      //      -> relie le compte fraîchement créé au profil métier
+      // Le mot de passe temporaire est ensuite affiché via la même modale
+      // que pour une création complète (modalMotDePasseTemp).
+      window.creerCompteResponsable = async function (type, profilId, nomComplet, email) {
+        const roleLibelle = type === "censeur" ? "Censeur" : "Surveillant";
+        const role = state.roles.find((r) => r.libelle === roleLibelle);
+        if (!role) { toast(`Rôle '${roleLibelle}' introuvable (GET /api/auth/roles).`, "error"); return; }
+
+        const profil = (type === "censeur" ? state.censeurs : state.surveillants).find((p) => p.id === profilId);
+        if (!profil) return;
+
+        try {
+          const compte = await api.post("/api/auth/utilisateurs", {
+            nom: nomComplet,
+            email,
+            role_id: role.id,
+            etablissement_id: profil.etablissement_id,
+          });
+
+          const basePath = type === "censeur" ? "/api/censeurs/" : "/api/surveillants/";
+          await api.put(`${basePath}${profilId}`, { utilisateur_id: compte.id });
+
+          $("#mdpTempNom").textContent = nomComplet;
+          $("#mdpTempValeur").value = compte.mot_de_passe_temporaire;
+          bootstrap.Modal.getOrCreateInstance($("#modalMotDePasseTemp")).show();
+
+          toast("Compte de connexion créé et relié.");
+          await loadResponsables();
+        } catch (err) {
+          toast(err.message, "error");
+        }
+      };
+
+      window.openAssignation = function (type, profilId, nom) {
+        if (!state.classes.length) { toast("Créez d'abord au moins une classe.", "error"); return; }
+        const liaisons = (type === "censeur" ? state.censeursClasses : state.surveillantsClasses)
+          .filter((l) => (type === "censeur" ? l.censeur_id : l.surveillant_id) === profilId);
+        const classesActuelles = new Map(liaisons.map((l) => [l.classe_id, l.id]));
+        assignationEnCours = { type, profilId, classesActuelles };
+
+        $("#assignationNom").textContent = nom;
+        const parClassesTriees = [...state.classes].sort((a, b) =>
+          classeLabelCourt(a.id).localeCompare(classeLabelCourt(b.id)));
+        $("#assignationListe").innerHTML = parClassesTriees.map((c) => `
+          <div class="form-check">
+            <input class="form-check-input assignation-checkbox" type="checkbox" value="${c.id}" id="assignClasse${c.id}" ${classesActuelles.has(c.id) ? "checked" : ""}>
+            <label class="form-check-label" for="assignClasse${c.id}">${esc(classeLabelCourt(c.id))}</label>
+          </div>`).join("");
+
+        bootstrap.Modal.getOrCreateInstance($("#modalAssignation")).show();
+      };
+
+      $("#btnEnregistrerAssignation").addEventListener("click", async () => {
+        if (!assignationEnCours) return;
+        const { type, profilId, classesActuelles } = assignationEnCours;
+        const basePath = type === "censeur" ? "/api/censeurs-classes/" : "/api/surveillants-classes/";
+        const cleProfil = type === "censeur" ? "censeur_id" : "surveillant_id";
+
+        const cochees = new Set(
+          Array.from(document.querySelectorAll(".assignation-checkbox:checked")).map((el) => parseInt(el.value, 10))
+        );
+
+        const aAjouter = [...cochees].filter((classeId) => !classesActuelles.has(classeId));
+        const aRetirer = [...classesActuelles.entries()].filter(([classeId]) => !cochees.has(classeId));
+
+        try {
+          for (const classeId of aAjouter) {
+            await api.post(basePath, { [cleProfil]: profilId, classe_id: classeId });
+          }
+          for (const [, liaisonId] of aRetirer) {
+            await api.del(`${basePath}${liaisonId}`);
+          }
+          bootstrap.Modal.getInstance($("#modalAssignation")).hide();
+          toast("Classes mises à jour.");
+          await loadResponsables();
+        } catch (err) {
+          toast(err.message, "error");
+        } finally {
+          assignationEnCours = null;
+        }
+      });
+
+      /* ─────────────────────────────────────────
+         CRÉATION D'UN RESPONSABLE (Censeur/Surveillant + compte de connexion)
+         POST /api/censeurs/creer-avec-compte ou /api/surveillants/creer-avec-compte
+         (cf. pedagogie_api.py) : crée le profil ET le compte de connexion en
+         une seule opération, avec mot de passe temporaire généré côté serveur
+         (jamais saisi ici) et doit_changer_mdp=True. Les classes cochées sont
+         assignées dans la foulée ; pour un Censeur, une classe déjà prise par
+         un AUTRE censeur est désactivée dans la liste (une classe = un seul
+         censeur), ce que le back revalide de toute façon.
+      ───────────────────────────────────────── */
+      // Régénère la liste de classes cochables en fonction du profil
+      // actuellement sélectionné dans #creationProfilType. Pour un Censeur,
+      // les classes déjà prises par un AUTRE censeur sont désactivées (une
+      // classe = un seul censeur, cf. CenseurClasse) ; pour un Surveillant,
+      // aucune classe n'est désactivée (plusieurs surveillants peuvent
+      // partager une classe). Les cases déjà cochées sont conservées d'un
+      // rendu à l'autre (ex : bascule censeur -> surveillant) tant que la
+      // classe reste sélectionnable.
+      function renderCreationClassesListe() {
+        const type = $("#creationProfilType").value;
+        const dejaCochees = new Set(
+          Array.from(document.querySelectorAll(".creation-classe-checkbox:checked")).map((el) => parseInt(el.value, 10))
+        );
+        const classesPrises = type === "censeur"
+          ? new Set(state.censeursClasses.map((cc) => cc.classe_id))
+          : new Set();
+
+        const parClassesTriees = [...state.classes].sort((a, b) =>
+          classeLabelCourt(a.id).localeCompare(classeLabelCourt(b.id)));
+        $("#creationClassesListe").innerHTML = parClassesTriees.map((c) => {
+          const prise = classesPrises.has(c.id);
+          const coche = !prise && dejaCochees.has(c.id);
+          return `
+            <div class="form-check">
+              <input class="form-check-input creation-classe-checkbox" type="checkbox" value="${c.id}"
+                     id="creationClasse${c.id}" ${prise ? "disabled" : ""} ${coche ? "checked" : ""}>
+              <label class="form-check-label ${prise ? "text-muted" : ""}" for="creationClasse${c.id}">
+                ${esc(classeLabelCourt(c.id))} ${prise ? '<span style="font-size:10.5px;">(déjà un censeur)</span>' : ""}
+              </label>
+            </div>`;
+        }).join("");
+      }
+      $("#creationProfilType").addEventListener("change", renderCreationClassesListe);
+
+      window.openCreationResponsable = function () {
+        if (!state.classes.length) { toast("Créez d'abord au moins une classe.", "error"); return; }
+
+        $("#formCreationResponsable").reset();
+        $("#creationProfilType").value = "censeur";
+        renderCreationClassesListe();
+
+        bootstrap.Modal.getOrCreateInstance($("#modalCreationResponsable")).show();
+      };
+
+      $("#formCreationResponsable").addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const type = $("#creationProfilType").value;
+        const basePath = type === "censeur" ? "/api/censeurs/creer-avec-compte" : "/api/surveillants/creer-avec-compte";
+
+        const payload = {
+          prenom: $("#creationPrenom").value.trim(),
+          nom: $("#creationNom").value.trim(),
+          email: $("#creationEmail").value.trim(),
+          telephone: $("#creationTelephone").value.trim() || null,
+          classe_ids: Array.from(document.querySelectorAll(".creation-classe-checkbox:checked"))
+            .map((el) => parseInt(el.value, 10)),
+        };
+
+        const btn = $("#btnCreerResponsable");
+        btn.disabled = true;
+        try {
+          const result = await api.post(basePath, payload);
+          bootstrap.Modal.getInstance($("#modalCreationResponsable")).hide();
+
+          $("#mdpTempNom").textContent = `${payload.prenom} ${payload.nom}`;
+          $("#mdpTempValeur").value = result.mot_de_passe_temporaire;
+          bootstrap.Modal.getOrCreateInstance($("#modalMotDePasseTemp")).show();
+
+          toast(`${type === "censeur" ? "Censeur" : "Surveillant"} créé.`);
+          await loadResponsables();
+        } catch (err) {
+          toast(err.message, "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      $("#btnCopierMdpTemp").addEventListener("click", async () => {
+        const champ = $("#mdpTempValeur");
+        try {
+          await navigator.clipboard.writeText(champ.value);
+          toast("Mot de passe copié.");
+        } catch (e) {
+          champ.select();
+          toast("Sélectionnez et copiez manuellement (Ctrl+C).", "error");
+        }
+      });
+
+      /* ─────────────────────────────────────────
          SUPPRESSION GÉNÉRIQUE
       ───────────────────────────────────────── */
       let pendingDelete = null;
@@ -1070,11 +1545,14 @@
          INIT
       ───────────────────────────────────────── */
       async function loadAll() {
-        await Promise.all([loadAnnees(), loadTrimestres(), loadSequences(), loadCycles(), loadClasses()]);
+        await Promise.all([loadAnnees(), loadTrimestres(), loadSequences(), loadCycles(), loadClasses(), loadRoles()]);
         renderAnnees();
         renderCycles();
         renderClasses();
         renderStats();
+        // Chargé après loadClasses() : classeLabelCourt() a besoin de
+        // state.classes/state.cycles déjà peuplés pour afficher les badges.
+        await loadResponsables();
       }
 
       $("#btnRefresh").addEventListener("click", loadAll);

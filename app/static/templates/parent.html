@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parents — Gestionnaire</title>
+
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/style-extras.css') }}" rel="stylesheet">
+</head>
+<body data-page="parents">
+
+<div class="app-wrapper">
+  <div class="main-content" id="mainContent">
+    <main class="page-content">
+
+      <nav aria-label="breadcrumb">
+        <ol class="breadcrumb">
+          <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+          <li class="breadcrumb-item active" aria-current="page">Parents</li>
+        </ol>
+      </nav>
+
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+        <div>
+          <h1 class="page-title mb-1">Parents et tuteurs</h1>
+          <p class="mb-0 text-muted" style="font-size:12px;">
+            Le carnet d'adresses des familles. Chaque parent regroupe ses enfants et sert de contact pour les classes où ils sont inscrits.
+          </p>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-light btn-sm" type="button" id="btnExportCsv">
+            <i class="fa-solid fa-file-csv"></i> Exporter la sélection
+          </button>
+          <button class="btn btn-light btn-sm" type="button" id="btnRefresh">
+            <i class="fa-solid fa-rotate"></i> Actualiser
+          </button>
+          <button class="btn btn-primary btn-sm" type="button" id="btnNouveauParent">
+            <i class="fa-solid fa-plus"></i> Ajouter un parent
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══════════════ CHIFFRES CLÉS ═══════════════ -->
+      <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon primary"><i class="fa-solid fa-people-roof"></i></div>
+            <div class="stat-label">Familles enregistrées</div>
+            <div class="stat-value" id="statTotal">—</div>
+            <div class="stat-change" id="statTotalSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon success"><i class="fa-solid fa-children"></i></div>
+            <div class="stat-label">Enfants par famille</div>
+            <div class="stat-value" id="statMoyenne">—</div>
+            <div class="stat-change" id="statMoyenneSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon info"><i class="fa-solid fa-address-book"></i></div>
+            <div class="stat-label">Concernés <span id="statAnneeLabel">—</span></div>
+            <div class="stat-value" id="statAnnee">—</div>
+            <div class="stat-change" id="statAnneeSub">—</div>
+          </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+          <div class="stat-card">
+            <div class="stat-icon warning"><i class="fa-solid fa-user-slash"></i></div>
+            <div class="stat-label">Familles sans enfant</div>
+            <div class="stat-value" id="statOrphelins">—</div>
+            <div class="stat-change" id="statOrphelinsSub">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ GRAPHIQUES REPLIABLES ═══════════════ -->
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h2 class="h6 mb-0">Analyses</h2>
+        <span class="text-muted" style="font-size:11px;">Ouvrez un panneau pour charger son graphique</span>
+        <button class="btn btn-light btn-sm ms-auto" type="button" id="btnToggleAllCharts">
+          <i class="fa-solid fa-angles-down"></i> Tout ouvrir
+        </button>
+      </div>
+
+      <!-- Familles par classe -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#panelClasses"
+                aria-expanded="true" aria-controls="panelClasses">
+          <span class="chart-toggle-title"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Familles représentées par classe</span>
+          <span class="chart-toggle-meta" id="metaClasses"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse show" id="panelClasses" data-render="classes">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeClasses">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeClasses"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chCycleClasses">Cycle</label>
+              <select class="form-select form-select-sm" id="chCycleClasses"><option value="">Tous les cycles</option></select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap tall"><canvas id="chartClasses"></canvas></div>
+            <div class="chart-empty" id="chartClassesEmpty" hidden>
+              <i class="fa-solid fa-chart-column"></i>
+              <span>Aucun enfant inscrit sur cette année scolaire.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Taille des familles -->
+      <div class="chart-panel mb-2">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelFratrie"
+                aria-expanded="false" aria-controls="panelFratrie">
+          <span class="chart-toggle-title"><i class="fa-solid fa-children me-2 text-primary"></i>Taille des fratries</span>
+          <span class="chart-toggle-meta" id="metaFratrie"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelFratrie" data-render="fratrie">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeFratrie">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeFratrie"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chPerimFratrie">Enfants comptés</label>
+              <select class="form-select form-select-sm" id="chPerimFratrie">
+                <option value="inscrits">Inscrits sur l'année choisie</option>
+                <option value="tous">Tous les enfants au répertoire</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="row g-4">
+              <div class="col-lg-7">
+                <div class="chart-canvas-wrap short"><canvas id="chartFratrie"></canvas></div>
+              </div>
+              <div class="col-lg-5">
+                <div class="chart-canvas-wrap short"><canvas id="chartContacts"></canvas></div>
+              </div>
+            </div>
+            <div class="chart-kpis">
+              <div><div class="chart-kpi-label">Plus grande fratrie</div><div class="chart-kpi-value" id="kpiMaxFratrie">—</div></div>
+              <div><div class="chart-kpi-label">Familles à 2 enfants ou plus</div><div class="chart-kpi-value" id="kpiMulti">—</div></div>
+              <div><div class="chart-kpi-label">Téléphone manquant</div><div class="chart-kpi-value" id="kpiSansTel">—</div></div>
+              <div><div class="chart-kpi-label">E-mail manquant</div><div class="chart-kpi-value" id="kpiSansMail">—</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Arrivée des familles -->
+      <div class="chart-panel mb-4">
+        <button class="chart-toggle collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelArrivees"
+                aria-expanded="false" aria-controls="panelArrivees">
+          <span class="chart-toggle-title"><i class="fa-solid fa-arrow-trend-up me-2 text-primary"></i>Arrivée des familles, mois par mois</span>
+          <span class="chart-toggle-meta" id="metaArrivees"></span>
+          <i class="fa-solid fa-chevron-down chart-chevron" aria-hidden="true"></i>
+        </button>
+        <div class="collapse" id="panelArrivees" data-render="arrivees">
+          <div class="chart-controls">
+            <div class="chart-control">
+              <label class="form-label" for="chAnneeArrivees">Année scolaire</label>
+              <select class="form-select form-select-sm" id="chAnneeArrivees"></select>
+            </div>
+            <div class="chart-control">
+              <label class="form-label" for="chVueArrivees">Affichage</label>
+              <select class="form-select form-select-sm" id="chVueArrivees">
+                <option value="mois">Par mois</option>
+                <option value="cumul">Cumulé</option>
+              </select>
+            </div>
+          </div>
+          <div class="chart-body">
+            <div class="chart-canvas-wrap"><canvas id="chartArrivees"></canvas></div>
+            <div class="chart-empty" id="chartArriveesEmpty" hidden>
+              <i class="fa-solid fa-calendar-xmark"></i>
+              <span>Aucune inscription datée sur cette année scolaire.</span>
+            </div>
+            <p class="text-muted mt-3 mb-0" style="font-size:11px;">
+              Une famille est comptée le mois où son premier enfant a été inscrit sur l'année choisie.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ FILTRES ═══════════════ -->
+      <div class="card filters-card mb-3">
+        <div class="card-body">
+          <div class="filters-title">
+            <i class="fa-solid fa-filter"></i> Filtres
+            <span class="filters-count" id="filtersCount" hidden>0</span>
+          </div>
+          <div class="row g-2 align-items-end">
+            <div class="col-lg-3 col-md-6">
+              <label class="form-label" for="fSearch">Rechercher</label>
+              <input type="search" class="form-control form-control-sm" id="fSearch" placeholder="Nom, prénom, téléphone, e-mail…">
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fAnnee">Année scolaire</label>
+              <select class="form-select form-select-sm" id="fAnnee"></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fClasse">Classe d'un enfant</label>
+              <select class="form-select form-select-sm" id="fClasse"><option value="">Toutes</option></select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fEnfants">Nombre d'enfants</label>
+              <select class="form-select form-select-sm" id="fEnfants">
+                <option value="">Peu importe</option>
+                <option value="0">Aucun enfant rattaché</option>
+                <option value="1">1 enfant</option>
+                <option value="2">2 enfants</option>
+                <option value="3+">3 enfants ou plus</option>
+              </select>
+            </div>
+            <div class="col-lg-2 col-md-6">
+              <label class="form-label" for="fContact">Contact</label>
+              <select class="form-select form-select-sm" id="fContact">
+                <option value="">Tous</option>
+                <option value="tel-ok">Téléphone renseigné</option>
+                <option value="tel-ko">Téléphone manquant</option>
+                <option value="mail-ko">E-mail manquant</option>
+              </select>
+            </div>
+            <div class="col-lg-1 col-md-6 d-grid">
+              <button class="btn btn-light btn-sm" type="button" id="btnResetFilters" title="Réinitialiser">
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
+            </div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-3" id="activeChips"></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════ TABLEAU ═══════════════ -->
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title"><i class="fa-solid fa-address-book me-2 text-primary"></i>Carnet des familles</h2>
+          <span class="badge badge-primary" id="badgeCount">0</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive table-scroll">
+            <table class="table table-hover mb-0">
+              <thead>
+                <tr>
+                  <th data-sort="nom" role="button">Parent <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th>Téléphone</th>
+                  <th>E-mail</th>
+                  <th data-sort="enfants" role="button">Enfants <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                  <th>Classes concernées</th>
+                  <th class="text-end">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                <tr><td colspan="6" class="text-center text-muted py-5">
+                  <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
+                </td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="table-toolbar">
+          <span id="rangeInfo">—</span>
+          <select class="form-select form-select-sm" id="pageSize" aria-label="Parents par page">
+            <option value="25">25 / page</option>
+            <option value="50" selected>50 / page</option>
+            <option value="100">100 / page</option>
+            <option value="0">Tout afficher</option>
+          </select>
+          <div class="pager" id="pager"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL FICHE PARENT ═══════════════ -->
+<div class="modal fade" id="modalParent" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalParentTitle"><i class="fa-solid fa-user-plus me-2 text-primary"></i>Ajouter un parent</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formParent" novalidate>
+          <input type="hidden" id="fId">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label required" for="fNom">Nom</label>
+              <input type="text" class="form-control" id="fNom" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label required" for="fPrenom">Prénom(s)</label>
+              <input type="text" class="form-control" id="fPrenom" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label required" for="fTel">Téléphone</label>
+              <input type="tel" class="form-control" id="fTel" placeholder="6 XX XX XX XX" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label required" for="fEmail">E-mail</label>
+              <input type="email" class="form-control" id="fEmail" required>
+              <div class="form-text">L'e-mail identifie la famille : il ne peut servir qu'une fois.</div>
+            </div>
+          </div>
+          <div class="alert alert-danger mt-3" id="formError" hidden></div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSaveParent">
+          <i class="fa-solid fa-floppy-disk"></i> Enregistrer
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL DÉTAIL ═══════════════ -->
+<div class="modal fade" id="modalDetail" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-people-roof me-2 text-primary"></i>Fiche famille</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="detailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Fermer</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnEditFromDetail"><i class="fa-solid fa-pen"></i> Modifier</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ MODAL SUPPRESSION ═══════════════ -->
+<div class="modal fade" id="modalDelete" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa-solid fa-triangle-exclamation me-2 text-danger"></i>Supprimer le parent</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+      </div>
+      <div class="modal-body" id="deleteBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+        <button type="button" class="btn btn-danger btn-sm" id="btnConfirmDelete"><i class="fa-solid fa-trash"></i> Supprimer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1200;">
+  <div class="toast" id="appToast" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="toast-header">
+      <i id="toastIcon" class="fa-solid fa-circle-check text-success me-2"></i>
+      <strong class="me-auto" id="toastTitle">Succès</strong>
+      <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="toast" aria-label="Fermer"></button>
+    </div>
+    <div class="toast-body" id="toastBody"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+<script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+<script>
+(function () {
+  "use strict";
+
+  const AUTH = window.GestionnaireAuth || null;
+  const ETAB_ID = new URLSearchParams(location.search).get("etablissement_id")
+    || (AUTH && AUTH.getEtablissementId ? AUTH.getEtablissementId() : null);
+
+  function url(path) {
+    const u = new URL(path, location.origin);
+    if (ETAB_ID) u.searchParams.set("etablissement_id", ETAB_ID);
+    return u.pathname + u.search;
+  }
+
+  async function api(path, options) {
+    const opts = Object.assign({}, options || {});
+    opts.headers = Object.assign({ "Content-Type": "application/json" }, opts.headers || {});
+    const doFetch = (AUTH && AUTH.authFetch) ? AUTH.authFetch.bind(AUTH) : window.fetch.bind(window);
+    const res = await doFetch(path, opts);
+    let payload = null;
+    try { payload = await res.json(); } catch (e) { payload = null; }
+    if (!res.ok) throw new Error((payload && (payload.erreur || payload.error)) || "Erreur " + res.status);
+    return payload;
+  }
+
+  /* ═══════════════ ÉTAT ═══════════════ */
+  let parents = [], eleves = [], inscriptions = [], classes = [], cycles = [], annees = [];
+  let classeById = {}, cycleById = {}, anneeById = {}, eleveById = {};
+  let enfantsDe = {};            // parent_id -> [Eleve]
+  let charts = {};
+  let sortKey = "nom", sortAsc = true;
+  let page = 1;
+  let deleteId = null;
+
+  const MOIS_SCOLAIRES = [8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7];
+  const MOIS_NOMS = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+
+  const $ = (id) => document.getElementById(id);
+  const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#94A3B8";
+  const GRID = () => ({ color: cssVar("--ta-border-light"), drawBorder: false });
+
+  function esc(s) {
+    return (s == null ? "" : String(s))
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  const nomComplet = (p) => ((p.nom || "") + " " + (p.prenom || "")).trim();
+  function initials(p) {
+    return (((p.nom || "").charAt(0)) + ((p.prenom || "").charAt(0)) || "?").toUpperCase();
+  }
+  function dateFr(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? "—" : d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+  function classeLabel(c) {
+    if (!c) return "—";
+    const cy = cycleById[c.cycle_id];
+    const parts = [];
+    if (cy && cy.libelle) parts.push(cy.libelle);
+    if (c.option) parts.push(c.option);
+    return parts.join(" · ") || ("Classe #" + c.id);
+  }
+  const anneeLabel = (id) => (anneeById[id] ? anneeById[id].libelle : (id ? "Année #" + id : "—"));
+
+  function toast(msg, type) {
+    const err = type === "error";
+    $("toastIcon").className = err ? "fa-solid fa-circle-xmark text-danger me-2" : "fa-solid fa-circle-check text-success me-2";
+    $("toastTitle").textContent = err ? "Échec" : "C'est fait";
+    $("toastBody").textContent = msg;
+    bootstrap.Toast.getOrCreateInstance($("appToast"), { delay: 4000 }).show();
+  }
+
+  function downloadCsv(filename, rows) {
+    const csv = rows.map((r) => r.map((v) => {
+      const s = v == null ? "" : String(v);
+      return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(";")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /* ═══════════════ CHARGEMENT ═══════════════ */
+  async function loadAll() {
+    $("tableBody").innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5">' +
+      '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
+    try {
+      const [rP, rE, rI, rC, rCy, rA] = await Promise.all([
+        api(url("/api/parents/")), api(url("/api/eleves/")), api(url("/api/inscriptions/")),
+        api(url("/api/classes/")), api(url("/api/cycles/")), api(url("/api/annees-scolaires/"))
+      ]);
+      parents = rP || []; eleves = rE || []; inscriptions = rI || [];
+      classes = rC || []; cycles = rCy || []; annees = rA || [];
+
+      classeById = Object.fromEntries(classes.map((c) => [c.id, c]));
+      cycleById = Object.fromEntries(cycles.map((c) => [c.id, c]));
+      anneeById = Object.fromEntries(annees.map((a) => [a.id, a]));
+      eleveById = Object.fromEntries(eleves.map((e) => [e.id, e]));
+      annees.sort((a, b) => String(b.libelle).localeCompare(String(a.libelle)));
+
+      enfantsDe = {};
+      eleves.forEach((e) => {
+        if (!e.parent_id) return;
+        (enfantsDe[e.parent_id] = enfantsDe[e.parent_id] || []).push(e);
+      });
+
+      fillSelects();
+      renderStats();
+      renderTable();
+      renderVisibleCharts();
+    } catch (e) {
+      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
+        '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
+        '<div class="empty-state-title">Les parents n\'ont pas pu être chargés</div>' +
+        '<div>' + esc(e.message) + '</div></div></td></tr>';
+      toast(e.message, "error");
+    }
+  }
+
+  function defaultAnneeId() {
+    const act = annees.find((a) => a.active);
+    return act ? act.id : (annees[0] ? annees[0].id : "");
+  }
+
+  function fillSelects() {
+    const optAnnees = annees.map((a) => '<option value="' + a.id + '">' + esc(a.libelle) + (a.active ? " (en cours)" : "") + "</option>").join("");
+    const def = defaultAnneeId();
+    ["fAnnee", "chAnneeClasses", "chAnneeFratrie", "chAnneeArrivees"].forEach((id) => {
+      const s = $(id), prev = s.value;
+      s.innerHTML = optAnnees || '<option value="">Aucune année</option>';
+      s.value = prev || def;
+    });
+
+    const optClasses = classes.slice()
+      .sort((a, b) => classeLabel(a).localeCompare(classeLabel(b)))
+      .map((c) => '<option value="' + c.id + '">' + esc(classeLabel(c)) + "</option>").join("");
+    const fc = $("fClasse"), prevFc = fc.value;
+    fc.innerHTML = '<option value="">Toutes</option>' + optClasses;
+    fc.value = prevFc;
+
+    const sc = $("chCycleClasses"), prevC = sc.value;
+    sc.innerHTML = '<option value="">Tous les cycles</option>' +
+      cycles.map((c) => '<option value="' + c.id + '">' + esc(c.libelle) + "</option>").join("");
+    sc.value = prevC;
+
+    $("statAnneeLabel").textContent = anneeLabel(Number($("fAnnee").value));
+  }
+
+  /** Classes d'un parent pour une année donnée (via les inscriptions de ses enfants). */
+  function classesDuParent(parentId, anneeId) {
+    const enfants = enfantsDe[parentId] || [];
+    const ids = new Set();
+    enfants.forEach((e) => {
+      inscriptions.forEach((i) => {
+        if (i.eleve_id !== e.id) return;
+        if (anneeId && i.annee_scolaire_id !== anneeId) return;
+        ids.add(i.classe_id);
+      });
+    });
+    return Array.from(ids);
+  }
+
+  /* ═══════════════ CHIFFRES CLÉS ═══════════════ */
+  function renderStats() {
+    const anneeId = Number($("fAnnee").value) || null;
+    const total = parents.length;
+    const avecEnfants = parents.filter((p) => (enfantsDe[p.id] || []).length > 0).length;
+    const nbEnfants = eleves.filter((e) => e.parent_id).length;
+    const concernes = parents.filter((p) => classesDuParent(p.id, anneeId).length > 0).length;
+
+    $("statTotal").textContent = total;
+    $("statTotalSub").textContent = avecEnfants + " avec au moins un enfant";
+    $("statMoyenne").textContent = avecEnfants ? (nbEnfants / avecEnfants).toFixed(1) : "—";
+    $("statMoyenneSub").textContent = nbEnfants + " enfants rattachés";
+    $("statAnnee").textContent = concernes;
+    $("statAnneeSub").textContent = total ? Math.round((concernes / total) * 100) + " % du carnet" : "—";
+    $("statOrphelins").textContent = total - avecEnfants;
+    $("statOrphelinsSub").textContent = (total - avecEnfants) ? "fiches à compléter" : "carnet complet";
+    $("statAnneeLabel").textContent = anneeLabel(anneeId);
+  }
+
+  /* ═══════════════ FILTRES ═══════════════ */
+  function currentFilters() {
+    return {
+      q: $("fSearch").value.trim().toLowerCase(),
+      annee: Number($("fAnnee").value) || null,
+      classe: Number($("fClasse").value) || null,
+      enfants: $("fEnfants").value,
+      contact: $("fContact").value
+    };
+  }
+
+  function filtered() {
+    const f = currentFilters();
+    return parents.filter((p) => {
+      if (f.q) {
+        const hay = (nomComplet(p) + " " + (p.telephone || "") + " " + (p.email || "")).toLowerCase();
+        if (!hay.includes(f.q)) return false;
+      }
+      const n = (enfantsDe[p.id] || []).length;
+      if (f.enfants === "0" && n !== 0) return false;
+      if (f.enfants === "1" && n !== 1) return false;
+      if (f.enfants === "2" && n !== 2) return false;
+      if (f.enfants === "3+" && n < 3) return false;
+
+      if (f.contact === "tel-ok" && !p.telephone) return false;
+      if (f.contact === "tel-ko" && p.telephone) return false;
+      if (f.contact === "mail-ko" && p.email) return false;
+
+      if (f.classe) {
+        if (!classesDuParent(p.id, f.annee).includes(f.classe)) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderChips() {
+    const f = currentFilters();
+    const chips = [];
+    if (f.q) chips.push(["q", '« ' + f.q + ' »']);
+    if (f.classe) chips.push(["classe", classeLabel(classeById[f.classe])]);
+    if (f.enfants) chips.push(["enfants", $("fEnfants").selectedOptions[0].textContent]);
+    if (f.contact) chips.push(["contact", $("fContact").selectedOptions[0].textContent]);
+    $("activeChips").innerHTML = chips.map((c) =>
+      '<button class="filter-chip" data-clear="' + c[0] + '">' + esc(c[1]) + ' <i class="fa-solid fa-xmark"></i></button>'
+    ).join("");
+    const badge = $("filtersCount");
+    badge.hidden = chips.length === 0;
+    badge.textContent = chips.length;
+  }
+
+  const CLEAR_MAP = { q: "fSearch", classe: "fClasse", enfants: "fEnfants", contact: "fContact" };
+
+  /* ═══════════════ TABLEAU ═══════════════ */
+  function sorted(list) {
+    const val = (p) => sortKey === "enfants" ? (enfantsDe[p.id] || []).length : nomComplet(p).toLowerCase();
+    return list.slice().sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }
+
+  function renderTable() {
+    renderChips();
+    const anneeId = Number($("fAnnee").value) || null;
+    const list = sorted(filtered());
+    const size = Number($("pageSize").value) || list.length || 1;
+    const pages = Math.max(1, Math.ceil(list.length / size));
+    if (page > pages) page = pages;
+    const start = (page - 1) * size;
+    const slice = list.slice(start, start + size);
+
+    $("badgeCount").textContent = list.length;
+
+    if (!list.length) {
+      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
+        '<i class="fa-solid fa-address-book"></i>' +
+        '<div class="empty-state-title">Aucune famille ne correspond à ces filtres</div>' +
+        '<div>Élargissez la recherche ou ajoutez un parent.</div></div></td></tr>';
+    } else {
+      $("tableBody").innerHTML = slice.map((p) => {
+        const enfants = enfantsDe[p.id] || [];
+        const cls = classesDuParent(p.id, anneeId);
+        return '<tr>' +
+          '<td><div class="d-flex align-items-center gap-2">' +
+            '<span class="avatar-initials">' + esc(initials(p)) + '</span>' +
+            '<div><div class="cell-primary">' + esc(nomComplet(p)) + '</div>' +
+            '<div class="cell-sub">Fiche #' + p.id + '</div></div></div></td>' +
+          '<td>' + (p.telephone
+            ? '<a href="tel:' + esc(p.telephone) + '">' + esc(p.telephone) + '</a>'
+            : '<span class="text-warning">Manquant</span>') + '</td>' +
+          '<td>' + (p.email
+            ? '<a href="mailto:' + esc(p.email) + '">' + esc(p.email) + '</a>'
+            : '<span class="text-warning">Manquant</span>') + '</td>' +
+          '<td>' + (enfants.length
+            ? '<span class="badge badge-primary">' + enfants.length + '</span> <span class="cell-sub">' +
+              esc(enfants.slice(0, 2).map((e) => e.prenom).join(", ")) + (enfants.length > 2 ? "…" : "") + '</span>'
+            : '<span class="badge badge-neutral">0</span>') + '</td>' +
+          '<td>' + (cls.length
+            ? cls.map((id) => '<span class="badge badge-info me-1">' + esc(classeLabel(classeById[id])) + "</span>").join("")
+            : '<span class="cell-sub">—</span>') + '</td>' +
+          '<td class="text-end text-nowrap">' +
+            '<button class="btn btn-light btn-sm" data-act="view" data-id="' + p.id + '" title="Voir la famille"><i class="fa-solid fa-eye"></i></button> ' +
+            '<button class="btn btn-light btn-sm" data-act="edit" data-id="' + p.id + '" title="Modifier"><i class="fa-solid fa-pen"></i></button> ' +
+            '<button class="btn btn-light btn-sm text-danger" data-act="del" data-id="' + p.id + '" title="Supprimer"><i class="fa-solid fa-trash"></i></button>' +
+          '</td></tr>';
+      }).join("");
+    }
+
+    $("rangeInfo").textContent = list.length
+      ? (start + 1) + "–" + Math.min(start + size, list.length) + " sur " + list.length + " familles"
+      : "Aucune famille";
+    renderPager(pages);
+  }
+
+  function renderPager(pages) {
+    if (pages <= 1) { $("pager").innerHTML = ""; return; }
+    let html = '<button class="pager-btn" data-page="' + (page - 1) + '"' + (page === 1 ? " disabled" : "") + '><i class="fa-solid fa-chevron-left"></i></button>';
+    const from = Math.max(1, page - 2), to = Math.min(pages, from + 4);
+    for (let i = from; i <= to; i++) {
+      html += '<button class="pager-btn' + (i === page ? " active" : "") + '" data-page="' + i + '">' + i + "</button>";
+    }
+    html += '<button class="pager-btn" data-page="' + (page + 1) + '"' + (page === pages ? " disabled" : "") + '><i class="fa-solid fa-chevron-right"></i></button>';
+    $("pager").innerHTML = html;
+  }
+
+  /* ═══════════════ GRAPHIQUES ═══════════════ */
+  function chartDefaults() {
+    if (!window.Chart) return;
+    Chart.defaults.font.family = "'Inter','Segoe UI',system-ui,sans-serif";
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = cssVar("--ta-text-muted");
+    Chart.defaults.maintainAspectRatio = false;
+    Chart.defaults.plugins.legend.labels.boxWidth = 10;
+    Chart.defaults.plugins.legend.labels.boxHeight = 10;
+    Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  }
+
+  function draw(key, canvasId, config) {
+    if (!window.Chart) return;
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart($(canvasId), config);
+  }
+
+  function setEmpty(emptyId, wrapSelector, isEmpty) {
+    const e = $(emptyId);
+    if (e) e.hidden = !isEmpty;
+    const w = document.querySelector(wrapSelector);
+    if (w) w.style.display = isEmpty ? "none" : "";
+  }
+
+  function renderChartClasses() {
+    const anneeId = Number($("chAnneeClasses").value) || null;
+    const cycleId = Number($("chCycleClasses").value) || null;
+
+    const parClasse = {};   // classe_id -> Set(parent_id)
+    inscriptions.forEach((i) => {
+      if (anneeId && i.annee_scolaire_id !== anneeId) return;
+      const c = classeById[i.classe_id];
+      if (!c || (cycleId && c.cycle_id !== cycleId)) return;
+      const el = eleveById[i.eleve_id];
+      if (!el || !el.parent_id) return;
+      (parClasse[i.classe_id] = parClasse[i.classe_id] || new Set()).add(el.parent_id);
+    });
+
+    const ids = Object.keys(parClasse).map(Number)
+      .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])));
+    const totalFamilles = new Set();
+    Object.values(parClasse).forEach((s) => s.forEach((v) => totalFamilles.add(v)));
+
+    $("metaClasses").textContent = anneeLabel(anneeId) + " · " + totalFamilles.size + " famille(s)";
+    setEmpty("chartClassesEmpty", "#panelClasses .chart-canvas-wrap", ids.length === 0);
+    if (!ids.length) { if (charts.classes) { charts.classes.destroy(); charts.classes = null; } return; }
+
+    draw("classes", "chartClasses", {
+      type: "bar",
+      data: {
+        labels: ids.map((id) => classeLabel(classeById[id])),
+        datasets: [{ label: "Familles", data: ids.map((id) => parClasse[id].size), backgroundColor: cssVar("--ta-primary"), borderRadius: 4, maxBarThickness: 34 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false }, ticks: { maxRotation: 60 } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  function renderChartFratrie() {
+    const anneeId = Number($("chAnneeFratrie").value) || null;
+    const tous = $("chPerimFratrie").value === "tous";
+
+    const compte = {};
+    parents.forEach((p) => {
+      let n;
+      if (tous) {
+        n = (enfantsDe[p.id] || []).length;
+      } else {
+        n = (enfantsDe[p.id] || []).filter((e) =>
+          inscriptions.some((i) => i.eleve_id === e.id && (!anneeId || i.annee_scolaire_id === anneeId))
+        ).length;
+      }
+      const k = n >= 4 ? "4+" : String(n);
+      compte[k] = (compte[k] || 0) + 1;
+    });
+
+    const ordre = ["0", "1", "2", "3", "4+"];
+    const data = ordre.map((k) => compte[k] || 0);
+    const multi = (compte["2"] || 0) + (compte["3"] || 0) + (compte["4+"] || 0);
+    $("metaFratrie").textContent = tous ? "Tous les enfants" : anneeLabel(anneeId);
+
+    draw("fratrie", "chartFratrie", {
+      type: "bar",
+      data: {
+        labels: ["Aucun", "1 enfant", "2 enfants", "3 enfants", "4 et plus"],
+        datasets: [{ label: "Familles", data: data, backgroundColor: cssVar("--ta-primary"), borderRadius: 4, maxBarThickness: 44 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+
+    const sansTel = parents.filter((p) => !p.telephone).length;
+    const sansMail = parents.filter((p) => !p.email).length;
+    const complets = parents.filter((p) => p.telephone && p.email).length;
+
+    draw("contacts", "chartContacts", {
+      type: "doughnut",
+      data: {
+        labels: ["Contact complet", "Téléphone manquant", "E-mail manquant"],
+        datasets: [{ data: [complets, sansTel, sansMail], backgroundColor: [cssVar("--ta-success"), cssVar("--ta-warning"), cssVar("--ta-danger")], borderWidth: 0 }]
+      },
+      options: { cutout: "62%", plugins: { legend: { position: "bottom" } } }
+    });
+
+    const tailles = parents.map((p) => (enfantsDe[p.id] || []).length);
+    $("kpiMaxFratrie").textContent = tailles.length ? Math.max.apply(null, tailles) + " enfants" : "—";
+    $("kpiMulti").textContent = multi;
+    $("kpiSansTel").textContent = sansTel;
+    $("kpiSansMail").textContent = sansMail;
+  }
+
+  function renderChartArrivees() {
+    const anneeId = Number($("chAnneeArrivees").value) || null;
+    const cumul = $("chVueArrivees").value === "cumul";
+
+    // Mois de la PREMIÈRE inscription d'un enfant de la famille, sur l'année choisie
+    const premier = {};   // parent_id -> timestamp
+    inscriptions.forEach((i) => {
+      if (anneeId && i.annee_scolaire_id !== anneeId) return;
+      if (!i.date_inscription) return;
+      const el = eleveById[i.eleve_id];
+      if (!el || !el.parent_id) return;
+      const t = new Date(i.date_inscription).getTime();
+      if (isNaN(t)) return;
+      if (premier[el.parent_id] == null || t < premier[el.parent_id]) premier[el.parent_id] = t;
+    });
+
+    const parMois = new Array(12).fill(0);
+    Object.values(premier).forEach((t) => { parMois[new Date(t).getMonth()]++; });
+
+    const labels = MOIS_SCOLAIRES.map((m) => MOIS_NOMS[m].slice(0, 4) + ".");
+    let data = MOIS_SCOLAIRES.map((m) => parMois[m]);
+    const totalFam = data.reduce((s, v) => s + v, 0);
+    if (cumul) { let acc = 0; data = data.map((v) => (acc += v)); }
+
+    $("metaArrivees").textContent = anneeLabel(anneeId) + " · " + totalFam + " famille(s)";
+    setEmpty("chartArriveesEmpty", "#panelArrivees .chart-canvas-wrap", totalFam === 0);
+    if (!totalFam) { if (charts.arrivees) { charts.arrivees.destroy(); charts.arrivees = null; } return; }
+
+    draw("arrivees", "chartArrivees", {
+      type: cumul ? "line" : "bar",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: cumul ? "Familles cumulées" : "Nouvelles familles",
+          data: data,
+          borderColor: cssVar("--ta-primary"),
+          backgroundColor: cumul ? "rgba(60,80,224,0.12)" : cssVar("--ta-primary"),
+          fill: cumul, tension: 0.35, pointRadius: 3, borderRadius: 4, borderWidth: 2, maxBarThickness: 34
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: GRID(), ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  const RENDERERS = { classes: renderChartClasses, fratrie: renderChartFratrie, arrivees: renderChartArrivees };
+
+  function renderVisibleCharts() {
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      if (el.classList.contains("show")) RENDERERS[el.dataset.render]();
+    });
+  }
+
+  /* ═══════════════ CRUD ═══════════════ */
+  function resetForm() {
+    $("formParent").reset();
+    $("fId").value = "";
+    $("formError").hidden = true;
+    $("modalParentTitle").innerHTML = '<i class="fa-solid fa-user-plus me-2 text-primary"></i>Ajouter un parent';
+  }
+
+  function openEdit(id) {
+    const p = parents.find((x) => x.id === id);
+    if (!p) return;
+    resetForm();
+    $("modalParentTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier ' + esc(nomComplet(p));
+    $("fId").value = p.id;
+    $("fNom").value = p.nom || "";
+    $("fPrenom").value = p.prenom || "";
+    $("fTel").value = p.telephone || "";
+    $("fEmail").value = p.email || "";
+    bootstrap.Modal.getOrCreateInstance($("modalParent")).show();
+  }
+
+  async function save() {
+    const err = $("formError");
+    err.hidden = true;
+    const payload = {
+      nom: $("fNom").value.trim(),
+      prenom: $("fPrenom").value.trim(),
+      telephone: $("fTel").value.trim(),
+      email: $("fEmail").value.trim()
+    };
+    if (ETAB_ID) payload.etablissement_id = Number(ETAB_ID);
+
+    for (const [k, label] of [["nom", "nom"], ["prenom", "prénom"], ["telephone", "téléphone"], ["email", "e-mail"]]) {
+      if (!payload[k]) { err.textContent = "Renseignez le " + label + "."; err.hidden = false; return; }
+    }
+
+    const btn = $("btnSaveParent");
+    btn.disabled = true;
+    try {
+      const id = $("fId").value;
+      if (id) {
+        await api("/api/parents/" + id + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "PUT", body: JSON.stringify(payload) });
+        toast("Fiche de " + payload.nom + " " + payload.prenom + " mise à jour");
+      } else {
+        await api("/api/parents/", { method: "POST", body: JSON.stringify(payload) });
+        toast(payload.nom + " " + payload.prenom + " a été ajouté au carnet");
+      }
+      bootstrap.Modal.getOrCreateInstance($("modalParent")).hide();
+      await loadAll();
+    } catch (e) {
+      err.textContent = /unicit/i.test(e.message)
+        ? "Cet e-mail est déjà utilisé par une autre famille."
+        : e.message;
+      err.hidden = false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function openDetail(id) {
+    const p = parents.find((x) => x.id === id);
+    if (!p) return;
+    $("btnEditFromDetail").dataset.id = id;
+    const enfants = enfantsDe[p.id] || [];
+
+    $("detailBody").innerHTML =
+      '<div class="d-flex align-items-center gap-3 mb-3">' +
+        '<span class="avatar-initials lg">' + esc(initials(p)) + '</span>' +
+        '<div><div style="font-size:15px;font-weight:700;">' + esc(nomComplet(p)) + '</div>' +
+        '<div class="text-muted">' + esc(p.telephone || "Téléphone manquant") + ' · ' + esc(p.email || "E-mail manquant") + '</div></div>' +
+      '</div>' +
+      '<h6 class="mb-2">Enfants rattachés <span class="badge badge-primary">' + enfants.length + '</span></h6>' +
+      (enfants.length
+        ? '<table class="table mb-0"><thead><tr><th>Élève</th><th>Matricule</th><th>Sexe</th><th>Classe</th><th>Statut</th></tr></thead><tbody>' +
+          enfants.map((e) => {
+            const anneeId = Number($("fAnnee").value) || null;
+            const insc = inscriptions.filter((i) => i.eleve_id === e.id && (!anneeId || i.annee_scolaire_id === anneeId)).pop();
+            return '<tr><td class="cell-primary">' + esc((e.prenom || "") + " " + (e.nom || "")) + '</td>' +
+              '<td><code style="font-size:11px;">' + esc(e.matricule || "—") + '</code></td>' +
+              '<td>' + (e.sexe === "M" ? "Garçon" : e.sexe === "F" ? "Fille" : "—") + '</td>' +
+              '<td>' + (insc ? esc(classeLabel(classeById[insc.classe_id])) : '<span class="text-muted">Non inscrit</span>') + '</td>' +
+              '<td><span class="badge ' + ((e.statut || "Actif") === "Actif" ? "badge-success" : "badge-neutral") + '">' + esc(e.statut || "Actif") + '</span></td></tr>';
+          }).join("") + '</tbody></table>'
+        : '<p class="text-muted mb-0">Aucun enfant n\'est encore rattaché à cette famille. Rattachez-le depuis la fiche de l\'élève.</p>');
+
+    bootstrap.Modal.getOrCreateInstance($("modalDetail")).show();
+  }
+
+  function openDelete(id) {
+    const p = parents.find((x) => x.id === id);
+    if (!p) return;
+    deleteId = id;
+    const n = (enfantsDe[id] || []).length;
+    $("deleteBody").innerHTML =
+      '<p class="mb-2">Vous êtes sur le point de supprimer <strong>' + esc(nomComplet(p)) + '</strong>.</p>' +
+      (n
+        ? '<div class="alert alert-warning mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i>' +
+          n + ' élève(s) dépendent de cette fiche. Rattachez-les d\'abord à un autre parent, sinon la suppression sera refusée par la base.</div>'
+        : '<p class="mb-0 text-muted">Aucun élève ne dépend de cette fiche, la suppression est sans risque.</p>');
+    bootstrap.Modal.getOrCreateInstance($("modalDelete")).show();
+  }
+
+  async function confirmDelete() {
+    if (!deleteId) return;
+    const btn = $("btnConfirmDelete");
+    btn.disabled = true;
+    try {
+      await api("/api/parents/" + deleteId + (ETAB_ID ? "?etablissement_id=" + ETAB_ID : ""), { method: "DELETE" });
+      bootstrap.Modal.getOrCreateInstance($("modalDelete")).hide();
+      toast("Parent supprimé");
+      deleteId = null;
+      await loadAll();
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function exportCsv() {
+    const anneeId = Number($("fAnnee").value) || null;
+    const rows = [["Nom", "Prénom", "Téléphone", "E-mail", "Nb enfants", "Enfants", "Classes " + anneeLabel(anneeId)]];
+    sorted(filtered()).forEach((p) => {
+      const enfants = enfantsDe[p.id] || [];
+      rows.push([p.nom, p.prenom, p.telephone, p.email, enfants.length,
+        enfants.map((e) => (e.prenom || "") + " " + (e.nom || "")).join(" | "),
+        classesDuParent(p.id, anneeId).map((id) => classeLabel(classeById[id])).join(" | ")]);
+    });
+    downloadCsv("parents-" + String(anneeLabel(anneeId)).replace(/[^\w-]/g, "_") + ".csv", rows);
+    toast(rows.length - 1 + " famille(s) exportée(s)");
+  }
+
+  /* ═══════════════ ÉVÉNEMENTS ═══════════════ */
+  function bind() {
+    ["fSearch", "fClasse", "fEnfants", "fContact"].forEach((id) => {
+      $(id).addEventListener("input", () => { page = 1; renderTable(); });
+    });
+    $("fAnnee").addEventListener("change", () => {
+      page = 1;
+      ["chAnneeClasses", "chAnneeFratrie", "chAnneeArrivees"].forEach((id) => { $(id).value = $("fAnnee").value; });
+      renderStats(); renderTable(); renderVisibleCharts();
+    });
+    $("btnResetFilters").addEventListener("click", () => {
+      ["fSearch"].forEach((id) => { $(id).value = ""; });
+      ["fClasse", "fEnfants", "fContact"].forEach((id) => { $(id).value = ""; });
+      page = 1; renderTable();
+    });
+    $("activeChips").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-clear]");
+      if (!b) return;
+      $(CLEAR_MAP[b.dataset.clear]).value = "";
+      page = 1; renderTable();
+    });
+
+    $("pageSize").addEventListener("change", () => { page = 1; renderTable(); });
+    $("pager").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-page]");
+      if (!b || b.disabled) return;
+      page = Number(b.dataset.page);
+      renderTable();
+    });
+    document.querySelectorAll("th[data-sort]").forEach((th) => {
+      th.addEventListener("click", () => {
+        const k = th.dataset.sort;
+        if (sortKey === k) sortAsc = !sortAsc; else { sortKey = k; sortAsc = true; }
+        renderTable();
+      });
+    });
+
+    $("tableBody").addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-act]");
+      if (!b) return;
+      const id = Number(b.dataset.id);
+      if (b.dataset.act === "view") openDetail(id);
+      if (b.dataset.act === "edit") openEdit(id);
+      if (b.dataset.act === "del") openDelete(id);
+    });
+
+    $("btnNouveauParent").addEventListener("click", () => {
+      resetForm();
+      bootstrap.Modal.getOrCreateInstance($("modalParent")).show();
+    });
+    $("btnSaveParent").addEventListener("click", save);
+    $("btnConfirmDelete").addEventListener("click", confirmDelete);
+    $("btnEditFromDetail").addEventListener("click", (ev) => {
+      bootstrap.Modal.getOrCreateInstance($("modalDetail")).hide();
+      openEdit(Number(ev.currentTarget.dataset.id));
+    });
+    $("btnRefresh").addEventListener("click", loadAll);
+    $("btnExportCsv").addEventListener("click", exportCsv);
+
+    document.querySelectorAll("[data-render]").forEach((el) => {
+      el.addEventListener("shown.bs.collapse", () => RENDERERS[el.dataset.render]());
+      el.querySelectorAll("select").forEach((s) => s.addEventListener("change", () => RENDERERS[el.dataset.render]()));
+    });
+
+    $("btnToggleAllCharts").addEventListener("click", (ev) => {
+      const panels = Array.from(document.querySelectorAll("[data-render]"));
+      const openAll = panels.some((p) => !p.classList.contains("show"));
+      panels.forEach((p) => bootstrap.Collapse.getOrCreateInstance(p, { toggle: false })[openAll ? "show" : "hide"]());
+      ev.currentTarget.innerHTML = openAll
+        ? '<i class="fa-solid fa-angles-up"></i> Tout replier'
+        : '<i class="fa-solid fa-angles-down"></i> Tout ouvrir';
+    });
+
+    window.addEventListener("resize", () => { Object.values(charts).forEach((c) => c && c.resize()); });
+  }
+
+  chartDefaults();
+  bind();
+  loadAll();
+})();
+</script>
+</body>
+</html>

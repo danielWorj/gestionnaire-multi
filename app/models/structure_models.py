@@ -11,7 +11,11 @@ class Etablissement(db.Model):
     bp = db.Column(db.String(50))
     telephone = db.Column(db.String(20))
     region = db.Column(db.String(100))
-    logo_url = db.Column(db.String(255))
+
+    # Ne contient QUE le nom du fichier stocké sur disque (ex: "lycee-de-yaounde.png"),
+    # jamais un chemin complet ni une URL externe. Le fichier réel vit dans
+    # <racine_projet>/storage/logos/ (cf. services/structure_services.py).
+    logo = db.Column(db.String(255))
 
     # Relations : un établissement possède son propre référentiel de cycles,
     # ses classes et ses années scolaires (isolation par etablissement_id)
@@ -20,8 +24,12 @@ class Etablissement(db.Model):
     annees_scolaires = db.relationship('AnneeScolaire', backref='etablissement', lazy=True)
 
     def to_dict(self):
-        return {k: getattr(self, k) for k in ['id', 'nom', 'nom_bilingue', 'adresse',
-                'bp', 'telephone', 'region', 'logo_url']}
+        data = {k: getattr(self, k) for k in ['id', 'nom', 'nom_bilingue', 'adresse',
+                'bp', 'telephone', 'region', 'logo']}
+        # URL prête à l'emploi pour un <img src="..."> côté frontend, construite
+        # à partir du nom de fichier stocké — jamais exposée telle quelle en base.
+        data['logo_url'] = f"/api/etablissements/logos/{self.logo}" if self.logo else None
+        return data
 
 
 class Cycle(db.Model):
@@ -48,9 +56,7 @@ class Classe(db.Model):
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     cycle_id = db.Column(db.Integer, db.ForeignKey('cycle.id'), nullable=False)
     option = db.Column(db.String(50))
-    # ⚠️ 'effectif' n'est PAS une colonne : calculé via COUNT(Inscription)
-    # WHERE classe_id=? AND statut='Actif' (cf. note du diagramme)
-
+   
     @property
     def effectif(self):
         try:

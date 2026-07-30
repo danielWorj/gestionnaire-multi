@@ -39,14 +39,6 @@
           </button>
         </div>
 
-        <!-- Avertissement rôle (affiché seulement pour un compte Admin d'établissement) -->
-        <div class="alert alert-warning d-none" id="alertRoleInfo" style="font-size:12.5px;">
-          <i class="fa-solid fa-circle-info me-1"></i>
-          Les groupes de matières et les matières sont un référentiel global géré par le <strong>Super Administrateur</strong>.
-          Avec votre compte, vous pouvez consulter et affecter des matières existantes aux classes de votre établissement
-          (onglet « Affectations Classe »), mais pas créer ou modifier le référentiel lui-même.
-        </div>
-
         <!-- ═══════════════════════════════════════════════
              STATS GLOBALES
         ═══════════════════════════════════════════════ -->
@@ -370,13 +362,15 @@
 
     /* ─────────────────────────────────────────
        TRANSPORT API
-       - /api/groupes-matieres/ et /api/matieres/ : réservés SuperAdmin,
-         TOUTES méthodes y compris GET (make_admin_crud_blueprint réutilisé
-         tel quel, cf. pedagogie_api.py). Un compte Admin d'établissement
-         recevra 403 sur ces deux ressources : c'est géré ci-dessous, pas
-         un bug de ce fichier.
-       - /api/matieres-classe/ : cloisonné Admin/SuperAdmin.
-       - /api/classes/ et /api/enseignants/ : cloisonnés Admin/SuperAdmin.
+       Toutes les ressources de ce module sont cloisonnées par établissement
+       (Admin limité au sien via le claim JWT, SuperAdmin doit préciser
+       ?etablissement_id=<id> en query string) :
+       - /api/groupes-matieres/ et /api/matieres/ : CRUD complet, propre à
+         l'établissement connecté (cf. pedagogie_api.py,
+         make_pedagogie_scoped_blueprint). Deux établissements peuvent avoir
+         chacun leur propre "Mathématiques" : ce sont deux lignes distinctes.
+       - /api/matieres-classe/, /api/enseignants/, /api/titulaires-classe/,
+         /api/classes/ : même politique de cloisonnement.
        Réponses brutes (tableau/objet), erreurs { erreur: "..." }.
     ───────────────────────────────────────── */
     async function call(path, options) {
@@ -408,8 +402,7 @@
       affectations: [],
       classes: [],
       enseignants: [],
-      isSuperAdmin: false,
-      referentielAccessible: true, // false si 403 sur /api/matieres (Admin d'établissement)
+      referentielAccessible: true, // passe à false uniquement si le rôle connecté n'est ni Admin ni SuperAdmin (403)
     };
 
     const $ = (sel) => document.querySelector(sel);
@@ -467,21 +460,19 @@
     }
 
     /* ═══════════════════════════════════════════
-       1. GROUPES DE MATIÈRES (SuperAdmin uniquement)
+       1. GROUPES DE MATIÈRES (Admin/SuperAdmin, cloisonné établissement)
        ═══════════════════════════════════════════ */
     async function loadGroupes() {
       const tbody = $("#groupes-tbody");
       try {
         state.groupes = await api.get("/api/groupes-matieres/");
         state.referentielAccessible = true;
-        $("#alertRoleInfo").classList.add("d-none");
         renderGroupes();
       } catch (e) {
         if (e.status === 403) {
           state.referentielAccessible = false;
           state.groupes = [];
-          $("#alertRoleInfo").classList.remove("d-none");
-          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fa-solid fa-lock me-1"></i>Réservé au Super Administrateur</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fa-solid fa-lock me-1"></i>Accès non autorisé avec votre compte</td></tr>`;
         } else {
           tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-4">${esc(e.message)}</td></tr>`;
         }
@@ -549,7 +540,7 @@
     });
 
     /* ═══════════════════════════════════════════
-       2. MATIÈRES (SuperAdmin uniquement)
+       2. MATIÈRES (Admin/SuperAdmin, cloisonné établissement)
        ═══════════════════════════════════════════ */
     async function loadMatieres() {
       const tbody = $("#matieres-tbody");
@@ -559,7 +550,7 @@
       } catch (e) {
         if (e.status === 403) {
           state.matieres = [];
-          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fa-solid fa-lock me-1"></i>Réservé au Super Administrateur</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4"><i class="fa-solid fa-lock me-1"></i>Accès non autorisé avec votre compte</td></tr>`;
         } else {
           tbody.innerHTML = `<tr><td colspan="3" class="text-center text-danger py-4">${esc(e.message)}</td></tr>`;
         }
@@ -713,7 +704,7 @@
       $("#affectation-coeff").value = data ? data.coefficient : 1;
       $("#formAffectation").classList.remove("was-validated");
       if (!state.matieres.length) {
-        toast("Liste des matières indisponible avec votre rôle : demandez au Super Administrateur d'ouvrir l'accès en lecture, ou sélectionnez-la depuis un compte SuperAdmin.", "error");
+        toast("Aucune matière disponible : créez-en une dans l'onglet « Matières » avant de faire une affectation.", "error");
       }
       bootstrap.Modal.getOrCreateInstance($("#modalAffectation")).show();
     }

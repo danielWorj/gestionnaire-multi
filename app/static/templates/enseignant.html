@@ -83,22 +83,100 @@
         </div>
 
         <!-- ═══════════════════════════════════════════════
+             GRAPHIQUES
+        ═══════════════════════════════════════════════ -->
+        <div class="row g-3 mb-4" id="chartsRow">
+          <div class="col-xl-6">
+            <div class="card h-100">
+              <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <h2 class="card-title mb-0"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Évolution des enseignants par département</h2>
+                <select class="form-select form-select-sm" id="filterEvolutionAnnee" style="max-width:200px;">
+                  <option value="">Toutes les années</option>
+                </select>
+              </div>
+              <div class="card-body">
+                <p class="text-muted mb-2" style="font-size:11px;" id="labelEvolutionSousTitre">
+                  Tous les enseignants du département par année scolaire — titulaires d'une classe, affectés à une matière, ou nouvellement créés sans affectation.
+                </p>
+                <div style="position:relative;height:280px;">
+                  <canvas id="chartEvolutionDepartement"></canvas>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-xl-6">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <div class="card h-100">
+                  <div class="card-header">
+                    <h2 class="card-title mb-0" style="font-size:13px;"><i class="fa-solid fa-venus-mars me-2 text-primary"></i>Répartition par sexe</h2>
+                  </div>
+                  <div class="card-body">
+                    <div style="position:relative;height:190px;">
+                      <canvas id="chartSexe"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="card h-100">
+                  <div class="card-header">
+                    <h2 class="card-title mb-0" style="font-size:13px;"><i class="fa-solid fa-ranking-star me-2 text-primary"></i>Répartition par grade</h2>
+                  </div>
+                  <div class="card-body">
+                    <div style="position:relative;height:190px;">
+                      <canvas id="chartGrade"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-md-12">
+                <div class="card">
+                  <div class="card-header">
+                    <h2 class="card-title mb-0" style="font-size:13px;"><i class="fa-solid fa-book-open me-2 text-primary"></i>Enseignants sans matière affectée</h2>
+                  </div>
+                  <div class="card-body">
+                    <div style="position:relative;height:160px;">
+                      <canvas id="chartSansMatiere"></canvas>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
              FILTRES
         ═══════════════════════════════════════════════ -->
         <div class="card mb-3">
           <div class="card-body py-3">
             <div class="row g-2 align-items-end">
-              <div class="col-md-4">
+              <div class="col-md-3">
                 <label class="form-label">Rechercher</label>
                 <input type="search" class="form-control form-control-sm" id="filterSearch" placeholder="Nom, prénom, email…">
               </div>
-              <div class="col-md-3">
+              <div class="col-md-2">
+                <label class="form-label">Département</label>
+                <select class="form-select form-select-sm" id="filterDepartement">
+                  <option value="">Tous les départements</option>
+                </select>
+              </div>
+              <div class="col-md-2">
                 <label class="form-label">Grade</label>
                 <select class="form-select form-select-sm" id="filterGrade">
                   <option value="">Tous les grades</option>
                 </select>
               </div>
-              <div class="col-md-3">
+              <div class="col-md-2">
+                <label class="form-label">Sexe</label>
+                <select class="form-select form-select-sm" id="filterSexe">
+                  <option value="">Tous</option>
+                  <option value="M">Masculin</option>
+                  <option value="F">Féminin</option>
+                </select>
+              </div>
+              <div class="col-md-2">
                 <label class="form-label">Statut</label>
                 <select class="form-select form-select-sm" id="filterStatut">
                   <option value="">Tous les statuts</option>
@@ -106,49 +184,118 @@
                   <option value="non-titulaire">Sans classe titularisée</option>
                 </select>
               </div>
-              <div class="col-md-2">
-                <button class="btn btn-light btn-sm w-100" id="btnResetFilters"><i class="fa-solid fa-rotate-left"></i> Réinitialiser</button>
+              <div class="col-md-1">
+                <button class="btn btn-light btn-sm w-100" id="btnResetFilters" title="Réinitialiser"><i class="fa-solid fa-rotate-left"></i></button>
               </div>
             </div>
           </div>
         </div>
 
         <!-- ═══════════════════════════════════════════════
-             TABLEAU ENSEIGNANTS
+             ENSEIGNANTS, DÉPARTEMENTS & GRADES
         ═══════════════════════════════════════════════ -->
-        <div class="card">
-          <div class="card-header">
-            <h2 class="card-title">
-              <i class="fa-solid fa-user-tie me-2 text-primary"></i>Liste des enseignants
-              <span class="badge badge-primary ms-2" id="badgeCount">0</span>
-            </h2>
+        <div class="card" id="cardEnseignantsRef">
+          <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <h2 class="card-title mb-0"><i class="fa-solid fa-user-tie me-2 text-primary"></i>Enseignants &amp; référentiels</h2>
+            <ul class="nav nav-tabs card-header-tabs" id="mainRefTabs" role="tablist" style="border-bottom:none;">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="tab-enseignants-btn" data-bs-toggle="tab" data-bs-target="#tab-enseignants" type="button" role="tab" aria-selected="true">
+                  <i class="fa-solid fa-user-tie me-1"></i>Enseignants
+                  <span class="badge badge-primary ms-1" id="badgeCount">0</span>
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-departements-btn" data-bs-toggle="tab" data-bs-target="#tab-departements" type="button" role="tab" aria-selected="false">
+                  <i class="fa-solid fa-building-columns me-1"></i>Départements
+                </button>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="tab-grades-btn" data-bs-toggle="tab" data-bs-target="#tab-grades" type="button" role="tab" aria-selected="false">
+                  <i class="fa-solid fa-ranking-star me-1"></i>Grades
+                </button>
+              </li>
+            </ul>
           </div>
           <div class="card-body p-0">
-            <div class="table-responsive">
-              <table class="table table-hover mb-0">
-                <thead>
-                  <tr>
-                    <th>Enseignant</th>
-                    <th>Contact</th>
-                    <th>Grade</th>
-                    <th>Statut</th>
-                    <th>Matières enseignées</th>
-                    <th class="text-end">Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="tableBody">
-                  <tr>
-                    <td colspan="6" class="text-center text-muted py-5">
-                      <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>
-                      Chargement des enseignants…
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="tab-content">
+
+              <!-- Onglet Enseignants -->
+              <div class="tab-pane fade show active" id="tab-enseignants" role="tabpanel">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Enseignant</th>
+                        <th>Contact</th>
+                        <th>Département</th>
+                        <th>Grade</th>
+                        <th>Statut</th>
+                        <th>Matières enseignées</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                      <tr>
+                        <td colspan="7" class="text-center text-muted py-5">
+                          <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>
+                          Chargement des enseignants…
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top">
+                  <small class="text-muted" id="footerCount">—</small>
+                </div>
+              </div>
+
+              <!-- Onglet Départements -->
+              <div class="tab-pane fade" id="tab-departements" role="tabpanel">
+                <div class="d-flex justify-content-end p-3 pb-2">
+                  <button class="btn btn-primary btn-sm" type="button" id="btnNouveauDepartement">
+                    <i class="fa-solid fa-plus"></i> Nouveau département
+                  </button>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Libellé</th>
+                        <th>Enseignants rattachés</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableDepartements">
+                      <tr><td colspan="3" class="text-center text-muted py-4">Chargement…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Onglet Grades -->
+              <div class="tab-pane fade" id="tab-grades" role="tabpanel">
+                <div class="d-flex justify-content-end p-3 pb-2">
+                  <button class="btn btn-primary btn-sm" type="button" id="btnNouveauGrade">
+                    <i class="fa-solid fa-plus"></i> Nouveau grade
+                  </button>
+                </div>
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead>
+                      <tr>
+                        <th>Libellé</th>
+                        <th>Enseignants rattachés</th>
+                        <th class="text-end">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tableGrades">
+                      <tr><td colspan="3" class="text-center text-muted py-4">Chargement…</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
             </div>
-          </div>
-          <div class="card-footer d-flex justify-content-between align-items-center">
-            <small class="text-muted" id="footerCount">—</small>
           </div>
         </div>
 
@@ -169,6 +316,10 @@
         <div class="modal-body">
           <form id="formEnseignant" novalidate>
             <input type="hidden" id="fEnseignantId" value="">
+            <div class="alert alert-info d-flex align-items-start gap-2 py-2" style="font-size:11.5px;" id="infoCompteAuto">
+              <i class="fa-solid fa-circle-info mt-1"></i>
+              <div>Un compte de connexion sera automatiquement créé pour cet enseignant avec l'email renseigné ci-dessous. Un mot de passe temporaire vous sera présenté juste après la création, à copier et transmettre à l'enseignant.</div>
+            </div>
             <div class="row g-3">
               <div class="col-md-6">
                 <label class="form-label">Nom *</label>
@@ -190,17 +341,34 @@
                 <label class="form-label">Téléphone</label>
                 <input type="tel" class="form-control" id="fTelephone" placeholder="Ex : 6 90 00 00 00">
               </div>
-              <div class="col-md-6">
-                <label class="form-label">Grade</label>
-                <input type="text" class="form-control" id="fGrade" list="gradesSuggestions" placeholder="Ex : Certifié, PLEG, Vacataire…">
-                <datalist id="gradesSuggestions">
-                  <option value="Certifié">
-                  <option value="PLEG">
-                  <option value="PLET">
-                  <option value="Instituteur">
-                  <option value="Contractuel">
-                  <option value="Vacataire">
-                </datalist>
+              <div class="col-md-4">
+                <label class="form-label">Sexe *</label>
+                <select class="form-select" id="fSexe" required>
+                  <option value="">Sélectionner…</option>
+                  <option value="M">Masculin</option>
+                  <option value="F">Féminin</option>
+                </select>
+                <div class="invalid-feedback">Le sexe est requis.</div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Département *</label>
+                <select class="form-select" id="fDepartementId" required>
+                  <option value="">Sélectionner…</option>
+                </select>
+                <div class="invalid-feedback">Le département est requis.</div>
+                <div class="form-text" style="font-size:11px;">
+                  <a href="#" onclick="switchToRefTab('departements'); return false;">Gérer les départements</a>
+                </div>
+              </div>
+              <div class="col-md-4">
+                <label class="form-label">Grade *</label>
+                <select class="form-select" id="fGradeId" required>
+                  <option value="">Sélectionner…</option>
+                </select>
+                <div class="invalid-feedback">Le grade est requis.</div>
+                <div class="form-text" style="font-size:11px;">
+                  <a href="#" onclick="switchToRefTab('grades'); return false;">Gérer les grades</a>
+                </div>
               </div>
             </div>
           </form>
@@ -235,13 +403,17 @@
             <span class="badge badge-success ms-auto d-none" id="detailBadgeTitulaire"><i class="fa-solid fa-chalkboard-user me-1"></i>Titulaire</span>
           </div>
           <div class="row g-3 mb-3">
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label">Email</label>
               <div id="detailEmail">—</div>
             </div>
-            <div class="col-md-6">
+            <div class="col-md-4">
               <label class="form-label">Téléphone</label>
               <div id="detailTelephone">—</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Sexe</label>
+              <div id="detailSexe">—</div>
             </div>
           </div>
           <hr class="divider">
@@ -290,6 +462,136 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouveau / Modifier département
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalDepartement" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalDepartementTitle"><i class="fa-solid fa-building-columns me-2 text-primary"></i>Nouveau département</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formDepartement" novalidate>
+            <input type="hidden" id="fDeptId" value="">
+            <label class="form-label">Libellé *</label>
+            <input type="text" class="form-control" id="fDeptLibelle" placeholder="Ex : Lettres et sciences humaines" required>
+            <div class="invalid-feedback">Le libellé est requis.</div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnSaveDepartement" type="button">
+            <i class="fa-solid fa-check"></i> <span id="btnSaveDepartementLabel">Créer le département</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouveau / Modifier grade
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalGrade" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalGradeTitle"><i class="fa-solid fa-ranking-star me-2 text-primary"></i>Nouveau grade</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <form id="formGrade" novalidate>
+            <input type="hidden" id="fGradeRefId" value="">
+            <label class="form-label">Libellé *</label>
+            <input type="text" class="form-control" id="fGradeRefLibelle" list="gradesSuggestions" placeholder="Ex : Certifié, PLEG, Vacataire…" required>
+            <datalist id="gradesSuggestions">
+              <option value="Certifié">
+              <option value="PLEG">
+              <option value="PLET">
+              <option value="Instituteur">
+              <option value="Contractuel">
+              <option value="Vacataire">
+            </datalist>
+            <div class="invalid-feedback">Le libellé est requis.</div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-primary" id="btnSaveGrade" type="button">
+            <i class="fa-solid fa-check"></i> <span id="btnSaveGradeLabel">Créer le grade</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Confirmation suppression référentiel
+       (partagée entre Département et Grade)
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalConfirmSuppressionRef" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirmer la suppression</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-2">Supprimer <span id="deleteRefType">l'élément</span> <strong id="deleteRefNom">—</strong> ?</p>
+          <p class="text-muted mb-0" style="font-size:11.5px;">Cette action est irréversible. La suppression sera refusée si des enseignants y sont encore rattachés.</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-danger btn-sm" id="btnConfirmDeleteRef"><i class="fa-solid fa-trash"></i> Oui, supprimer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Identifiants de connexion générés
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalIdentifiants" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa-solid fa-key me-2 text-primary"></i>Compte de connexion créé</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning d-flex align-items-start gap-2 py-2 mb-3" style="font-size:11.5px;">
+            <i class="fa-solid fa-triangle-exclamation mt-1"></i>
+            <div>Ce mot de passe temporaire ne sera plus affiché après la fermeture de cette fenêtre. Copiez-le et transmettez-le à l'enseignant dès maintenant. Il devra le changer lors de sa première connexion (valable 48h).</div>
+          </div>
+
+          <label class="form-label">Email de connexion</label>
+          <div class="input-group mb-3">
+            <input type="text" class="form-control" id="credEmail" readonly>
+            <button class="btn btn-light" type="button" id="btnCopyCredEmail" title="Copier l'email">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <label class="form-label">Mot de passe temporaire</label>
+          <div class="input-group mb-3">
+            <input type="text" class="form-control" id="credPassword" readonly style="font-family:monospace;font-weight:700;">
+            <button class="btn btn-light" type="button" id="btnCopyCredPassword" title="Copier le mot de passe">
+              <i class="fa-solid fa-copy"></i>
+            </button>
+          </div>
+
+          <button class="btn btn-outline-primary btn-sm w-100" type="button" id="btnCopyCredAll">
+            <i class="fa-solid fa-copy"></i> Copier l'email et le mot de passe
+          </button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-primary btn-sm" data-bs-dismiss="modal"><i class="fa-solid fa-check"></i> J'ai noté, fermer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toasts -->
   <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
     <div id="appToast" class="toast" role="alert">
@@ -304,6 +606,8 @@
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Chart.js (graphiques) -->
+  <script src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
 
   <!-- Transport HTTP + session -->
   <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
@@ -359,9 +663,22 @@
       let anneesScolaires = [];
       let matieres = [];              // peut rester vide : /api/matieres est réservé SuperAdmin
       let matieresAccessibles = true;
+      let departements = [];          // /api/departements/ — référentiel cloisonné par établissement
+      let grades = [];                // /api/grades/ — référentiel cloisonné par établissement
       let matieresByEnseignant = {};   // id -> [{matiere_label, classe_label, coefficient}]
       let titulairesByEnseignant = {}; // id -> [{classe_label, annee_label}]
       let deleteTargetId = null;
+      let deleteRefTarget = { type: null, id: null }; // { type: 'departement'|'grade', id }
+      let enseignantRoleId = null;     // id du rôle 'Enseignant' (authentification_models.Role), pour la création du compte
+      let currentIdentifiants = { email: "", motDePasse: "" };
+
+      // Instances Chart.js (détruites puis recréées à chaque rafraîchissement des données)
+      let chartEvolution = null;
+      let chartSexe = null;
+      let chartGrade = null;
+      let chartSansMatiere = null;
+      const CHART_COLORS = ["#4361ee", "#f72585", "#4cc9f0", "#7209b7", "#f77f00", "#2a9d8f", "#e63946", "#ffb703", "#8338ec", "#06d6a0"];
+      function colorAt(i) { return CHART_COLORS[i % CHART_COLORS.length]; }
 
       /* ─────────────────────────────────────────
          HELPERS
@@ -398,9 +715,32 @@
         const a = anneesScolaires.find((x) => x.id === id);
         return a ? a.libelle : `Année #${id}`;
       }
+      function getAnneeActiveId() {
+        if (!anneesScolaires.length) return null;
+        // Indicateur explicite d'année active si l'API le fournit un jour
+        // (statut/booléen). À défaut, on retient l'année la plus récente
+        // par ordre chronologique du libellé (ex : "2024-2025").
+        const explicite = anneesScolaires.find((a) =>
+          a.active === true || a.est_active === true || a.en_cours === true ||
+          (typeof a.statut === "string" && a.statut.toLowerCase() === "active")
+        );
+        if (explicite) return explicite.id;
+        const sorted = [...anneesScolaires].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        return sorted[sorted.length - 1].id;
+      }
       function matiereLabel(id) {
         const m = matieres.find((x) => x.id === id);
         return m ? m.libelle : `Matière #${id}`;
+      }
+      function departementLabel(id) {
+        if (!id) return null;
+        const d = departements.find((x) => x.id === id);
+        return d ? d.libelle : `Département #${id}`;
+      }
+      function gradeLabel(id) {
+        if (!id) return null;
+        const g = grades.find((x) => x.id === id);
+        return g ? g.libelle : `Grade #${id}`;
       }
 
       /* ─────────────────────────────────────────
@@ -408,7 +748,7 @@
       ───────────────────────────────────────── */
       function renderLoadingTable() {
         $("#tableBody").innerHTML = `
-          <tr><td colspan="6" class="text-center text-muted py-5">
+          <tr><td colspan="7" class="text-center text-muted py-5">
             <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>
             Chargement des enseignants…
           </td></tr>`;
@@ -437,25 +777,55 @@
             matieresAccessibles = false; // 403 attendu pour un compte Admin d'établissement
           }
 
-          const [ensRes, mcRes, tcRes] = await Promise.all([
+          // Seul /api/enseignants/ est indispensable à l'affichage de la page :
+          // c'est la donnée principale du tableau. Les 4 autres appels sont
+          // rendus individuellement résilients (comme cycles/classes/annees
+          // ci-dessus) : si matieres-classe, titulaires-classe, departements
+          // ou grades échoue (403, endpoint temporairement en panne…), la page
+          // continue de s'afficher avec les données disponibles au lieu de
+          // planter entièrement. Les graphiques qui dépendent de ces données
+          // afficheront simplement un repli (cf. renderChart plus bas).
+          const [ensRes, mcRes, tcRes, depRes, gradeRes] = await Promise.all([
             api.get("/api/enseignants/"),
-            api.get("/api/matieres-classe/"),
-            api.get("/api/titulaires-classe/"),
+            api.get("/api/matieres-classe/").catch((e) => { console.error("matieres-classe indisponible :", e); return []; }),
+            api.get("/api/titulaires-classe/").catch((e) => { console.error("titulaires-classe indisponible :", e); return []; }),
+            api.get("/api/departements/").catch((e) => { console.error("departements indisponible :", e); return []; }),
+            api.get("/api/grades/").catch((e) => { console.error("grades indisponible :", e); return []; }),
           ]);
           enseignants = ensRes;
           matieresClasse = mcRes;
           titulairesClasse = tcRes;
+          departements = depRes;
+          grades = gradeRes;
 
           buildLookups();
-          populateGradeFilter();
+          populateDepartementSelects();
+          populateGradeSelects();
+          populateEvolutionAnneeSelect();
           renderStats();
           renderTable();
+          renderDepartementsTable();
+          renderGradesTable();
         } catch (err) {
+          // À ce stade, seule la récupération de /api/enseignants/ (ou des
+          // référentiels cycles/classes/annees) peut encore lever une erreur
+          // bloquante : c'est la seule donnée réellement indispensable.
           $("#tableBody").innerHTML = `
-            <tr><td colspan="6" class="text-center text-danger py-5">
+            <tr><td colspan="7" class="text-center text-danger py-5">
               <i class="fa-solid fa-triangle-exclamation fa-lg mb-2 d-block"></i>
               ${escapeHtml(err.message)}
             </td></tr>`;
+          return;
+        }
+
+        // Rendu des graphiques isolé dans son propre try/catch : si Chart.js
+        // ne se charge pas (script bloqué, fichier absent…) ou qu'un
+        // graphique échoue, le reste de la page (stats, tableau,
+        // référentiels) doit rester pleinement utilisable.
+        try {
+          renderCharts();
+        } catch (err) {
+          console.error("Rendu des graphiques impossible :", err);
         }
       }
 
@@ -481,13 +851,55 @@
         });
       }
 
-      function populateGradeFilter() {
-        const grades = [...new Set(enseignants.map((e) => e.grade).filter(Boolean))].sort();
-        const sel = $("#filterGrade");
-        const current = sel.value;
-        sel.innerHTML = '<option value="">Tous les grades</option>' +
-          grades.map((g) => `<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join("");
-        sel.value = current;
+      function populateDepartementSelects() {
+        const sorted = [...departements].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        const optionsHtml = sorted.map((d) => `<option value="${d.id}">${escapeHtml(d.libelle)}</option>`).join("");
+
+        const formSel = $("#fDepartementId");
+        const currentForm = formSel.value;
+        formSel.innerHTML = '<option value="">Sélectionner…</option>' + optionsHtml;
+        formSel.value = currentForm;
+
+        const filterSel = $("#filterDepartement");
+        const currentFilter = filterSel.value;
+        filterSel.innerHTML = '<option value="">Tous les départements</option>' + optionsHtml;
+        filterSel.value = currentFilter;
+      }
+
+      function populateGradeSelects() {
+        const sorted = [...grades].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        const optionsHtml = sorted.map((g) => `<option value="${g.id}">${escapeHtml(g.libelle)}</option>`).join("");
+
+        const formSel = $("#fGradeId");
+        const currentForm = formSel.value;
+        formSel.innerHTML = '<option value="">Sélectionner…</option>' + optionsHtml;
+        formSel.value = currentForm;
+
+        const filterSel = $("#filterGrade");
+        const currentFilter = filterSel.value;
+        filterSel.innerHTML = '<option value="">Tous les grades</option>' + optionsHtml;
+        filterSel.value = currentFilter;
+      }
+
+      let evolutionAnneeInitialisee = false;
+      function populateEvolutionAnneeSelect() {
+        const sorted = [...anneesScolaires].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        const optionsHtml = sorted.map((a) => `<option value="${a.id}">${escapeHtml(a.libelle)}</option>`).join("");
+
+        const sel = $("#filterEvolutionAnnee");
+        const currentValue = sel.value;
+        sel.innerHTML = '<option value="">Toutes les années</option>' + optionsHtml;
+
+        if (!evolutionAnneeInitialisee) {
+          // Première initialisation seulement : on présélectionne l'année
+          // active. Les rafraîchissements suivants respectent le choix
+          // déjà fait par l'utilisateur dans le select.
+          const activeId = getAnneeActiveId();
+          sel.value = activeId != null ? String(activeId) : "";
+          evolutionAnneeInitialisee = true;
+        } else {
+          sel.value = currentValue;
+        }
       }
 
       /* ─────────────────────────────────────────
@@ -501,7 +913,8 @@
 
         const counts = {};
         enseignants.forEach((e) => {
-          if (e.grade) counts[e.grade] = (counts[e.grade] || 0) + 1;
+          const label = gradeLabel(e.grade_id);
+          if (label) counts[label] = (counts[label] || 0) + 1;
         });
         const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
         $("#statTopGrade").textContent = top ? top[0] : "—";
@@ -512,7 +925,9 @@
       ───────────────────────────────────────── */
       function getFilteredList() {
         const search = $("#filterSearch").value.trim().toLowerCase();
-        const grade = $("#filterGrade").value;
+        const departementId = $("#filterDepartement").value ? parseInt($("#filterDepartement").value, 10) : null;
+        const gradeId = $("#filterGrade").value ? parseInt($("#filterGrade").value, 10) : null;
+        const sexe = $("#filterSexe").value;
         const statut = $("#filterStatut").value;
 
         return enseignants.filter((e) => {
@@ -520,7 +935,9 @@
             const hay = `${e.nom} ${e.prenom} ${e.email}`.toLowerCase();
             if (!hay.includes(search)) return false;
           }
-          if (grade && e.grade !== grade) return false;
+          if (departementId && e.departement_id !== departementId) return false;
+          if (gradeId && e.grade_id !== gradeId) return false;
+          if (sexe && e.sexe !== sexe) return false;
           if (statut === "titulaire" && !e.est_titulaire) return false;
           if (statut === "non-titulaire" && e.est_titulaire) return false;
           return true;
@@ -534,7 +951,7 @@
 
         const tbody = $("#tableBody");
         if (!list.length) {
-          tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted py-5">
+          tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted py-5">
             <i class="fa-solid fa-user-tie fa-lg mb-2 d-block"></i>Aucun enseignant trouvé
           </td></tr>`;
           return;
@@ -546,6 +963,11 @@
             ? matiereList.slice(0, 3).map((m) => `<span class="badge badge-light me-1 mb-1">${escapeHtml(m.matiere)}</span>`).join("") +
               (matiereList.length > 3 ? `<span class="text-muted" style="font-size:11px;">+${matiereList.length - 3}</span>` : "")
             : '<span class="text-muted">—</span>';
+          const sexeIcon = e.sexe === "M"
+            ? '<i class="fa-solid fa-mars text-primary ms-1" title="Masculin"></i>'
+            : e.sexe === "F"
+              ? '<i class="fa-solid fa-venus ms-1" style="color:#f72585;" title="Féminin"></i>'
+              : "";
 
           return `
             <tr>
@@ -553,7 +975,7 @@
                 <div class="d-flex align-items-center gap-2">
                   <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:12px;">${initials(e.nom, e.prenom)}</div>
                   <div>
-                    <div style="font-weight:600;cursor:pointer;" onclick="openDetailModal(${e.id})">${escapeHtml(fullName(e))}</div>
+                    <div style="font-weight:600;cursor:pointer;" onclick="openDetailModal(${e.id})">${escapeHtml(fullName(e))}${sexeIcon}</div>
                   </div>
                 </div>
               </td>
@@ -561,7 +983,8 @@
                 <div style="font-size:12px;">${escapeHtml(e.email)}</div>
                 <div class="text-muted" style="font-size:11px;">${escapeHtml(e.telephone) || "—"}</div>
               </td>
-              <td>${escapeHtml(e.grade) || "—"}</td>
+              <td>${escapeHtml(departementLabel(e.departement_id)) || "—"}</td>
+              <td>${escapeHtml(gradeLabel(e.grade_id)) || "—"}</td>
               <td>${e.est_titulaire
                 ? '<span class="badge badge-success">Titulaire</span>'
                 : '<span class="badge badge-light">Non titulaire</span>'}</td>
@@ -576,6 +999,86 @@
       }
 
       /* ─────────────────────────────────────────
+         COMPTE DE CONNEXION (Utilisateur) + POPUP IDENTIFIANTS
+         Routes réelles (authentification_api.py) : /api/auth/roles (GET),
+         /api/auth/utilisateurs (POST). La création d'un Enseignant
+         (pedagogie_api.py) ne crée PAS automatiquement de compte de
+         connexion (aucune relation en base entre Enseignant et
+         Utilisateur) : on déclenche donc cet appel séparément juste après,
+         avec le même email, pour que l'enseignant puisse se connecter.
+      ───────────────────────────────────────── */
+      async function chargerRoleEnseignant() {
+        try {
+          const roles = await api.get("/api/auth/roles");
+          const role = (roles || []).find((r) => r.libelle === "Enseignant");
+          enseignantRoleId = role ? role.id : null;
+        } catch (e) {
+          enseignantRoleId = null;
+        }
+      }
+
+      function hideModal(selector) {
+        return new Promise((resolve) => {
+          const el = $(selector);
+          const instance = bootstrap.Modal.getInstance(el);
+          if (!instance) { resolve(); return; }
+          el.addEventListener("hidden.bs.modal", () => resolve(), { once: true });
+          instance.hide();
+        });
+      }
+
+      function openIdentifiantsModal(email, motDePasse) {
+        currentIdentifiants = { email: email || "", motDePasse: motDePasse || "" };
+        $("#credEmail").value = currentIdentifiants.email;
+        $("#credPassword").value = currentIdentifiants.motDePasse;
+        bootstrap.Modal.getOrCreateInstance($("#modalIdentifiants")).show();
+      }
+
+      async function copyText(text, label) {
+        try {
+          await navigator.clipboard.writeText(text);
+          toast(`${label} copié dans le presse-papiers.`);
+        } catch (e) {
+          toast("Impossible de copier automatiquement. Sélectionnez le texte et copiez-le manuellement.", "error");
+        }
+      }
+      $("#btnCopyCredEmail").addEventListener("click", () => copyText(currentIdentifiants.email, "L'email"));
+      $("#btnCopyCredPassword").addEventListener("click", () => copyText(currentIdentifiants.motDePasse, "Le mot de passe"));
+      $("#btnCopyCredAll").addEventListener("click", () => copyText(
+        `Email : ${currentIdentifiants.email}\nMot de passe temporaire : ${currentIdentifiants.motDePasse}`,
+        "Les identifiants"
+      ));
+
+      async function creerCompteConnexion(nom, prenom, email) {
+        if (!enseignantRoleId) {
+          toast("Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement (rôle « Enseignant » introuvable).", "error");
+          return;
+        }
+        const etablissementId = (window.GestionnaireAuth.getUser() || {}).etablissement_id;
+        if (!etablissementId) {
+          toast("Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement (établissement introuvable). Créez-le depuis la gestion des utilisateurs.", "error");
+          return;
+        }
+        try {
+          const payload = {
+            nom: `${prenom} ${nom}`.trim(),
+            email,
+            role_id: enseignantRoleId,
+            etablissement_id: etablissementId,
+          };
+          const result = await api.post("/api/auth/utilisateurs", payload);
+          openIdentifiantsModal(result.email || email, result.mot_de_passe_temporaire);
+        } catch (err) {
+          toast(
+            "Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement" +
+            (err.message ? ` (${err.message})` : "") +
+            ". Vous pouvez le créer depuis la gestion des utilisateurs.",
+            "error"
+          );
+        }
+      }
+
+      /* ─────────────────────────────────────────
          CRÉATION / ÉDITION
       ───────────────────────────────────────── */
       function resetForm() {
@@ -584,6 +1087,7 @@
         $("#fEnseignantId").value = "";
         $("#modalEnseignantTitle").innerHTML = '<i class="fa-solid fa-user-tie me-2 text-primary"></i>Nouvel enseignant';
         $("#btnSaveEnseignantLabel").textContent = "Créer l'enseignant";
+        $("#infoCompteAuto").classList.remove("d-none");
       }
       $("#btnNouvelEnseignant").addEventListener("click", () => {
         resetForm();
@@ -598,9 +1102,12 @@
         $("#fPrenom").value = e.prenom || "";
         $("#fEmail").value = e.email || "";
         $("#fTelephone").value = e.telephone || "";
-        $("#fGrade").value = e.grade || "";
+        $("#fSexe").value = e.sexe || "";
+        $("#fDepartementId").value = e.departement_id || "";
+        $("#fGradeId").value = e.grade_id || "";
         $("#modalEnseignantTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier l\'enseignant';
         $("#btnSaveEnseignantLabel").textContent = "Enregistrer les modifications";
+        $("#infoCompteAuto").classList.add("d-none");
         bootstrap.Modal.getOrCreateInstance($("#modalEnseignant")).show();
       };
 
@@ -609,8 +1116,11 @@
         const nom = $("#fNom").value.trim();
         const prenom = $("#fPrenom").value.trim();
         const email = $("#fEmail").value.trim();
+        const sexe = $("#fSexe").value;
+        const departementId = $("#fDepartementId").value;
+        const gradeId = $("#fGradeId").value;
 
-        if (!nom || !prenom || !email || !form.checkValidity()) {
+        if (!nom || !prenom || !email || !sexe || !departementId || !gradeId || !form.checkValidity()) {
           form.classList.add("was-validated");
           return;
         }
@@ -623,7 +1133,9 @@
           prenom,
           email,
           telephone: $("#fTelephone").value.trim() || null,
-          grade: $("#fGrade").value.trim() || null,
+          sexe,
+          departement_id: parseInt(departementId, 10),
+          grade_id: parseInt(gradeId, 10),
         };
 
         const btn = $("#btnSaveEnseignant");
@@ -632,12 +1144,17 @@
           if (id) {
             await api.put(`/api/enseignants/${id}`, payload);
             toast("Enseignant mis à jour avec succès.");
+            await hideModal("#modalEnseignant");
+            await loadAll();
           } else {
             await api.post("/api/enseignants/", payload);
             toast("Enseignant créé avec succès.");
+            await hideModal("#modalEnseignant");
+            await loadAll();
+            // Création automatique du compte de connexion associé, puis
+            // affichage du popup avec les identifiants à transmettre.
+            await creerCompteConnexion(nom, prenom, email);
           }
-          bootstrap.Modal.getInstance($("#modalEnseignant")).hide();
-          await loadAll();
         } catch (err) {
           toast(err.message || "Une erreur est survenue.", "error");
         } finally {
@@ -654,9 +1171,10 @@
 
         $("#detailAvatar").textContent = initials(e.nom, e.prenom);
         $("#detailNomComplet").textContent = fullName(e);
-        $("#detailGrade").textContent = e.grade || "Grade non renseigné";
+        $("#detailGrade").textContent = [departementLabel(e.departement_id), gradeLabel(e.grade_id)].filter(Boolean).join(" · ") || "Département / grade non renseignés";
         $("#detailEmail").textContent = e.email || "—";
         $("#detailTelephone").textContent = e.telephone || "—";
+        $("#detailSexe").textContent = e.sexe === "M" ? "Masculin" : e.sexe === "F" ? "Féminin" : "—";
         $("#detailBadgeTitulaire").classList.toggle("d-none", !e.est_titulaire);
 
         const classesTitu = titulairesByEnseignant[e.id] || [];
@@ -720,11 +1238,18 @@
         clearTimeout(searchDebounce);
         searchDebounce = setTimeout(renderTable, 200);
       });
+      $("#filterDepartement").addEventListener("change", renderTable);
       $("#filterGrade").addEventListener("change", renderTable);
+      $("#filterSexe").addEventListener("change", renderTable);
       $("#filterStatut").addEventListener("change", renderTable);
+      $("#filterEvolutionAnnee").addEventListener("change", () => {
+        renderChart(renderChartEvolutionDepartement, "chartEvolutionDepartement", "Évolution par département indisponible.");
+      });
       $("#btnResetFilters").addEventListener("click", () => {
         $("#filterSearch").value = "";
+        $("#filterDepartement").value = "";
         $("#filterGrade").value = "";
+        $("#filterSexe").value = "";
         $("#filterStatut").value = "";
         renderTable();
       });
@@ -739,13 +1264,16 @@
           toast("Aucune donnée à exporter.", "error");
           return;
         }
-        const rows = [["Nom", "Prénom", "Email", "Téléphone", "Grade", "Titulaire", "Classes", "Nb matières"]];
+        const rows = [["Nom", "Prénom", "Email", "Téléphone", "Sexe", "Département", "Grade", "Titulaire", "Classes", "Nb matières"]];
         enseignants.forEach((e) => {
           const classesTxt = (titulairesByEnseignant[e.id] || []).map((c) => c.classe).join(" | ");
           const nbMatieres = (matieresByEnseignant[e.id] || []).length;
           rows.push([
             e.nom || "", e.prenom || "", e.email || "", e.telephone || "",
-            e.grade || "", e.est_titulaire ? "Oui" : "Non", classesTxt, nbMatieres,
+            e.sexe === "M" ? "Masculin" : e.sexe === "F" ? "Féminin" : "",
+            departementLabel(e.departement_id) || "",
+            gradeLabel(e.grade_id) || "",
+            e.est_titulaire ? "Oui" : "Non", classesTxt, nbMatieres,
           ]);
         });
         const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\n");
@@ -757,6 +1285,403 @@
       });
 
       /* ─────────────────────────────────────────
+         RÉFÉRENTIELS : DÉPARTEMENTS
+         Routes réelles (pedagogie_api.py) : /api/departements/, mêmes
+         règles de cloisonnement établissement que /api/enseignants/.
+      ───────────────────────────────────────── */
+      function renderDepartementsTable() {
+        const tbody = $("#tableDepartements");
+        if (!departements.length) {
+          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">Aucun département enregistré</td></tr>`;
+          return;
+        }
+        const sorted = [...departements].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        tbody.innerHTML = sorted.map((d) => {
+          const nb = enseignants.filter((e) => e.departement_id === d.id).length;
+          return `
+            <tr>
+              <td style="font-weight:600;">${escapeHtml(d.libelle)}</td>
+              <td><span class="badge badge-light">${nb}</span></td>
+              <td class="text-end">
+                <button class="btn btn-icon btn-sm btn-light" title="Modifier" onclick="openDepartementModal(${d.id})"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-icon btn-sm btn-light text-danger" title="Supprimer" onclick="openDeleteRefModal('departement', ${d.id})"><i class="fa-solid fa-trash"></i></button>
+              </td>
+            </tr>`;
+        }).join("");
+      }
+
+      function resetDepartementForm() {
+        $("#formDepartement").reset();
+        $("#formDepartement").classList.remove("was-validated");
+        $("#fDeptId").value = "";
+        $("#modalDepartementTitle").innerHTML = '<i class="fa-solid fa-building-columns me-2 text-primary"></i>Nouveau département';
+        $("#btnSaveDepartementLabel").textContent = "Créer le département";
+      }
+      $("#btnNouveauDepartement").addEventListener("click", () => {
+        resetDepartementForm();
+        bootstrap.Modal.getOrCreateInstance($("#modalDepartement")).show();
+      });
+      window.openDepartementModal = function (id) {
+        const d = departements.find((x) => x.id === id);
+        if (!d) return;
+        resetDepartementForm();
+        $("#fDeptId").value = d.id;
+        $("#fDeptLibelle").value = d.libelle || "";
+        $("#modalDepartementTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier le département';
+        $("#btnSaveDepartementLabel").textContent = "Enregistrer les modifications";
+        bootstrap.Modal.getOrCreateInstance($("#modalDepartement")).show();
+      };
+      $("#btnSaveDepartement").addEventListener("click", async () => {
+        const form = $("#formDepartement");
+        const libelle = $("#fDeptLibelle").value.trim();
+        if (!libelle || !form.checkValidity()) {
+          form.classList.add("was-validated");
+          return;
+        }
+        const id = $("#fDeptId").value;
+        const btn = $("#btnSaveDepartement");
+        btn.disabled = true;
+        try {
+          if (id) {
+            await api.put(`/api/departements/${id}`, { libelle });
+            toast("Département mis à jour avec succès.");
+          } else {
+            await api.post("/api/departements/", { libelle });
+            toast("Département créé avec succès.");
+          }
+          await hideModal("#modalDepartement");
+          await loadAll();
+        } catch (err) {
+          toast(err.message || "Une erreur est survenue.", "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      $("#modalDepartement").addEventListener("hidden.bs.modal", resetDepartementForm);
+
+      /* ─────────────────────────────────────────
+         RÉFÉRENTIELS : GRADES
+         Routes réelles (pedagogie_api.py) : /api/grades/, mêmes règles
+         de cloisonnement établissement que /api/enseignants/.
+      ───────────────────────────────────────── */
+      function renderGradesTable() {
+        const tbody = $("#tableGrades");
+        if (!grades.length) {
+          tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted py-4">Aucun grade enregistré</td></tr>`;
+          return;
+        }
+        const sorted = [...grades].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+        tbody.innerHTML = sorted.map((g) => {
+          const nb = enseignants.filter((e) => e.grade_id === g.id).length;
+          return `
+            <tr>
+              <td style="font-weight:600;">${escapeHtml(g.libelle)}</td>
+              <td><span class="badge badge-light">${nb}</span></td>
+              <td class="text-end">
+                <button class="btn btn-icon btn-sm btn-light" title="Modifier" onclick="openGradeModal(${g.id})"><i class="fa-solid fa-pen"></i></button>
+                <button class="btn btn-icon btn-sm btn-light text-danger" title="Supprimer" onclick="openDeleteRefModal('grade', ${g.id})"><i class="fa-solid fa-trash"></i></button>
+              </td>
+            </tr>`;
+        }).join("");
+      }
+
+      function resetGradeForm() {
+        $("#formGrade").reset();
+        $("#formGrade").classList.remove("was-validated");
+        $("#fGradeRefId").value = "";
+        $("#modalGradeTitle").innerHTML = '<i class="fa-solid fa-ranking-star me-2 text-primary"></i>Nouveau grade';
+        $("#btnSaveGradeLabel").textContent = "Créer le grade";
+      }
+      $("#btnNouveauGrade").addEventListener("click", () => {
+        resetGradeForm();
+        bootstrap.Modal.getOrCreateInstance($("#modalGrade")).show();
+      });
+      window.openGradeModal = function (id) {
+        const g = grades.find((x) => x.id === id);
+        if (!g) return;
+        resetGradeForm();
+        $("#fGradeRefId").value = g.id;
+        $("#fGradeRefLibelle").value = g.libelle || "";
+        $("#modalGradeTitle").innerHTML = '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier le grade';
+        $("#btnSaveGradeLabel").textContent = "Enregistrer les modifications";
+        bootstrap.Modal.getOrCreateInstance($("#modalGrade")).show();
+      };
+      $("#btnSaveGrade").addEventListener("click", async () => {
+        const form = $("#formGrade");
+        const libelle = $("#fGradeRefLibelle").value.trim();
+        if (!libelle || !form.checkValidity()) {
+          form.classList.add("was-validated");
+          return;
+        }
+        const id = $("#fGradeRefId").value;
+        const btn = $("#btnSaveGrade");
+        btn.disabled = true;
+        try {
+          if (id) {
+            await api.put(`/api/grades/${id}`, { libelle });
+            toast("Grade mis à jour avec succès.");
+          } else {
+            await api.post("/api/grades/", { libelle });
+            toast("Grade créé avec succès.");
+          }
+          await hideModal("#modalGrade");
+          await loadAll();
+        } catch (err) {
+          toast(err.message || "Une erreur est survenue.", "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+      $("#modalGrade").addEventListener("hidden.bs.modal", resetGradeForm);
+
+      /* ─────────────────────────────────────────
+         RÉFÉRENTIELS : SUPPRESSION PARTAGÉE
+      ───────────────────────────────────────── */
+      window.openDeleteRefModal = function (type, id) {
+        const list = type === "departement" ? departements : grades;
+        const item = list.find((x) => x.id === id);
+        if (!item) return;
+        deleteRefTarget = { type, id };
+        $("#deleteRefType").textContent = type === "departement" ? "le département" : "le grade";
+        $("#deleteRefNom").textContent = item.libelle;
+        bootstrap.Modal.getOrCreateInstance($("#modalConfirmSuppressionRef")).show();
+      };
+      $("#btnConfirmDeleteRef").addEventListener("click", async () => {
+        if (!deleteRefTarget.id) return;
+        const path = deleteRefTarget.type === "departement"
+          ? `/api/departements/${deleteRefTarget.id}`
+          : `/api/grades/${deleteRefTarget.id}`;
+        const btn = $("#btnConfirmDeleteRef");
+        btn.disabled = true;
+        try {
+          await api.del(path);
+          toast(deleteRefTarget.type === "departement" ? "Département supprimé avec succès." : "Grade supprimé avec succès.");
+          bootstrap.Modal.getInstance($("#modalConfirmSuppressionRef")).hide();
+          deleteRefTarget = { type: null, id: null };
+          await loadAll();
+        } catch (err) {
+          toast(err.message || "Suppression impossible : des enseignants sont peut-être encore rattachés.", "error");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      // Raccourci depuis le formulaire enseignant ("Gérer les départements/grades")
+      window.switchToRefTab = function (tab) {
+        hideModal("#modalEnseignant").then(() => {
+          const btnId = tab === "grades" ? "#tab-grades-btn" : "#tab-departements-btn";
+          bootstrap.Tab.getOrCreateInstance($(btnId)).show();
+          $("#cardEnseignantsRef").scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      };
+
+      /* ─────────────────────────────────────────
+         GRAPHIQUES (Chart.js)
+         Chaque graphique est rendu indépendamment des autres : si Chart.js
+         n'est pas chargé (chart.umd.min.js absent/bloqué) ou qu'un
+         graphique précis échoue (données inattendues, erreur interne
+         Chart.js…), on affiche un message de repli à sa place SANS
+         empêcher le rendu des autres graphiques ni du reste de la page.
+      ───────────────────────────────────────── */
+      function showChartFallback(canvasId, message) {
+        const canvas = document.getElementById(canvasId);
+        const container = canvas ? canvas.parentElement : null;
+        if (!container) return;
+        container.innerHTML = `
+          <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted text-center" style="font-size:11.5px;">
+            <i class="fa-solid fa-chart-simple fa-lg mb-2"></i>${escapeHtml(message)}
+          </div>`;
+      }
+
+      function renderChart(renderFn, canvasId, fallbackMessage) {
+        try {
+          if (typeof Chart === "undefined") {
+            showChartFallback(canvasId, "Bibliothèque de graphiques indisponible.");
+            return;
+          }
+          renderFn();
+        } catch (err) {
+          console.error(`Échec du rendu du graphique #${canvasId} :`, err);
+          showChartFallback(canvasId, fallbackMessage || "Graphique indisponible.");
+        }
+      }
+
+      function renderCharts() {
+        renderChart(renderChartEvolutionDepartement, "chartEvolutionDepartement", "Évolution par département indisponible.");
+        renderChart(renderChartSexe, "chartSexe", "Répartition par sexe indisponible.");
+        renderChart(renderChartGrade, "chartGrade", "Répartition par grade indisponible.");
+        renderChart(renderChartSansMatiere, "chartSansMatiere", "Répartition sans matière indisponible.");
+      }
+
+      // Barres : nombre d'enseignants distincts par département — TOUS les
+      // enseignants du département, qu'ils soient titulaires d'une classe,
+      // affectés à une matière, ou ni l'un ni l'autre. titulaires-classe et
+      // matieres-classe sont les deux seules données rattachées à une année
+      // scolaire précise, donc un enseignant y est compté dès qu'il y
+      // apparaît. Mais un enseignant tout juste créé qui n'a encore AUCUNE
+      // affectation ne doit pas disparaître pour autant : n'ayant pas de
+      // date de création exploitable ici, on le compte dans toutes les
+      // années dès qu'il existe.
+      //
+      // Le select #filterEvolutionAnnee bascule entre deux vues :
+      //  - "" (Toutes les années) : barres groupées, une série par
+      //    département, une année par groupe sur l'axe X.
+      //  - une année précise : une seule série de barres, une barre par
+      //    département, pour cette année-là. Présélectionné sur l'année
+      //    active au premier chargement.
+      function renderChartEvolutionDepartement() {
+        const canvas = $("#chartEvolutionDepartement");
+        if (!canvas) return;
+
+        const idsAvecAffectation = new Set([
+          ...titulairesClasse.map((tc) => tc.enseignant_id),
+          ...matieresClasse.map((mc) => mc.enseignant_id),
+        ]);
+        const idsSansAucuneAffectation = new Set(
+          enseignants.filter((e) => !idsAvecAffectation.has(e.id)).map((e) => e.id)
+        );
+
+        function countDepartementPourAnnee(departementId, anneeId) {
+          const idsAnnee = new Set([
+            ...titulairesClasse.filter((tc) => tc.annee_scolaire_id === anneeId).map((tc) => tc.enseignant_id),
+            ...matieresClasse.filter((mc) => mc.annee_scolaire_id === anneeId).map((mc) => mc.enseignant_id),
+          ]);
+          let count = 0;
+          enseignants.forEach((e) => {
+            if (e.departement_id !== departementId) return;
+            if (idsAnnee.has(e.id) || idsSansAucuneAffectation.has(e.id)) count++;
+          });
+          return count;
+        }
+
+        const selectEl = $("#filterEvolutionAnnee");
+        const selectedAnneeId = selectEl && selectEl.value ? parseInt(selectEl.value, 10) : null;
+        const sousTitreEl = $("#labelEvolutionSousTitre");
+
+        let labels, datasets, showLegend;
+
+        if (selectedAnneeId) {
+          const sortedDep = [...departements].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+          labels = sortedDep.map((d) => d.libelle);
+          datasets = [{
+            label: anneeLabel(selectedAnneeId),
+            data: sortedDep.map((d) => countDepartementPourAnnee(d.id, selectedAnneeId)),
+            backgroundColor: sortedDep.map((_, i) => colorAt(i)),
+            borderRadius: 4,
+            maxBarThickness: 40,
+          }];
+          showLegend = false;
+          if (sousTitreEl) {
+            sousTitreEl.textContent = `Enseignants par département pour l'année ${anneeLabel(selectedAnneeId)} — titulaires d'une classe, affectés à une matière, ou nouvellement créés sans affectation.`;
+          }
+        } else {
+          const annees = [...anneesScolaires].sort((a, b) => (a.libelle || "").localeCompare(b.libelle || ""));
+          labels = annees.map((a) => a.libelle);
+          datasets = departements.map((d, i) => ({
+            label: d.libelle,
+            data: annees.map((an) => countDepartementPourAnnee(d.id, an.id)),
+            backgroundColor: colorAt(i),
+            borderRadius: 4,
+            maxBarThickness: 28,
+          }));
+          showLegend = true;
+          if (sousTitreEl) {
+            sousTitreEl.textContent = "Tous les enseignants du département par année scolaire — titulaires d'une classe, affectés à une matière, ou nouvellement créés sans affectation.";
+          }
+        }
+
+        if (chartEvolution) chartEvolution.destroy();
+        chartEvolution = new Chart(canvas, {
+          type: "bar",
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+            plugins: { legend: { display: showLegend, position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } },
+          },
+        });
+      }
+
+      function renderChartSexe() {
+        const canvas = $("#chartSexe");
+        if (!canvas) return;
+
+        const counts = { M: 0, F: 0, "": 0 };
+        enseignants.forEach((e) => {
+          const key = e.sexe === "M" || e.sexe === "F" ? e.sexe : "";
+          counts[key]++;
+        });
+        const labels = [], data = [], colors = [];
+        if (counts.M) { labels.push("Masculin"); data.push(counts.M); colors.push("#4361ee"); }
+        if (counts.F) { labels.push("Féminin"); data.push(counts.F); colors.push("#f72585"); }
+        if (counts[""]) { labels.push("Non renseigné"); data.push(counts[""]); colors.push("#adb5bd"); }
+
+        if (chartSexe) chartSexe.destroy();
+        chartSexe = new Chart(canvas, {
+          type: "pie",
+          data: { labels, datasets: [{ data, backgroundColor: colors }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } },
+          },
+        });
+      }
+
+      function renderChartGrade() {
+        const canvas = $("#chartGrade");
+        if (!canvas) return;
+
+        const counts = {};
+        enseignants.forEach((e) => {
+          const label = gradeLabel(e.grade_id) || "Non renseigné";
+          counts[label] = (counts[label] || 0) + 1;
+        });
+        const entries = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        const labels = entries.map((e) => e[0]);
+        const data = entries.map((e) => e[1]);
+        const colors = labels.map((_, i) => colorAt(i));
+
+        if (chartGrade) chartGrade.destroy();
+        chartGrade = new Chart(canvas, {
+          type: "pie",
+          data: { labels, datasets: [{ data, backgroundColor: colors }] },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } },
+          },
+        });
+      }
+
+      function renderChartSansMatiere() {
+        const canvas = $("#chartSansMatiere");
+        if (!canvas) return;
+
+        let avec = 0, sans = 0;
+        enseignants.forEach((e) => {
+          const list = matieresByEnseignant[e.id] || [];
+          if (list.length > 0) avec++; else sans++;
+        });
+
+        if (chartSansMatiere) chartSansMatiere.destroy();
+        chartSansMatiere = new Chart(canvas, {
+          type: "pie",
+          data: {
+            labels: ["Avec matière(s) affectée(s)", "Sans matière affectée"],
+            datasets: [{ data: [avec, sans], backgroundColor: ["#2a9d8f", "#e63946"] }],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } } },
+          },
+        });
+      }
+
+      /* ─────────────────────────────────────────
          INIT
       ───────────────────────────────────────── */
       async function init() {
@@ -764,6 +1689,7 @@
         if (!ok) return; // requireAuth() a déjà redirigé vers /login
         $("#modalEnseignant").addEventListener("hidden.bs.modal", resetForm);
         await loadAll();
+        chargerRoleEnseignant(); // non bloquant : le formulaire reste utilisable pendant ce chargement
       }
 
       if (document.readyState === "loading") {

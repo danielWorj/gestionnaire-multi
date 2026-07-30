@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pédagogie — Censeur</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <style>
+    /* Carte "par classe" : même esprit que les cards de configuration.html,
+       avec un mini-tableau des affectations matière/enseignant/coefficient. */
+    .classe-card .card-header { flex-wrap: wrap; gap: 8px; }
+    .classe-card .card-title small { display: block; font-weight: 400; color: var(--ta-text-muted); font-size: 11px; margin-top: 2px; }
+    .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 48px 20px; color: var(--ta-text-light); text-align: center; }
+    .empty-state i { font-size: 28px; opacity: .6; }
+  </style>
+</head>
+<body data-page="pedagogie-censeur">
+
+  <div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+      <main class="page-content">
+
+        <!-- Fil d'ariane -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/pedagogie"><i class="fa-solid fa-house me-1"></i>Mes classes</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Pédagogie</li>
+          </ol>
+        </nav>
+
+        <!-- Titre + actions -->
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+          <div>
+            <h1 class="page-title mb-1">Pédagogie</h1>
+            <p class="mb-0 text-muted" style="font-size:12px;">
+              Gérez les affectations matière / enseignant pour les classes dont vous avez la charge.
+            </p>
+          </div>
+          <button class="btn btn-primary btn-sm" type="button" id="btnNouvelleAffectation">
+            <i class="fa-solid fa-plus"></i> Nouvelle affectation
+          </button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             STATS
+        ═══════════════════════════════════════════════ -->
+        <div class="row g-3 mb-4" id="statsRow">
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon primary"><i class="fa-solid fa-chalkboard"></i></div>
+              <div class="stat-label">Classes sous ma responsabilité</div>
+              <div class="stat-value" id="statClasses">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon info"><i class="fa-solid fa-diagram-project"></i></div>
+              <div class="stat-label">Affectations matière/enseignant</div>
+              <div class="stat-value" id="statAffectations">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon success"><i class="fa-solid fa-user-tie"></i></div>
+              <div class="stat-label">Enseignants distincts</div>
+              <div class="stat-value" id="statEnseignants">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="stat-card">
+              <div class="stat-icon warning"><i class="fa-solid fa-book-open"></i></div>
+              <div class="stat-label">Matières couvertes</div>
+              <div class="stat-value" id="statMatieres">—</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             FILTRES
+        ═══════════════════════════════════════════════ -->
+        <div class="card mb-3">
+          <div class="card-body py-3">
+            <div class="filter-bar d-flex flex-wrap align-items-end gap-3">
+              <div class="filter-group">
+                <label for="filterCycle" style="font-size:11px;font-weight:600;color:var(--ta-text-muted);text-transform:uppercase;letter-spacing:.04em;">Cycle</label>
+                <select class="form-select form-select-sm" id="filterCycle" style="min-width:160px;">
+                  <option value="">Tous mes cycles</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filterClasse" style="font-size:11px;font-weight:600;color:var(--ta-text-muted);text-transform:uppercase;letter-spacing:.04em;">Classe</label>
+                <select class="form-select form-select-sm" id="filterClasse" style="min-width:180px;">
+                  <option value="">Toutes mes classes</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             LISTE DES CLASSES (une card par classe)
+        ═══════════════════════════════════════════════ -->
+        <div id="zoneClasses">
+          <div class="card"><div class="card-body text-center text-muted py-4"><i class="fa-solid fa-spinner fa-spin"></i> Chargement…</div></div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Nouvelle / Modifier affectation (MatiereClasse)
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalAffectation" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalAffectationTitle"><i class="fa-solid fa-diagram-project me-2 text-primary"></i>Nouvelle affectation</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <form id="formAffectation" novalidate>
+          <div class="modal-body">
+            <input type="hidden" id="affectationId">
+            <div class="alert alert-danger d-none" id="affectationFormError"></div>
+            <div class="mb-3">
+              <label class="form-label">Classe *</label>
+              <select class="form-select" id="affectationClasse" required>
+                <option value="">-- Choisir --</option>
+              </select>
+              <div class="invalid-feedback">La classe est requise.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Matière *</label>
+              <select class="form-select" id="affectationMatiere" required>
+                <option value="">-- Choisir --</option>
+              </select>
+              <div class="invalid-feedback">La matière est requise.</div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Enseignant *</label>
+              <select class="form-select" id="affectationEnseignant" required>
+                <option value="">-- Choisir --</option>
+              </select>
+              <div class="invalid-feedback">L'enseignant est requis.</div>
+            </div>
+            <div class="mb-1">
+              <label class="form-label">Coefficient *</label>
+              <input type="number" class="form-control" id="affectationCoefficient" min="1" step="1" required>
+              <div class="invalid-feedback">Le coefficient est requis.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-light" data-bs-dismiss="modal">Annuler</button>
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-check"></i> Enregistrer</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       MODAL : Confirmation de suppression
+  ═══════════════════════════════════════════════ -->
+  <div class="modal fade" id="modalConfirm" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title text-danger"><i class="fa-solid fa-triangle-exclamation me-2"></i>Confirmer la suppression</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0" id="confirmDeleteText">Supprimer cette affectation ?</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-light btn-sm" data-bs-dismiss="modal">Annuler</button>
+          <button class="btn btn-danger btn-sm" id="btnConfirmDelete"><i class="fa-solid fa-trash"></i> Oui, supprimer</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+    <div id="appToast" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="fa-solid fa-circle-check text-success me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Notification</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Transport HTTP + session -->
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script>
+    (function () {
+      const cached = window.GestionnaireAuth.getUser();
+      window.GESTIONNAIRE_USER = {
+        nom: cached ? `${cached.prenom || ""} ${cached.nom || ""}`.trim() : "",
+        role: window.GestionnaireAuth.getRole() || "",
+        avatar: (cached && cached.avatar_url) || null
+      };
+    })();
+  </script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <!-- Script spécifique à la page Pédagogie (Censeur) -->
+  <script>
+    (function () {
+      "use strict";
+
+      /* ─────────────────────────────────────────
+         TRANSPORT API
+         Toutes les routes ci-dessous sont déjà filtrées côté back au
+         périmètre du Censeur connecté (classes qui lui ont été assignées
+         par l'Admin d'établissement) : /api/classes/ et /api/matieres-classe/
+         ne renvoient QUE ce sous-ensemble pour ce rôle — cf. classe_bp
+         (structure_api.py) et matiere_classe_bp (pedagogie_api.py,
+         classe_scoped=True). /api/matieres/ et /api/enseignants/ restent des
+         référentiels établissement-larges (non restreints), réutilisés en
+         lecture seule pour composer une affectation — leur CRUD complet
+         reste la responsabilité de matiere.html/enseignant.html.
+      ───────────────────────────────────────── */
+      async function call(path, options) {
+        const res = await window.GestionnaireAuth.authFetch(path, Object.assign({
+          headers: { "Content-Type": "application/json" }
+        }, options || {}));
+        let json;
+        try { json = await res.json(); } catch (e) { json = {}; }
+        if (!res.ok) throw new Error(json.erreur || `Erreur ${res.status}`);
+        return json;
+      }
+      const api = {
+        get: (p) => call(p, { method: "GET" }),
+        post: (p, body) => call(p, { method: "POST", body: JSON.stringify(body) }),
+        put: (p, body) => call(p, { method: "PUT", body: JSON.stringify(body) }),
+        del: (p) => call(p, { method: "DELETE" }),
+      };
+
+      /* ─────────────────────────────────────────
+         ÉTAT
+      ───────────────────────────────────────── */
+      const state = {
+        classes: [],        // classes assignées à ce Censeur (déjà filtrées côté back)
+        cycles: [],          // référentiel établissement (pour reconstruire le libellé de classe)
+        matieres: [],
+        enseignants: [],
+        matieresClasse: [],  // affectations, déjà filtrées aux classes assignées côté back
+        filterCycle: "",
+        filterClasse: "",
+      };
+
+      /* ─────────────────────────────────────────
+         HELPERS
+      ───────────────────────────────────────── */
+      const $ = (sel) => document.querySelector(sel);
+      function esc(str) {
+        return (str == null ? "" : String(str))
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      }
+      function toast(message, type) {
+        const toastEl = $("#appToast");
+        const isError = type === "error";
+        $("#toastIcon").className = isError
+          ? "fa-solid fa-circle-xmark text-danger me-2"
+          : "fa-solid fa-circle-check text-success me-2";
+        $("#toastTitle").textContent = isError ? "Erreur" : "Succès";
+        $("#toastBody").textContent = message;
+        bootstrap.Toast.getOrCreateInstance(toastEl, { delay: 3500 }).show();
+      }
+
+      /* Classe (structure_models.py) n'a pas de libellé propre, juste
+         cycle_id + option : on recompose "Cycle Option", même logique que
+         classeLabel() dans horaire.html / cycleLibelle() dans configuration.html. */
+      function cycleLibelle(cycleId) {
+        const c = state.cycles.find((x) => x.id === cycleId);
+        return c ? c.libelle : `Cycle #${cycleId}`;
+      }
+      function classeLabel(classeId) {
+        const c = state.classes.find((x) => x.id === classeId);
+        if (!c) return `Classe #${classeId}`;
+        return [cycleLibelle(c.cycle_id), c.option].filter(Boolean).join(" ") || `Classe #${c.id}`;
+      }
+
+      function matiereNom(id) {
+        const m = state.matieres.find((x) => x.id === id);
+        return m ? (m.libelle || m.nom) : "Matière";
+      }
+      function enseignantNom(id) {
+        const e = state.enseignants.find((x) => x.id === id);
+        return e ? `${e.prenom || ""} ${e.nom || ""}`.trim() : "Enseignant";
+      }
+
+      /* ─────────────────────────────────────────
+         CHARGEMENT DES RÉFÉRENTIELS
+      ───────────────────────────────────────── */
+      async function loadCycles() {
+        try { state.cycles = await api.get("/api/cycles/"); }
+        catch (e) { state.cycles = []; } // non bloquant : repli sur "Cycle #id"
+      }
+      async function loadClasses() {
+        try {
+          state.classes = await api.get("/api/classes/");
+        } catch (e) {
+          state.classes = [];
+          $("#zoneClasses").innerHTML = `<div class="card"><div class="card-body text-center text-danger py-4">${esc(e.message)}</div></div>`;
+        }
+      }
+      async function loadMatieres() {
+        try { state.matieres = await api.get("/api/matieres/"); }
+        catch (e) { state.matieres = []; toast(`Matières : ${e.message}`, "error"); }
+      }
+      async function loadEnseignants() {
+        try { state.enseignants = await api.get("/api/enseignants/"); }
+        catch (e) { state.enseignants = []; toast(`Enseignants : ${e.message}`, "error"); }
+      }
+      async function loadMatieresClasse() {
+        try { state.matieresClasse = await api.get("/api/matieres-classe/"); }
+        catch (e) { state.matieresClasse = []; toast(`Affectations : ${e.message}`, "error"); }
+      }
+
+      /* ─────────────────────────────────────────
+         FILTRES (déroulants)
+      ───────────────────────────────────────── */
+      function renderFiltres() {
+        const cyclesPresents = [...new Set(state.classes.map((c) => c.cycle_id))]
+          .map((id) => ({ id, libelle: cycleLibelle(id) }))
+          .sort((a, b) => a.libelle.localeCompare(b.libelle));
+        $("#filterCycle").innerHTML = '<option value="">Tous mes cycles</option>' +
+          cyclesPresents.map((c) => `<option value="${c.id}">${esc(c.libelle)}</option>`).join("");
+
+        const classesTriees = [...state.classes].sort((a, b) => classeLabel(a.id).localeCompare(classeLabel(b.id)));
+        $("#filterClasse").innerHTML = '<option value="">Toutes mes classes</option>' +
+          classesTriees.map((c) => `<option value="${c.id}">${esc(classeLabel(c.id))}</option>`).join("");
+      }
+
+      $("#filterCycle").addEventListener("change", (e) => {
+        state.filterCycle = e.target.value;
+        renderClasses();
+      });
+      $("#filterClasse").addEventListener("change", (e) => {
+        state.filterClasse = e.target.value;
+        renderClasses();
+      });
+
+      /* ─────────────────────────────────────────
+         STATS
+      ───────────────────────────────────────── */
+      function renderStats() {
+        $("#statClasses").textContent = state.classes.length;
+        $("#statAffectations").textContent = state.matieresClasse.length;
+        $("#statEnseignants").textContent = new Set(state.matieresClasse.map((mc) => mc.enseignant_id)).size;
+        $("#statMatieres").textContent = new Set(state.matieresClasse.map((mc) => mc.matiere_id)).size;
+      }
+
+      /* ─────────────────────────────────────────
+         LISTE DES CLASSES (une card par classe, avec son mini-tableau
+         d'affectations matière/enseignant/coefficient)
+      ───────────────────────────────────────── */
+      function renderClasses() {
+        const zone = $("#zoneClasses");
+
+        if (!state.classes.length) {
+          zone.innerHTML = `
+            <div class="card">
+              <div class="empty-state">
+                <i class="fa-solid fa-chalkboard-user"></i>
+                <div><strong>Aucune classe ne vous a été assignée pour le moment.</strong></div>
+                <div style="font-size:12px;">Contactez l'administrateur de votre établissement pour qu'il vous assigne une ou plusieurs classes.</div>
+              </div>
+            </div>`;
+          return;
+        }
+
+        let classes = [...state.classes];
+        if (state.filterCycle) classes = classes.filter((c) => String(c.cycle_id) === String(state.filterCycle));
+        if (state.filterClasse) classes = classes.filter((c) => String(c.id) === String(state.filterClasse));
+        classes.sort((a, b) => classeLabel(a.id).localeCompare(classeLabel(b.id)));
+
+        if (!classes.length) {
+          zone.innerHTML = `<div class="card"><div class="empty-state"><i class="fa-solid fa-filter"></i><div>Aucune classe ne correspond à ce filtre.</div></div></div>`;
+          return;
+        }
+
+        zone.innerHTML = classes.map((c) => {
+          const affectations = state.matieresClasse
+            .filter((mc) => mc.classe_id === c.id)
+            .sort((a, b) => matiereNom(a.matiere_id).localeCompare(matiereNom(b.matiere_id)));
+
+          const lignes = affectations.length
+            ? affectations.map((mc) => `
+                <tr>
+                  <td><strong>${esc(matiereNom(mc.matiere_id))}</strong></td>
+                  <td>${esc(enseignantNom(mc.enseignant_id))}</td>
+                  <td><span class="badge badge-primary">${esc(mc.coefficient)}</span></td>
+                  <td class="text-end">
+                    <button class="btn btn-icon btn-sm btn-light" title="Modifier" onclick="editAffectation(${mc.id})"><i class="fa-solid fa-pen"></i></button>
+                    <button class="btn btn-icon btn-sm btn-light text-danger" title="Supprimer" onclick="confirmDeleteAffectation(${mc.id}, '${esc(matiereNom(mc.matiere_id))}')"><i class="fa-solid fa-trash"></i></button>
+                  </td>
+                </tr>`).join("")
+            : `<tr><td colspan="4" class="text-center text-muted py-3">Aucune matière affectée à cette classe.</td></tr>`;
+
+          return `
+            <div class="card classe-card mb-3">
+              <div class="card-header">
+                <h2 class="card-title">
+                  <i class="fa-solid fa-chalkboard me-2 text-primary"></i>${esc(classeLabel(c.id))}
+                  <small>${affectations.length} matière(s) affectée(s)</small>
+                </h2>
+                <button class="btn btn-light btn-sm" onclick="openAffectation(null, ${c.id})">
+                  <i class="fa-solid fa-plus"></i> Ajouter une matière
+                </button>
+              </div>
+              <div class="card-body p-0">
+                <div class="table-responsive">
+                  <table class="table table-hover mb-0">
+                    <thead>
+                      <tr><th>Matière</th><th>Enseignant</th><th>Coefficient</th><th class="text-end">Actions</th></tr>
+                    </thead>
+                    <tbody>${lignes}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>`;
+        }).join("");
+      }
+
+      /* ─────────────────────────────────────────
+         MODAL AFFECTATION (créer / modifier)
+      ───────────────────────────────────────── */
+      function renderSelectsAffectation() {
+        const classesTriees = [...state.classes].sort((a, b) => classeLabel(a.id).localeCompare(classeLabel(b.id)));
+        $("#affectationClasse").innerHTML = '<option value="">-- Choisir --</option>' +
+          classesTriees.map((c) => `<option value="${c.id}">${esc(classeLabel(c.id))}</option>`).join("");
+
+        const matieresTriees = [...state.matieres].sort((a, b) => matiereNom(a.id).localeCompare(matiereNom(b.id)));
+        $("#affectationMatiere").innerHTML = '<option value="">-- Choisir --</option>' +
+          matieresTriees.map((m) => `<option value="${m.id}">${esc(matiereNom(m.id))}</option>`).join("");
+
+        const enseignantsTries = [...state.enseignants].sort((a, b) => enseignantNom(a.id).localeCompare(enseignantNom(b.id)));
+        $("#affectationEnseignant").innerHTML = '<option value="">-- Choisir --</option>' +
+          enseignantsTries.map((e) => `<option value="${e.id}">${esc(enseignantNom(e.id))}</option>`).join("");
+      }
+
+      window.openAffectation = function (matiereClasseId, preselectClasseId) {
+        renderSelectsAffectation();
+        $("#formAffectation").classList.remove("was-validated");
+        $("#affectationFormError").classList.add("d-none");
+
+        const mc = matiereClasseId ? state.matieresClasse.find((x) => x.id === matiereClasseId) : null;
+        $("#modalAffectationTitle").innerHTML = mc
+          ? '<i class="fa-solid fa-pen me-2 text-primary"></i>Modifier l\'affectation'
+          : '<i class="fa-solid fa-diagram-project me-2 text-primary"></i>Nouvelle affectation';
+        $("#affectationId").value = mc ? mc.id : "";
+        $("#affectationClasse").value = mc ? mc.classe_id : (preselectClasseId || "");
+        $("#affectationMatiere").value = mc ? mc.matiere_id : "";
+        $("#affectationEnseignant").value = mc ? mc.enseignant_id : "";
+        $("#affectationCoefficient").value = mc ? mc.coefficient : "";
+
+        bootstrap.Modal.getOrCreateInstance($("#modalAffectation")).show();
+      };
+      window.editAffectation = function (id) { openAffectation(id, null); };
+
+      $("#btnNouvelleAffectation").addEventListener("click", () => {
+        if (!state.classes.length) { toast("Aucune classe ne vous a été assignée.", "error"); return; }
+        openAffectation(null, null);
+      });
+
+      $("#formAffectation").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const form = e.target;
+        if (!form.checkValidity()) { form.classList.add("was-validated"); return; }
+
+        const id = $("#affectationId").value;
+        const payload = {
+          classe_id: parseInt($("#affectationClasse").value, 10),
+          matiere_id: parseInt($("#affectationMatiere").value, 10),
+          enseignant_id: parseInt($("#affectationEnseignant").value, 10),
+          coefficient: parseInt($("#affectationCoefficient").value, 10),
+        };
+        const errBox = $("#affectationFormError");
+        errBox.classList.add("d-none");
+        try {
+          if (id) {
+            await api.put(`/api/matieres-classe/${id}`, payload);
+            toast("Affectation mise à jour.");
+          } else {
+            await api.post("/api/matieres-classe/", payload);
+            toast("Affectation créée.");
+          }
+          bootstrap.Modal.getInstance($("#modalAffectation")).hide();
+          await loadMatieresClasse();
+          renderClasses();
+          renderStats();
+        } catch (err) {
+          errBox.textContent = err.message;
+          errBox.classList.remove("d-none");
+        }
+      });
+
+      /* ─────────────────────────────────────────
+         SUPPRESSION
+      ───────────────────────────────────────── */
+      let pendingDeleteId = null;
+      window.confirmDeleteAffectation = function (id, matiereLibelle) {
+        pendingDeleteId = id;
+        $("#confirmDeleteText").textContent = `Retirer « ${matiereLibelle} » de cette classe ? Les cours déjà programmés sur cette affectation seront également supprimés de l'emploi du temps.`;
+        bootstrap.Modal.getOrCreateInstance($("#modalConfirm")).show();
+      };
+      $("#btnConfirmDelete").addEventListener("click", async () => {
+        if (!pendingDeleteId) return;
+        try {
+          await api.del(`/api/matieres-classe/${pendingDeleteId}`);
+          toast("Affectation supprimée.");
+          bootstrap.Modal.getInstance($("#modalConfirm")).hide();
+          await loadMatieresClasse();
+          renderClasses();
+          renderStats();
+        } catch (err) {
+          toast(err.message, "error");
+        } finally {
+          pendingDeleteId = null;
+        }
+      });
+
+      /* ─────────────────────────────────────────
+         INIT
+      ───────────────────────────────────────── */
+      async function init() {
+        const ok = await window.GestionnaireAuth.requireAuth();
+        if (!ok) return; // requireAuth() a déjà redirigé vers /login
+
+        await Promise.all([loadCycles(), loadClasses(), loadMatieres(), loadEnseignants()]);
+        await loadMatieresClasse();
+
+        renderFiltres();
+        renderClasses();
+        renderStats();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+
+</body>
+</html>

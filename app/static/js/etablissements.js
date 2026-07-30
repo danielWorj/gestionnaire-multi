@@ -61,12 +61,19 @@
   }
 
   /** Appelle l'API et renvoie le JSON parsé. Lève une Error (avec le message
-   *  serveur si disponible) si la réponse n'est pas OK. */
+   *  serveur si disponible) si la réponse n'est pas OK.
+   *  Si `options.body` est un FormData (upload de fichier), on N'AJOUTE PAS
+   *  de header Content-Type : c'est le navigateur qui doit le fixer lui-même
+   *  avec la bonne boundary multipart. Le fixer manuellement à
+   *  "application/json" casserait l'upload côté serveur. */
   async function api(url, options) {
-    const res = await authFetch()(url, Object.assign(
-      { headers: { "Content-Type": "application/json" } },
-      options
-    ));
+    const opts = options || {};
+    const isFormData = typeof FormData !== "undefined" && opts.body instanceof FormData;
+    const headers = isFormData
+      ? Object.assign({}, opts.headers)
+      : Object.assign({ "Content-Type": "application/json" }, opts.headers);
+
+    const res = await authFetch()(url, Object.assign({}, opts, { headers }));
     let data = null;
     try {
       data = await res.json();
@@ -324,7 +331,10 @@
     document.getElementById("etabTelephone").value = "";
     document.getElementById("etabAdresse").value = "";
     document.getElementById("etabBp").value = "";
-    document.getElementById("etabLogoUrl").value = "";
+    document.getElementById("etabLogo").value = "";
+    document.getElementById("etabLogoActuel").value = "";
+    document.getElementById("etabLogoPreview").src = "";
+    document.getElementById("etabLogoPreviewWrap").classList.add("d-none");
     document.getElementById("adminNom").value = "";
     document.getElementById("adminEmail").value = "";
   }
@@ -349,11 +359,29 @@
     document.getElementById("etabTelephone").value = etab.telephone || "";
     document.getElementById("etabAdresse").value = etab.adresse || "";
     document.getElementById("etabBp").value = etab.bp || "";
-    document.getElementById("etabLogoUrl").value = etab.logo_url || "";
+    // Nom de fichier déjà enregistré côté serveur (ne sert qu'à savoir qu'un
+    // logo existe déjà ; on n'envoie jamais ce champ au serveur, seul un
+    // nouveau fichier uploadé dans etabLogo remplace le logo).
+    document.getElementById("etabLogoActuel").value = etab.logo || "";
+    if (etab.logo_url) {
+      document.getElementById("etabLogoPreview").src = etab.logo_url;
+      document.getElementById("etabLogoPreviewWrap").classList.remove("d-none");
+    }
     // La création de compte Admin ne se fait qu'à la création de l'établissement.
     ["adminSectionDivider", "adminSectionTitle", "adminNomWrap", "adminEmailWrap"].forEach((id) => {
       document.getElementById(id).classList.add("d-none");
     });
+  }
+
+  /** Aperçu immédiat du fichier logo choisi dans le sélecteur, avant même
+   *  l'envoi au serveur. */
+  function previewLogoSelectionne() {
+    const input = document.getElementById("etabLogo");
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const preview = document.getElementById("etabLogoPreview");
+    preview.src = URL.createObjectURL(file);
+    document.getElementById("etabLogoPreviewWrap").classList.remove("d-none");
   }
 
   async function submitFormEtablissement() {
@@ -370,15 +398,19 @@
       return;
     }
 
-    const payload = {
-      nom,
-      nom_bilingue: document.getElementById("etabNomBilingue").value.trim() || null,
-      region,
-      telephone: document.getElementById("etabTelephone").value.trim() || null,
-      adresse: document.getElementById("etabAdresse").value.trim() || null,
-      bp: document.getElementById("etabBp").value.trim() || null,
-      logo_url: document.getElementById("etabLogoUrl").value.trim() || null,
-    };
+    // multipart/form-data : nécessaire pour pouvoir joindre le fichier logo.
+    const formData = new FormData();
+    formData.append("nom", nom);
+    formData.append("nom_bilingue", document.getElementById("etabNomBilingue").value.trim());
+    formData.append("region", region);
+    formData.append("telephone", document.getElementById("etabTelephone").value.trim());
+    formData.append("adresse", document.getElementById("etabAdresse").value.trim());
+    formData.append("bp", document.getElementById("etabBp").value.trim());
+
+    const logoInput = document.getElementById("etabLogo");
+    if (logoInput.files && logoInput.files[0]) {
+      formData.append("logo", logoInput.files[0]);
+    }
 
     const btn = document.getElementById("btnEnregistrerEtablissement");
     btn.disabled = true;
@@ -388,9 +420,9 @@
     try {
       let etab;
       if (id) {
-        etab = await api(`/api/etablissements/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+        etab = await api(`/api/etablissements/${id}`, { method: "PUT", body: formData });
       } else {
-        etab = await api("/api/etablissements/", { method: "POST", body: JSON.stringify(payload) });
+        etab = await api("/api/etablissements/", { method: "POST", body: formData });
       }
 
       // Création optionnelle du compte Admin de l'établissement, uniquement à la création.
@@ -1093,6 +1125,7 @@
       }
     });
     document.getElementById("btnEnregistrerEtablissement").addEventListener("click", submitFormEtablissement);
+    document.getElementById("etabLogo").addEventListener("change", previewLogoSelectionne);
 
     // Modale suppression
     const modalSupprimer = document.getElementById("modalSupprimer");
