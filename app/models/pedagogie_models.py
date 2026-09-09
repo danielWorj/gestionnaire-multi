@@ -134,6 +134,20 @@ class Enseignant(db.Model):
     # ci-dessus). Même logique pour departement_id -> Departement.
     departement_id = db.Column(db.Integer, db.ForeignKey('departement.id'), nullable=False)
     grade_id = db.Column(db.Integer, db.ForeignKey('grade.id'), nullable=False)
+    # Lien vers le compte de connexion (Utilisateur, rôle 'Enseignant') —
+    # AJOUTÉ pour le module Évaluation (cf. evaluation_service.py) : un
+    # Enseignant ne peut saisir/lire ses Note QUE sur les MatiereClasse qui
+    # lui ont été attribuées, ce qui suppose de savoir, à partir du JWT,
+    # quel Enseignant est connecté. Même logique et même raisonnement que
+    # Censeur.utilisateur_id / Surveillant.utilisateur_id ci-dessous : une
+    # colonne explicite plutôt qu'une correspondance implicite par email
+    # (non garantie), renseignée par l'Admin d'établissement une fois le
+    # compte de connexion créé. Nullable : le profil peut exister avant
+    # d'être relié. Résolu EN DIRECT à chaque requête (jamais depuis un
+    # claim JWT mis en cache) via pedagogie_services.resolve_enseignant_profil,
+    # pour la même raison que pour Censeur/Surveillant (cf. docstring de
+    # resolve_classe_ids_restriction plus bas dans pedagogie_services.py).
+    utilisateur_id = db.Column(db.Integer, db.ForeignKey('utilisateur.id'), unique=True, nullable=True)
 
     __table_args__ = (
         db.CheckConstraint("sexe IN ('M', 'F')", name='ck_enseignant_sexe'),
@@ -142,11 +156,12 @@ class Enseignant(db.Model):
     etablissement = db.relationship('Etablissement', backref='enseignants', lazy=True)
     titulaires_classe = db.relationship('TitulaireClasse', backref='enseignant', lazy=True)
     matieres_classe = db.relationship('MatiereClasse', backref='enseignant', lazy=True)
+    utilisateur = db.relationship('Utilisateur', backref=db.backref('profil_enseignant', uselist=False), lazy=True)
 
     def to_dict(self):
         data = {k: getattr(self, k) for k in
                 ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'sexe',
-                 'departement_id', 'grade_id']}
+                 'departement_id', 'grade_id', 'utilisateur_id']}
         data['est_titulaire'] = self.est_titulaire
         return data
 

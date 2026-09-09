@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bulletins de notes — Censeur</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <!-- ═══════════════════════════════════════════════
+       Styles spécifiques à la page « Bulletins » (Censeur/Surveillant)
+       Réutilise les variables --ta-* et les conventions de notes.html
+       (filter-bar, contexte-bandeau) pour l'écran de sélection, et introduit
+       les classes .bulletin-* pour le document lui-même (aperçu ET
+       impression partagent EXACTEMENT le même balisage/les mêmes classes,
+       pour que ce que le Censeur voit à l'écran soit ce qui sort à
+       l'impression).
+  ═══════════════════════════════════════════════ -->
+  <style>
+    .filter-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; font-weight: 600; color: var(--ta-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+    .contexte-bandeau {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+      background: var(--ta-primary-light); border: 1px solid var(--ta-primary); border-radius: var(--ta-radius);
+      padding: 10px 16px; margin-bottom: 16px; font-size: 12.5px; color: var(--ta-primary-dark);
+    }
+    .contexte-bandeau .item { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+    .contexte-bandeau .item i { opacity: .8; }
+    .contexte-bandeau .sep { width: 1px; height: 16px; background: var(--ta-primary); opacity: .3; }
+
+    /* Liste des élèves (colonne gauche) */
+    .eleves-liste { max-height: 640px; overflow-y: auto; }
+    .eleve-item {
+      display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--ta-border-light);
+      cursor: pointer; transition: background .12s ease;
+    }
+    .eleve-item:hover { background: var(--ta-bg); }
+    .eleve-item.active { background: var(--ta-primary-light); }
+    .eleve-item .eleve-avatar {
+      width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700;
+      background: var(--ta-primary-light); color: var(--ta-primary-dark);
+    }
+    .eleve-item .eleve-avatar.sexe-F { background: #FCE7F3; color: #9D174D; }
+    .eleve-item .eleve-avatar.sexe-M { background: #DBEAFE; color: #1E40AF; }
+    .eleve-item .eleve-nom { font-weight: 600; font-size: 12.5px; color: var(--ta-text); line-height: 1.2; }
+    .eleve-item .eleve-sub { font-size: 10.5px; color: var(--ta-text-light); }
+    .eleve-item .eleve-rang {
+      margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--ta-primary);
+      background: var(--ta-white); border: 1px solid var(--ta-border); border-radius: 999px; padding: 2px 9px; white-space: nowrap;
+    }
+    .eleve-item input[type="checkbox"] { flex-shrink: 0; }
+
+    .grid-loading, .grid-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 16px; color: var(--ta-text-light); font-size: 13px; text-align: center; }
+    .grid-empty i { font-size: 26px; opacity: .5; }
+
+    /* ═══════════════════ DOCUMENT « BULLETIN » ═══════════════════
+       Utilisé à la fois pour l'aperçu à l'écran (dans .bulletin-preview-wrap)
+       et pour l'impression (clonage dans #printZone) — même classes. */
+    .bulletin-doc { background: var(--ta-white); border: 1px solid var(--ta-border); border-radius: var(--ta-radius); padding: 26px 30px; font-size: 12.5px; color: #1f2937; }
+    .bulletin-topbar { display: flex; justify-content: space-between; font-size: 10.5px; color: #777; margin-bottom: 14px; }
+    .bulletin-etablissement { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+    .bulletin-etab-logo { width: 54px; height: 54px; border: 1px solid #d0d0d0; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+    .bulletin-etab-logo img { width: 100%; height: 100%; object-fit: contain; }
+    .bulletin-etab-logo i { font-size: 20px; color: #bbb; }
+    .bulletin-etab-nom { font-size: 16px; font-weight: 800; letter-spacing: .02em; margin: 0 0 2px; }
+    .bulletin-etab-contact { font-size: 11px; color: #555; margin: 0; }
+    .bulletin-separator { border: none; border-top: 2px solid #1f2937; margin: 0 0 16px; }
+    .bulletin-titre { text-align: center; font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; margin: 0 0 4px; }
+    .bulletin-sous-titre { text-align: center; font-size: 11.5px; color: #555; margin: 0 0 16px; }
+
+    .bulletin-identite { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; font-size: 12px; margin-bottom: 16px; padding: 10px 14px; background: var(--ta-bg); border-radius: var(--ta-radius-sm); }
+    .bulletin-identite .champ strong { color: #111827; }
+
+    .bulletin-table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 14px; }
+    .bulletin-table th, .bulletin-table td { border: 1px solid #ccc; padding: 6px 8px; }
+    .bulletin-table thead th { background: var(--ta-bg); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .03em; text-align: center; color: #444; }
+    .bulletin-table td.matiere-col { text-align: left; font-weight: 600; }
+    .bulletin-table td.num { text-align: center; }
+    .bulletin-table td.note-faible { color: #b91c1c; font-weight: 700; }
+    .bulletin-table td.note-forte { color: #15803d; font-weight: 700; }
+    .bulletin-table tfoot td { font-weight: 700; background: var(--ta-bg); text-align: center; }
+    .bulletin-table tfoot td.matiere-col { text-align: left; }
+    .bulletin-table td.appreciation-col { text-align: center; font-weight: 700; }
+    .bulletin-table td.appreciation-col.appr-Aplus { color: #15803d; }
+    .bulletin-table td.appreciation-col.appr-A { color: #15803d; }
+    .bulletin-table td.appreciation-col.appr-ECA { color: #b45309; }
+    .bulletin-table td.appreciation-col.appr-NA { color: #b91c1c; }
+    .bulletin-table tr.groupe-row td { background: #e5e7eb; font-weight: 700; text-align: left; padding: 5px 8px; text-transform: uppercase; font-size: 10px; letter-spacing: .03em; color: #374151; }
+    .bulletin-table tr.groupe-total td { background: #f3f4f6; font-weight: 700; }
+    .bulletin-table tr.groupe-total td.matiere-col { text-align: left; }
+    .bulletin-legende { font-size: 10px; color: #666; margin: -6px 0 12px; }
+
+    .bulletin-synthese { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    .bulletin-synthese .bloc { border: 1px solid #ccc; border-radius: var(--ta-radius-sm); padding: 8px 10px; text-align: center; }
+    .bulletin-synthese .bloc .label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .03em; color: #666; margin-bottom: 3px; }
+    .bulletin-synthese .bloc .valeur { font-size: 16px; font-weight: 800; color: #111827; }
+    .bulletin-synthese .bloc .valeur.mention-Excellent, .bulletin-synthese .bloc .valeur.mention-TresBien { color: #15803d; }
+    .bulletin-synthese .bloc .valeur.mention-Insuffisant { color: #b91c1c; }
+
+    .bulletin-discipline { display: flex; flex-wrap: wrap; gap: 10px 26px; font-size: 11.5px; margin-bottom: 12px; padding: 10px 14px; border: 1px solid #ccc; border-radius: var(--ta-radius-sm); }
+    .bulletin-discipline .item strong { color: #111827; }
+    .bulletin-discipline .obs { flex-basis: 100%; font-size: 11px; color: #555; }
+
+    .bulletin-signatures { display: flex; justify-content: space-between; margin-top: 30px; font-size: 11.5px; }
+    .bulletin-signatures .sig { text-align: center; width: 200px; }
+    .bulletin-signatures .sig .trait { border-top: 1px solid #999; margin-top: 34px; padding-top: 4px; color: #555; }
+
+    .bulletin-page + .bulletin-page { margin-top: 24px; }
+
+    #printZone { display: none; }
+    @media print {
+      body * { visibility: hidden; }
+      #printZone, #printZone * { visibility: visible; }
+      #printZone { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+      .bulletin-doc { border: none; border-radius: 0; padding: 14px 20px; }
+      .bulletin-page { page-break-after: always; }
+      .bulletin-page:last-child { page-break-after: auto; }
+    }
+  </style>
+</head>
+<body data-page="censeur-bulletin">
+
+  <div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+
+      <main class="page-content">
+
+        <!-- Fil d'ariane -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+            <li class="breadcrumb-item"><a href="/censeur/notes" id="lienRetourNotes"><i class="fa-solid fa-table-list me-1"></i>Notes &amp; discipline</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Bulletins</li>
+          </ol>
+        </nav>
+
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+          <div>
+            <h1 class="page-title mb-1">Bulletins de notes</h1>
+            <p class="mb-0 text-muted" style="font-size:12px;">
+              Générez le bulletin d'un élève ou de toute la classe, pour une séquence ou un trimestre complet.
+            </p>
+          </div>
+          <button class="btn btn-light btn-sm" type="button" id="btnActualiser">
+            <i class="fa-solid fa-rotate"></i> Actualiser
+          </button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             FILTRES
+        ═══════════════════════════════════════════════ -->
+        <div class="card mb-3">
+          <div class="card-body py-3">
+            <div class="filter-bar">
+              <div class="filter-group">
+                <label for="filterAnnee">Année scolaire</label>
+                <select class="form-select form-select-sm" id="filterAnnee" style="min-width:150px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filterClasse">Classe</label>
+                <select class="form-select form-select-sm" id="filterClasse" style="min-width:170px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filterPeriode">Période du bulletin</label>
+                <select class="form-select form-select-sm" id="filterPeriode" style="min-width:230px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+              <div class="filter-group flex-grow-1"></div>
+              <div class="filter-group">
+                <label for="filterRecherche">Rechercher un élève</label>
+                <input type="text" class="form-control form-control-sm" id="filterRecherche" placeholder="Nom, prénom, matricule…" style="min-width:190px;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bandeau de contexte -->
+        <div class="contexte-bandeau" id="contexteBandeau" style="display:none;">
+          <div class="item"><i class="fa-solid fa-chalkboard"></i> <span id="ctxClasse">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-calendar-days"></i> <span id="ctxPeriode">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-users"></i> <span id="ctxEffectif">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-chart-line"></i> <span id="ctxMoyenneClasse">—</span></div>
+        </div>
+
+        <div class="row g-3">
+          <!-- ═══════════════════════════════════════════════
+               COLONNE GAUCHE — LISTE DES ÉLÈVES
+          ═══════════════════════════════════════════════ -->
+          <div class="col-lg-4">
+            <div class="card h-100">
+              <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <h6 class="mb-0"><i class="fa-solid fa-users me-2 text-primary"></i>Élèves</h6>
+                <div class="form-check form-check-sm mb-0">
+                  <input class="form-check-input" type="checkbox" id="checkToutSelectionner" checked>
+                  <label class="form-check-label" for="checkToutSelectionner" style="font-size:11px;">Tous</label>
+                </div>
+              </div>
+              <div class="card-body py-2 border-bottom">
+                <div class="filter-group">
+                  <label for="filterOrdreTri"><i class="fa-solid fa-arrow-down-a-z me-1"></i>Ordonner / produire par</label>
+                  <select class="form-select form-select-sm" id="filterOrdreTri">
+                    <option value="alphabetique" selected>Ordre alphabétique</option>
+                    <option value="rang">Rang (classement)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="card-body p-0">
+                <div class="eleves-liste" id="elevesListe">
+                  <div class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Sélectionnez une classe…</div>
+                </div>
+              </div>
+              <div class="card-footer d-grid gap-2">
+                <button class="btn btn-primary btn-sm" type="button" id="btnImprimerSelection" disabled>
+                  <i class="fa-solid fa-print me-1"></i>Imprimer les bulletins sélectionnés
+                </button>
+                <button class="btn btn-outline-primary btn-sm" type="button" id="btnImprimerUn" disabled>
+                  <i class="fa-solid fa-file-lines me-1"></i>Imprimer ce bulletin uniquement
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ═══════════════════════════════════════════════
+               COLONNE DROITE — APERÇU DU BULLETIN
+          ═══════════════════════════════════════════════ -->
+          <div class="col-lg-8">
+            <div class="bulletin-preview-wrap" id="bulletinPreviewWrap">
+              <div class="grid-empty"><i class="fa-solid fa-file-lines"></i>Sélectionnez une classe, une période, puis un élève dans la liste pour afficher l'aperçu de son bulletin.</div>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Zone imprimable -->
+  <div id="printZone"></div>
+
+  <!-- Toast notifications -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+    <div id="toastNotif" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="fa-solid fa-circle-check text-success me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Info</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    window.GESTIONNAIRE_USER = { nom: "Censeur connecté", role: "Censeur", avatar: null };
+    window.ETABLISSEMENT = {
+      // Valeurs de repli : app.py ne passe pas de variable 'etablissement' à
+      // ce template, donc ce bloc reste TOUJOURS sur ses valeurs par défaut —
+      // c'est loadEtablissement() (cf. script ci-dessous) qui charge les
+      // vraies infos via l'API, même pattern que censeur/notes.html.
+      nom: "{{ etablissement.nom if etablissement is defined and etablissement else 'LYCEE NSAM EFOULAN' }}",
+      ville: "{{ etablissement.region if etablissement is defined and etablissement else 'Nsam' }}",
+      bp: "{{ etablissement.bp if etablissement is defined and etablissement else 'BP 105' }}",
+      telephone: "{{ etablissement.telephone if etablissement is defined and etablissement else '689096545' }}",
+      logo_url: "{{ etablissement.logo_url if etablissement is defined and etablissement and etablissement.logo_url else '' }}"
+    };
+  </script>
+  <!-- ⚠️ Ordre important : auth.js DOIT s'exécuter avant sidebar.js.
+       Les scripts "defer" s'exécutent dans l'ordre du document (pas dans
+       l'ordre de fin de téléchargement) : si sidebar.js passe avant, son
+       init() s'exécute alors que window.GestionnaireAuth n'existe pas
+       encore, et getCurrentUser() retombe sur le nom générique
+       "Utilisateur" avec role="" — ce qui vide le menu (filterMenuForRole
+       ne matche plus aucun item) et empêche aussi l'appel à requireAuth(). -->
+  <script src="{{ url_for('static', filename='js/intercepteur.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <!-- Script spécifique à la page « Bulletins » (Censeur) -->
+  <script>
+    (function () {
+      "use strict";
+
+      /* ═══════════════════════════════════════
+         ENDPOINTS
+
+         Réutilise EXACTEMENT les mêmes trois endpoints "espace Censeur" que
+         censeur/notes.html (/api/censeur/mon-espace, /api/censeur/sequences,
+         /api/censeur/roster — cf. leur documentation détaillée dans
+         notes.html, non répétée ici), plus /api/notes/ et /api/disciplines/
+         déjà existants (evaluation_api.py), tous deux automatiquement
+         restreints aux classes assignées au Censeur connecté.
+
+         Aucun endpoint composite dédié au bulletin n'est nécessaire : la
+         moyenne pondérée, le rang et les totaux de discipline sont calculés
+         CÔTÉ CLIENT à partir des données brutes (notes + discipline +
+         matières-classe de la classe), exactement comme les statistiques de
+         notes.html — cela évite de dupliquer cette logique de calcul des
+         deux côtés (frontend pour l'aperçu écran, backend pour un export),
+         et garantit que l'aperçu affiché correspond toujours exactement à
+         ce qui sera imprimé.
+      ═══════════════════════════════════════ */
+      const ENDPOINTS = {
+        monEspace: "/api/censeur/mon-espace",
+        sequences: (anneeId) => `/api/censeur/sequences?annee_scolaire_id=${anneeId}`,
+        roster: (classeId, anneeId) => `/api/censeur/roster?classe_id=${classeId}&annee_scolaire_id=${anneeId}`,
+        notes: "/api/notes/",
+        disciplines: "/api/disciplines/",
+        etablissement: (id) => `/api/etablissements/${id}`,
+        me: "/api/auth/me",
+      };
+
+      // Cette page est servie à la fois sous /censeur/bulletin et
+      // /surveillant/bulletin (même template, cf. app.py) : on déduit le
+      // préfixe de route depuis l'URL courante pour que le lien "Notes &
+      // discipline" du fil d'ariane pointe vers la bonne page.
+      const BASE_PATH = window.location.pathname.startsWith("/surveillant") ? "/surveillant" : "/censeur";
+      const lienRetourNotes = document.getElementById("lienRetourNotes");
+      if (lienRetourNotes) lienRetourNotes.href = `${BASE_PATH}/notes`;
+
+      /* ═══════════════════════════════════════
+         ÉTAT
+      ═══════════════════════════════════════ */
+      const state = {
+        classes: [],
+        matieresClasse: [],
+        annees: [],
+        sequencesTree: [],
+
+        anneeActiveId: null,
+        classeActiveId: null,
+        periodeValue: null,      // "seq:<id>" ou "tri:<id>"
+        periodeLibelle: "",
+        periodeSequenceIds: [],  // liste des sequence_id couverts par la période active
+
+        roster: [],
+        notesToutes: [],
+        disciplinesToutes: [],
+
+        eleveSelectionneId: null,   // inscription_id affiché dans l'aperçu
+        elevesCoches: new Set(),    // inscription_id sélectionnés pour l'impression groupée
+
+        rosterKey: null,
+        ordreTri: "alphabetique",   // "alphabetique" | "rang" — ordre d'affichage et de production des bulletins
+      };
+
+      /* ═══════════════════════════════════════
+         HELPERS API (identiques à notes.html)
+      ═══════════════════════════════════════ */
+      function getCookie(name) {
+        const match = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+        return match ? decodeURIComponent(match[1]) : null;
+      }
+      async function apiFetch(url, options = {}) {
+        const method = (options.method || "GET").toUpperCase();
+        const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+        if (method !== "GET") {
+          const csrfToken = getCookie("csrf_access_token");
+          if (csrfToken) headers["X-CSRF-TOKEN"] = csrfToken;
+        }
+        const res = await fetch(url, { credentials: "include", ...options, headers });
+        let payload = null;
+        try { payload = await res.json(); } catch (e) { /* réponse vide */ }
+        if (!res.ok) throw new Error((payload && payload.erreur) || `Erreur ${res.status}`);
+        return payload;
+      }
+      function showToast(message, type = "success") {
+        const body = document.getElementById("toastBody");
+        const title = document.getElementById("toastTitle");
+        const icon = document.getElementById("toastIcon");
+        body.textContent = message;
+        title.textContent = type === "error" ? "Erreur" : "Info";
+        icon.className = type === "error" ? "fa-solid fa-circle-exclamation text-danger me-2" : "fa-solid fa-circle-check text-success me-2";
+        new bootstrap.Toast(document.getElementById("toastNotif"), { delay: 3500 }).show();
+      }
+
+      /* ═══════════════════════════════════════
+         PARAMÈTRES D'URL (arrivée depuis notes.html)
+      ═══════════════════════════════════════ */
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramClasseId = urlParams.get("classe_id");
+      const paramAnneeId = urlParams.get("annee_scolaire_id");
+      const paramTrimestreId = urlParams.get("trimestre_id");
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — INFOS ÉTABLISSEMENT (en-tête du bulletin)
+
+         Même besoin et même solution que censeur/notes.html : app.py ne
+         passe pas de variable 'etablissement' au template, donc on va
+         chercher les vraies infos côté client via /api/auth/me puis
+         GET /api/etablissements/<id>. Échec silencieux : les valeurs de
+         repli codées en dur restent affichées.
+      ═══════════════════════════════════════ */
+      async function loadEtablissement() {
+        try {
+          const moi = await apiFetch(ENDPOINTS.me);
+          if (!moi.etablissement_id) return;
+          const etab = await apiFetch(ENDPOINTS.etablissement(moi.etablissement_id));
+          window.ETABLISSEMENT = {
+            nom: etab.nom || window.ETABLISSEMENT.nom,
+            ville: etab.region || window.ETABLISSEMENT.ville,
+            bp: etab.bp || window.ETABLISSEMENT.bp,
+            telephone: etab.telephone || window.ETABLISSEMENT.telephone,
+            logo_url: etab.logo_url || "",
+          };
+        } catch (e) {
+          // Valeurs de repli conservées si l'appel échoue.
+        }
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — CONTEXTE (classes assignées, matières, années)
+      ═══════════════════════════════════════ */
+      async function loadMonEspace() {
+        try {
+          const payload = await apiFetch(ENDPOINTS.monEspace);
+          state.classes = payload.classes || [];
+          state.matieresClasse = payload.matieres_classe || [];
+          state.annees = payload.annees_scolaires || [];
+        } catch (e) {
+          showToast(`Impossible de charger votre espace : ${e.message}`, "error");
+          state.classes = []; state.matieresClasse = []; state.annees = [];
+        }
+
+        const selectAnnee = document.getElementById("filterAnnee");
+        if (!state.annees.length) {
+          selectAnnee.innerHTML = `<option value="">Aucune année scolaire</option>`;
+        } else {
+          selectAnnee.innerHTML = state.annees.map(a =>
+            `<option value="${a.id}" ${String(a.id) === String(paramAnneeId) ? "selected" : (!paramAnneeId && a.active ? "selected" : "")}>${a.libelle}${a.active ? " (active)" : ""}</option>`
+          ).join("");
+          const preselect = state.annees.find(a => String(a.id) === String(paramAnneeId));
+          state.anneeActiveId = (preselect || state.annees.find(a => a.active) || state.annees[0]).id;
+        }
+
+        const selectClasse = document.getElementById("filterClasse");
+        if (!state.classes.length) {
+          selectClasse.innerHTML = `<option value="">Aucune classe assignée</option>`;
+          document.getElementById("elevesListe").innerHTML =
+            `<div class="grid-empty"><i class="fa-solid fa-circle-info"></i>Aucune classe ne vous a été assignée pour le moment.</div>`;
+          return false;
+        }
+        const classesTriees = state.classes.slice().sort((a, b) => a.label.localeCompare(b.label, "fr"));
+        selectClasse.innerHTML = classesTriees.map(c =>
+          `<option value="${c.id}" ${String(c.id) === String(paramClasseId) ? "selected" : ""}>${c.label}</option>`
+        ).join("");
+        const preselectClasse = classesTriees.find(c => String(c.id) === String(paramClasseId));
+        state.classeActiveId = (preselectClasse || classesTriees[0]).id;
+        return true;
+      }
+
+      function classeActive() { return state.classes.find(c => String(c.id) === String(state.classeActiveId)) || null; }
+      function matieresPourClasse(classeId) {
+        return state.matieresClasse
+          .filter(mc => String(mc.classe_id) === String(classeId))
+          .sort((a, b) => (a.matiere_libelle || "").localeCompare(b.matiere_libelle || "", "fr"));
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — SÉQUENCES/TRIMESTRES -> OPTIONS DE PÉRIODE
+      ═══════════════════════════════════════ */
+      async function loadSequencesEtPeriodes() {
+        const select = document.getElementById("filterPeriode");
+        if (!state.anneeActiveId) {
+          select.innerHTML = `<option value="">—</option>`;
+          state.sequencesTree = [];
+          return;
+        }
+        try {
+          state.sequencesTree = await apiFetch(ENDPOINTS.sequences(state.anneeActiveId));
+        } catch (e) {
+          state.sequencesTree = [];
+          showToast(`Périodes : ${e.message}`, "error");
+        }
+
+        if (!state.sequencesTree.length) {
+          select.innerHTML = `<option value="">Aucune période disponible</option>`;
+          state.periodeValue = null;
+          return;
+        }
+
+        const options = [];
+        state.sequencesTree.forEach(tri => {
+          if (tri.sequences.length > 1) {
+            options.push({
+              value: `tri:${tri.trimestre_id}`,
+              label: `${tri.trimestre_libelle} — bulletin trimestriel (${tri.sequences.map(s => s.libelle).join(" + ")})`,
+            });
+          }
+          tri.sequences.forEach(seq => {
+            options.push({ value: `seq:${seq.id}`, label: `${tri.trimestre_libelle} — ${seq.libelle}` });
+          });
+        });
+
+        select.innerHTML = options.map(o => `<option value="${o.value}">${o.label}</option>`).join("");
+
+        // Présélection : si un trimestre est passé en paramètre (depuis
+        // notes.html), on privilégie le bulletin trimestriel correspondant.
+        let defaultValue = options[0].value;
+        if (paramTrimestreId) {
+          const candidat = options.find(o => o.value === `tri:${paramTrimestreId}`);
+          if (candidat) defaultValue = candidat.value;
+        }
+        select.value = defaultValue;
+        state.periodeValue = defaultValue;
+      }
+
+      function resoudrePeriode() {
+        if (!state.periodeValue) { state.periodeSequenceIds = []; state.periodeLibelle = "—"; return; }
+        const [type, id] = state.periodeValue.split(":");
+        if (type === "seq") {
+          for (const tri of state.sequencesTree) {
+            const seq = tri.sequences.find(s => String(s.id) === String(id));
+            if (seq) { state.periodeSequenceIds = [seq.id]; state.periodeLibelle = `${tri.trimestre_libelle} — ${seq.libelle}`; return; }
+          }
+        } else {
+          const tri = state.sequencesTree.find(t => String(t.trimestre_id) === String(id));
+          if (tri) { state.periodeSequenceIds = tri.sequences.map(s => s.id); state.periodeLibelle = `${tri.trimestre_libelle} (bulletin trimestriel)`; return; }
+        }
+        state.periodeSequenceIds = []; state.periodeLibelle = "—";
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — ROSTER / NOTES / DISCIPLINE
+      ═══════════════════════════════════════ */
+      async function loadRosterSiNecessaire() {
+        if (!state.classeActiveId || !state.anneeActiveId) { state.roster = []; return; }
+        const key = `${state.classeActiveId}|${state.anneeActiveId}`;
+        if (state.rosterKey === key) return;
+        try {
+          state.roster = await apiFetch(ENDPOINTS.roster(state.classeActiveId, state.anneeActiveId));
+          state.rosterKey = key;
+          state.elevesCoches = new Set(state.roster.map(e => e.inscription_id));
+        } catch (e) {
+          state.roster = []; state.rosterKey = null;
+          showToast(`Liste des élèves : ${e.message}`, "error");
+        }
+      }
+
+      async function loadNotesEtDiscipline() {
+        try { state.notesToutes = await apiFetch(ENDPOINTS.notes); }
+        catch (e) { state.notesToutes = []; showToast(`Notes : ${e.message}`, "error"); }
+        try { state.disciplinesToutes = await apiFetch(ENDPOINTS.disciplines); }
+        catch (e) { state.disciplinesToutes = []; showToast(`Discipline : ${e.message}`, "error"); }
+      }
+
+      /* ═══════════════════════════════════════
+         CALCULS — MOYENNES, RANGS, DISCIPLINE
+      ═══════════════════════════════════════ */
+      // Résultat d'une matière pour un élève sur la période active :
+      // { value: number|null, absent: bool, detail: (number|"ABS"|null)[] }
+      function resultatMatiereEleve(inscriptionId, matiereClasseId) {
+        const notes = state.notesToutes.filter(n =>
+          String(n.inscription_id) === String(inscriptionId) &&
+          String(n.matiere_classe_id) === String(matiereClasseId) &&
+          state.periodeSequenceIds.some(sid => String(sid) === String(n.sequence_id))
+        );
+        const detail = state.periodeSequenceIds.map(sid => {
+          const n = notes.find(nn => String(nn.sequence_id) === String(sid));
+          if (!n) return null;
+          if (n.absent) return "ABS";
+          if (n.valeur === null || n.valeur === undefined) return null;
+          return Number(n.valeur);
+        });
+        const valeurs = detail.filter(v => typeof v === "number");
+        if (!valeurs.length) {
+          const auMoinsUneAbsence = detail.some(v => v === "ABS");
+          return { value: null, absent: auMoinsUneAbsence, detail };
+        }
+        return { value: valeurs.reduce((a, b) => a + b, 0) / valeurs.length, absent: false, detail };
+      }
+
+      function moyenneGeneraleEleve(inscriptionId, matieresClasse) {
+        let sommePonderee = 0, sommeCoef = 0;
+        matieresClasse.forEach(mc => {
+          const r = resultatMatiereEleve(inscriptionId, mc.id);
+          if (r.value !== null) { sommePonderee += r.value * mc.coefficient; sommeCoef += mc.coefficient; }
+        });
+        return sommeCoef ? sommePonderee / sommeCoef : null;
+      }
+
+      function moyenneClassePourMatiere(matiereClasseId) {
+        const valeurs = state.roster
+          .map(e => resultatMatiereEleve(e.inscription_id, matiereClasseId).value)
+          .filter(v => v !== null);
+        return valeurs.length ? valeurs.reduce((a, b) => a + b, 0) / valeurs.length : null;
+      }
+
+      function calculerClassement(matieresClasse) {
+        const arr = state.roster.map(e => ({ inscription_id: e.inscription_id, moyenne: moyenneGeneraleEleve(e.inscription_id, matieresClasse) }));
+        arr.forEach(a => { a.rang = a.moyenne === null ? null : 1 + arr.filter(b => b.moyenne !== null && b.moyenne > a.moyenne).length; });
+        return arr;
+      }
+
+      function disciplineEleve(inscriptionId) {
+        const fiches = state.disciplinesToutes.filter(d =>
+          String(d.inscription_id) === String(inscriptionId) &&
+          state.periodeSequenceIds.some(sid => String(sid) === String(d.sequence_id))
+        );
+        const total = fiches.reduce((acc, f) => ({
+          absences_justifiees: acc.absences_justifiees + (f.absences_justifiees || 0),
+          absences_non_justifiees: acc.absences_non_justifiees + (f.absences_non_justifiees || 0),
+          retards: acc.retards + (f.retards || 0),
+          exclusions: acc.exclusions + (f.exclusions || 0),
+        }), { absences_justifiees: 0, absences_non_justifiees: 0, retards: 0, exclusions: 0 });
+        const observations = fiches.filter(f => f.observation).map(f => f.observation);
+        return { ...total, observations };
+      }
+
+      function mentionDe(moyenne) {
+        if (moyenne === null) return { texte: "—", classe: "" };
+        if (moyenne >= 16) return { texte: "Excellent", classe: "mention-Excellent" };
+        if (moyenne >= 14) return { texte: "Très bien", classe: "mention-TresBien" };
+        if (moyenne >= 12) return { texte: "Bien", classe: "" };
+        if (moyenne >= 10) return { texte: "Assez bien", classe: "" };
+        if (moyenne >= 8) return { texte: "Passable", classe: "" };
+        return { texte: "Insuffisant", classe: "mention-Insuffisant" };
+      }
+
+      function fmt(v, dec = 2) { return v === null || v === undefined ? "—" : Number(v).toFixed(dec); }
+      function eleveInitiales(e) { return `${(e.nom || "?").charAt(0)}${(e.prenom || "?").charAt(0)}`.toUpperCase(); }
+
+      /* ═══════════════════════════════════════
+         APPRÉCIATIONS PAR MATIÈRE (NA / ECA / A / A+)
+         Barème par défaut, ajustable selon les règles de l'établissement.
+      ═══════════════════════════════════════ */
+      const BAREME_APPRECIATION = [
+        { min: 16, label: "A+", classe: "appr-Aplus" },
+        { min: 12, label: "A", classe: "appr-A" },
+        { min: 10, label: "ECA", classe: "appr-ECA" },
+        { min: -Infinity, label: "NA", classe: "appr-NA" },
+      ];
+      function appreciationDe(valeur) {
+        if (valeur === null || valeur === undefined) return { label: "—", classe: "" };
+        const b = BAREME_APPRECIATION.find(b => valeur >= b.min);
+        return { label: b.label, classe: b.classe };
+      }
+
+      /* ═══════════════════════════════════════
+         GROUPES DE MATIÈRES (Scientifiques, Littéraires, etc.)
+         Le champ groupe/catégorie peut être fourni par l'API sous plusieurs
+         formes selon la source (mc.groupe, mc.categorie, mc.matiere.groupe,
+         voire un objet {id, libelle}) : on normalise toujours vers une
+         chaîne de caractères lisible pour éviter l'affichage "[object
+         Object]" quand le champ est un objet plutôt qu'un texte.
+      ═══════════════════════════════════════ */
+      function libelleDepuisValeur(v) {
+        if (v === null || v === undefined) return null;
+        if (typeof v === "string") return v.trim() || null;
+        if (typeof v === "object") return v.libelle || v.nom || v.label || v.code || null;
+        return String(v);
+      }
+      function getGroupeMatiere(mc) {
+        if (!mc) return null;
+        return libelleDepuisValeur(mc.groupe) ||
+          libelleDepuisValeur(mc.categorie) ||
+          libelleDepuisValeur(mc.groupe_matiere) ||
+          (mc.matiere ? (libelleDepuisValeur(mc.matiere.groupe) || libelleDepuisValeur(mc.matiere.categorie)) : null);
+      }
+      // Regroupe une liste de matières-classe par libellé de groupe ; les
+      // matières sans groupe défini sont rassemblées sous "Autres enseignements".
+      function regrouperMatieresParGroupe(matieresClasse) {
+        const groupes = {};
+        const sansGroupe = [];
+        matieresClasse.forEach(mc => {
+          const g = getGroupeMatiere(mc);
+          if (g) { (groupes[g] = groupes[g] || []).push(mc); } else sansGroupe.push(mc);
+        });
+        const noms = Object.keys(groupes).sort((a, b) => a.localeCompare(b, "fr"));
+        const blocs = noms.map(nom => ({ label: nom, matieres: groupes[nom] }));
+        if (sansGroupe.length) blocs.push({ label: noms.length ? "Autres enseignements" : null, matieres: sansGroupe });
+        return blocs;
+      }
+
+      /* ═══════════════════════════════════════
+         RENDU — LISTE DES ÉLÈVES
+      ═══════════════════════════════════════ */
+      // rangIndex (optionnel) : map inscription_id -> { moyenne, rang }, cf. calculerClassement().
+      // Si fourni et que l'ordre choisi est "rang", le tri se fait par rang croissant
+      // (les élèves non classés, moyenne === null, sont relégués en fin de liste).
+      function rosterFiltre(rangIndex) {
+        const q = (document.getElementById("filterRecherche").value || "").trim().toLowerCase();
+        let liste = [...state.roster];
+        if (q) liste = liste.filter(e => `${e.nom} ${e.prenom} ${e.matricule || ""}`.toLowerCase().includes(q));
+        if (state.ordreTri === "rang" && rangIndex) {
+          return liste.sort((a, b) => {
+            const ra = rangIndex[a.inscription_id]?.rang;
+            const rb = rangIndex[b.inscription_id]?.rang;
+            if (ra === null || ra === undefined) return rb === null || rb === undefined ? 0 : 1;
+            if (rb === null || rb === undefined) return -1;
+            return ra - rb;
+          });
+        }
+        return liste.sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr"));
+      }
+
+      function renderListeEleves() {
+        const container = document.getElementById("elevesListe");
+        const matieresClasse = matieresPourClasse(state.classeActiveId);
+        const classement = calculerClassement(matieresClasse);
+        const rangIndex = {};
+        classement.forEach(c => { rangIndex[c.inscription_id] = c; });
+
+        const roster = rosterFiltre(rangIndex);
+        if (!roster.length) {
+          container.innerHTML = `<div class="grid-empty"><i class="fa-solid fa-user-slash"></i>Aucun élève ne correspond à la sélection.</div>`;
+          return;
+        }
+
+        container.innerHTML = roster.map(e => {
+          const c = rangIndex[e.inscription_id] || {};
+          const active = String(e.inscription_id) === String(state.eleveSelectionneId);
+          const coche = state.elevesCoches.has(e.inscription_id);
+          return `
+            <div class="eleve-item ${active ? "active" : ""}" data-inscription-id="${e.inscription_id}">
+              <input type="checkbox" class="form-check-input" data-role="check-eleve" ${coche ? "checked" : ""}>
+              <div class="eleve-avatar sexe-${e.sexe || "?"}">${eleveInitiales(e)}</div>
+              <div>
+                <div class="eleve-nom">${e.nom} ${e.prenom}</div>
+                <div class="eleve-sub">${e.matricule || "—"}</div>
+              </div>
+              <span class="eleve-rang">${c.rang ? `${c.rang}${c.rang === 1 ? "er" : "e"}` : "—"} · ${fmt(c.moyenne)}/20</span>
+            </div>`;
+        }).join("");
+
+        container.querySelectorAll(".eleve-item").forEach(item => {
+          item.addEventListener("click", (ev) => {
+            if (ev.target.matches('[data-role="check-eleve"]')) return;
+            state.eleveSelectionneId = item.dataset.inscriptionId;
+            renderListeEleves();
+            renderApercu();
+          });
+        });
+        container.querySelectorAll('[data-role="check-eleve"]').forEach(cb => {
+          cb.addEventListener("change", (ev) => {
+            const id = ev.target.closest(".eleve-item").dataset.inscriptionId;
+            if (ev.target.checked) state.elevesCoches.add(id); else state.elevesCoches.delete(String(id));
+            majBoutons();
+          });
+        });
+
+        majBoutons();
+      }
+
+      function majBoutons() {
+        document.getElementById("btnImprimerSelection").disabled = state.elevesCoches.size === 0;
+        document.getElementById("btnImprimerUn").disabled = !state.eleveSelectionneId;
+      }
+
+      /* ═══════════════════════════════════════
+         CONSTRUCTION DU DOCUMENT « BULLETIN » (HTML réutilisé aperçu + impression)
+      ═══════════════════════════════════════ */
+      function construireBulletinHtml(eleve) {
+        const classe = classeActive();
+        const matieresClasse = matieresPourClasse(state.classeActiveId);
+        const classement = calculerClassement(matieresClasse);
+        const cEleve = classement.find(c => String(c.inscription_id) === String(eleve.inscription_id)) || {};
+        const moyenneGenerale = cEleve.moyenne ?? null;
+        const rang = cEleve.rang ?? null;
+        const mention = mentionDe(moyenneGenerale);
+        const discipline = disciplineEleve(eleve.inscription_id);
+        const dateImpression = new Date().toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" });
+        const logoHtml = window.ETABLISSEMENT.logo_url ? `<img src="${window.ETABLISSEMENT.logo_url}" alt="Logo">` : `<i class="fa-solid fa-school"></i>`;
+
+        function ligneMatiere(mc) {
+          const r = resultatMatiereEleve(eleve.inscription_id, mc.id);
+          const moyClasseMatiere = moyenneClassePourMatiere(mc.id);
+          const detailTexte = r.detail.map(v => v === null ? "—" : v === "ABS" ? "Abs." : Number(v).toFixed(2)).join(" / ");
+          const moyTexte = r.absent && r.value === null ? "Absent" : fmt(r.value);
+          const cls = r.value === null ? "" : r.value < 10 ? "note-faible" : r.value >= 14 ? "note-forte" : "";
+          const moyPond = r.value !== null ? r.value * mc.coefficient : null;
+          const appr = appreciationDe(r.value);
+          return `
+            <tr>
+              <td class="matiere-col">${mc.matiere_libelle}${mc.enseignant_nom ? `<br><span style="font-weight:400;color:#777;font-size:10px;">${mc.enseignant_nom}</span>` : ""}</td>
+              <td class="num">${mc.coefficient}</td>
+              <td class="num">${detailTexte}</td>
+              <td class="num ${cls}">${moyTexte}</td>
+              <td class="num">${fmt(moyPond)}</td>
+              <td class="num">${fmt(moyClasseMatiere)}</td>
+              <td class="appreciation-col ${appr.classe}">${appr.label}</td>
+            </tr>`;
+        }
+
+        // Regroupement des matières par groupe (Scientifiques, Littéraires, etc.).
+        // Après chaque groupe : moyenne obtenue par l'élève dans ce groupe et son
+        // rang dans ce groupe par rapport au reste de la classe.
+        const blocsGroupes = regrouperMatieresParGroupe(matieresClasse);
+        const nbColonnesTable = 7; // Matière, Coef., Note(s), Moyenne, Moy×Coef, Moy. classe, Appréciation
+
+        function blocGroupeHtml(bloc) {
+          const lignes = bloc.matieres.map(ligneMatiere).join("");
+          const moyGroupe = moyenneGeneraleEleve(eleve.inscription_id, bloc.matieres);
+          const classementGroupe = calculerClassement(bloc.matieres);
+          const cGroupe = classementGroupe.find(c => String(c.inscription_id) === String(eleve.inscription_id)) || {};
+          const rangGroupe = cGroupe.rang ?? null;
+          const coefGroupe = bloc.matieres.reduce((s, mc) => s + (resultatMatiereEleve(eleve.inscription_id, mc.id).value !== null ? mc.coefficient : 0), 0);
+          return `
+            ${bloc.label ? `<tr class="groupe-row"><td colspan="${nbColonnesTable}">${bloc.label}</td></tr>` : ""}
+            ${lignes}
+            <tr class="groupe-total">
+              <td class="matiere-col">Sous-total${bloc.label ? ` — ${bloc.label}` : ""}</td>
+              <td class="num">${coefGroupe}</td>
+              <td class="num"></td>
+              <td class="num">Moy : ${fmt(moyGroupe)}</td>
+              <td class="num"></td>
+              <td class="num">Rang : ${rangGroupe ? `${rangGroupe}${rangGroupe === 1 ? "er" : "e"} / ${state.roster.length}` : "—"}</td>
+              <td class="appreciation-col"></td>
+            </tr>`;
+        }
+
+        const lignesMatieres = blocsGroupes.map(blocGroupeHtml).join("");
+
+        const totalCoef = matieresClasse.reduce((s, mc) => s + (resultatMatiereEleve(eleve.inscription_id, mc.id).value !== null ? mc.coefficient : 0), 0);
+        const totalPoints = matieresClasse.reduce((s, mc) => {
+          const r = resultatMatiereEleve(eleve.inscription_id, mc.id);
+          return s + (r.value !== null ? r.value * mc.coefficient : 0);
+        }, 0);
+
+        const effectif = state.roster.length;
+        const nbColonnesDetail = state.periodeSequenceIds.length;
+        const entetePeriode = nbColonnesDetail > 1 ? `Notes (${state.periodeSequenceIds.length} séquences)` : "Note";
+
+        return `
+          <div class="bulletin-doc bulletin-page" data-inscription-id="${eleve.inscription_id}">
+            <div class="bulletin-topbar">
+              <span>Imprimé le ${dateImpression}</span>
+              <span>Bulletin de notes — Censeur</span>
+            </div>
+            <div class="bulletin-etablissement">
+              <div class="bulletin-etab-logo">${logoHtml}</div>
+              <div>
+                <p class="bulletin-etab-nom">${window.ETABLISSEMENT.nom}</p>
+                <p class="bulletin-etab-contact">${window.ETABLISSEMENT.ville} — ${window.ETABLISSEMENT.bp} — Tél. ${window.ETABLISSEMENT.telephone}</p>
+              </div>
+            </div>
+            <hr class="bulletin-separator">
+            <p class="bulletin-titre">Bulletin de notes</p>
+            <p class="bulletin-sous-titre">${state.periodeLibelle} — Année scolaire ${(state.annees.find(a => String(a.id) === String(state.anneeActiveId)) || {}).libelle || ""}</p>
+
+            <div class="bulletin-identite">
+              <div class="champ"><strong>Élève :</strong> ${eleve.nom} ${eleve.prenom}</div>
+              <div class="champ"><strong>Matricule :</strong> ${eleve.matricule || "—"}</div>
+              <div class="champ"><strong>Classe :</strong> ${classe ? classe.label : "—"}</div>
+              <div class="champ"><strong>Sexe :</strong> ${eleve.sexe || "—"}</div>
+              <div class="champ"><strong>Effectif de la classe :</strong> ${effectif}</div>
+              <div class="champ"><strong>Rang :</strong> ${rang ? `${rang}${rang === 1 ? "er" : "e"} / ${effectif}` : "—"}</div>
+            </div>
+
+            <table class="bulletin-table">
+              <thead>
+                <tr>
+                  <th style="text-align:left;">Matière</th>
+                  <th>Coef.</th>
+                  <th>${entetePeriode}</th>
+                  <th>Moyenne</th>
+                  <th>Moy. × Coef.</th>
+                  <th>Moy. classe</th>
+                  <th>Appréciation</th>
+                </tr>
+              </thead>
+              <tbody>${lignesMatieres || `<tr><td colspan="7" style="text-align:center;color:#777;">Aucune matière enseignée dans cette classe.</td></tr>`}</tbody>
+              <tfoot>
+                <tr>
+                  <td class="matiere-col">Total</td>
+                  <td>${totalCoef}</td>
+                  <td></td>
+                  <td></td>
+                  <td>${fmt(totalPoints)}</td>
+                  <td></td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+            <p class="bulletin-legende">(NA) Non Acquise · (ECA) En Cours d'Acquisition · (A) Acquise · (A+) Expert</p>
+
+            <div class="bulletin-synthese">
+              <div class="bloc"><div class="label">Moyenne générale</div><div class="valeur ${mention.classe}">${fmt(moyenneGenerale)}/20</div></div>
+              <div class="bloc"><div class="label">Rang</div><div class="valeur">${rang ? `${rang}${rang === 1 ? "er" : "e"}` : "—"}</div></div>
+              <div class="bloc"><div class="label">Total coefficients</div><div class="valeur">${totalCoef}</div></div>
+              <div class="bloc"><div class="label">Mention</div><div class="valeur ${mention.classe}">${mention.texte}</div></div>
+            </div>
+
+            <div class="bulletin-discipline">
+              <div class="item"><strong>${discipline.absences_justifiees}</strong> absence(s) justifiée(s)</div>
+              <div class="item"><strong>${discipline.absences_non_justifiees}</strong> absence(s) non justifiée(s)</div>
+              <div class="item"><strong>${discipline.retards}</strong> retard(s)</div>
+              <div class="item"><strong>${discipline.exclusions}</strong> exclusion(s)</div>
+              ${discipline.observations.length ? `<div class="obs"><strong>Observations :</strong> ${discipline.observations.join(" · ")}</div>` : ""}
+            </div>
+
+            <div class="bulletin-signatures">
+              <div class="sig"><div class="trait">Le Censeur</div></div>
+              <div class="sig"><div class="trait">Le Parent / Tuteur</div></div>
+            </div>
+          </div>`;
+      }
+
+      /* ═══════════════════════════════════════
+         RENDU — APERÇU ÉCRAN
+      ═══════════════════════════════════════ */
+      function renderApercu() {
+        const wrap = document.getElementById("bulletinPreviewWrap");
+        const eleve = state.roster.find(e => String(e.inscription_id) === String(state.eleveSelectionneId));
+        if (!eleve) {
+          wrap.innerHTML = `<div class="grid-empty"><i class="fa-solid fa-file-lines"></i>Sélectionnez un élève dans la liste pour afficher l'aperçu de son bulletin.</div>`;
+          return;
+        }
+        wrap.innerHTML = construireBulletinHtml(eleve);
+      }
+
+      /* ═══════════════════════════════════════
+         RENDU — CONTEXTE + IMPRESSION
+      ═══════════════════════════════════════ */
+      function renderContexte() {
+        const classe = classeActive();
+        const matieresClasse = matieresPourClasse(state.classeActiveId);
+        const classement = calculerClassement(matieresClasse);
+        const moyennes = classement.map(c => c.moyenne).filter(v => v !== null);
+        const moyenneClasse = moyennes.length ? moyennes.reduce((a, b) => a + b, 0) / moyennes.length : null;
+
+        document.getElementById("contexteBandeau").style.display = "flex";
+        document.getElementById("ctxClasse").textContent = classe ? classe.label : "—";
+        document.getElementById("ctxPeriode").textContent = state.periodeLibelle || "—";
+        document.getElementById("ctxEffectif").textContent = `${state.roster.length} élève(s)`;
+        document.getElementById("ctxMoyenneClasse").textContent = `Moy. classe : ${fmt(moyenneClasse)}/20`;
+      }
+
+      function imprimer(inscriptionIds) {
+        const eleves = state.roster.filter(e => inscriptionIds.includes(String(e.inscription_id)) || inscriptionIds.includes(e.inscription_id));
+        if (!eleves.length) { showToast("Aucun élève à imprimer.", "error"); return; }
+
+        const matieresClasse = matieresPourClasse(state.classeActiveId);
+        const classement = calculerClassement(matieresClasse);
+        const rangIndex = {};
+        classement.forEach(c => { rangIndex[c.inscription_id] = c; });
+
+        const elevesTries = state.ordreTri === "rang"
+          ? eleves.sort((a, b) => {
+              const ra = rangIndex[a.inscription_id]?.rang;
+              const rb = rangIndex[b.inscription_id]?.rang;
+              if (ra === null || ra === undefined) return rb === null || rb === undefined ? 0 : 1;
+              if (rb === null || rb === undefined) return -1;
+              return ra - rb;
+            })
+          : eleves.sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr"));
+
+        const html = elevesTries.map(construireBulletinHtml).join("");
+        document.getElementById("printZone").innerHTML = html;
+        window.print();
+      }
+
+      /* ═══════════════════════════════════════
+         ÉVÉNEMENTS
+      ═══════════════════════════════════════ */
+      document.getElementById("filterRecherche").addEventListener("input", renderListeEleves);
+
+      document.getElementById("filterOrdreTri").addEventListener("change", (ev) => {
+        state.ordreTri = ev.target.value || "alphabetique";
+        renderListeEleves();
+      });
+
+      document.getElementById("checkToutSelectionner").addEventListener("change", (ev) => {
+        state.elevesCoches = ev.target.checked ? new Set(state.roster.map(e => e.inscription_id)) : new Set();
+        renderListeEleves();
+      });
+
+      document.getElementById("btnImprimerSelection").addEventListener("click", () => {
+        imprimer([...state.elevesCoches].map(String));
+      });
+      document.getElementById("btnImprimerUn").addEventListener("click", () => {
+        if (state.eleveSelectionneId) imprimer([String(state.eleveSelectionneId)]);
+      });
+
+      async function chargerTout() {
+        document.getElementById("elevesListe").innerHTML = `<div class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Chargement…</div>`;
+        if (!state.classeActiveId || !state.periodeValue) {
+          document.getElementById("contexteBandeau").style.display = "none";
+          document.getElementById("elevesListe").innerHTML = `<div class="grid-empty"><i class="fa-solid fa-circle-info"></i>Sélectionnez une classe et une période.</div>`;
+          return;
+        }
+        resoudrePeriode();
+        await loadRosterSiNecessaire();
+        await loadNotesEtDiscipline();
+
+        state.eleveSelectionneId = state.roster.length ? state.roster[0].inscription_id : null;
+        renderContexte();
+        renderListeEleves();
+        renderApercu();
+      }
+
+      document.getElementById("filterAnnee").addEventListener("change", async (ev) => {
+        state.anneeActiveId = ev.target.value || null;
+        await loadSequencesEtPeriodes();
+        state.periodeValue = document.getElementById("filterPeriode").value || null;
+        state.rosterKey = null;
+        await chargerTout();
+      });
+
+      document.getElementById("filterClasse").addEventListener("change", async (ev) => {
+        state.classeActiveId = ev.target.value || null;
+        state.rosterKey = null;
+        await chargerTout();
+      });
+
+      document.getElementById("filterPeriode").addEventListener("change", async (ev) => {
+        state.periodeValue = ev.target.value || null;
+        await chargerTout();
+      });
+
+      document.getElementById("btnActualiser").addEventListener("click", async () => {
+        state.rosterKey = null;
+        await chargerTout();
+        showToast("Données actualisées.");
+      });
+
+      /* ═══════════════════════════════════════
+         INIT
+      ═══════════════════════════════════════ */
+      async function init() {
+        loadEtablissement(); // en parallèle, n'empêche pas le reste de charger
+        const ok = await loadMonEspace();
+        if (!ok) return;
+        await loadSequencesEtPeriodes();
+        state.periodeValue = document.getElementById("filterPeriode").value || null;
+        await chargerTout();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tableau de bord — Lycée Bilingue de Yaoundé | Gestionnaire SaaS</title>
+  <title>Tableau de bord | Gestionnaire SaaS</title>
 
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
@@ -143,6 +143,7 @@
     }
     .class-bar .class-name {
       width: 90px; color: var(--ta-text-muted); font-weight: 500;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .class-bar .class-track {
       flex: 1; height: 8px; background: var(--ta-border-light);
@@ -152,10 +153,8 @@
       height: 100%; border-radius: 20px;
       transition: width 0.6s ease;
     }
-    .class-bar .class-fill.college { background: var(--ta-primary); }
-    .class-bar .class-fill.lycee   { background: #6D28D9; }
     .class-bar .class-value {
-      width: 55px; text-align: right; font-weight: 600; color: var(--ta-text);
+      width: 40px; text-align: right; font-weight: 600; color: var(--ta-text);
     }
 
     /* ── Activité récente ── */
@@ -176,8 +175,6 @@
     .activity-icon.note      { background: var(--ta-primary-light); color: var(--ta-primary); }
     .activity-icon.paiement  { background: var(--ta-success-light); color: var(--ta-success); }
     .activity-icon.eleve     { background: var(--ta-info-light);    color: var(--ta-info);    }
-    .activity-icon.bulletin  { background: #EDE9FE;                 color: #6D28D9;           }
-    .activity-icon.discipline{ background: var(--ta-warning-light); color: var(--ta-warning); }
 
     /* ── Quick actions ── */
     .quick-action {
@@ -206,11 +203,11 @@
     }
     .tranche-item:last-child { border-bottom: none; }
     .tranche-item .tranche-label {
-      width: 80px; font-size: 12px; font-weight: 600; color: var(--ta-text);
+      width: 90px; font-size: 12px; font-weight: 600; color: var(--ta-text);
     }
     .tranche-item .tranche-progress { flex: 1; }
     .tranche-item .tranche-value {
-      width: 110px; text-align: right;
+      width: 130px; text-align: right;
       font-size: 11px; color: var(--ta-text-muted);
     }
     .tranche-item .tranche-value strong {
@@ -244,6 +241,17 @@
       font-size: 13px; font-weight: 700; color: var(--ta-success);
       flex-shrink: 0;
     }
+
+    .empty-state {
+      padding: 24px 8px; text-align: center; color: var(--ta-text-muted); font-size: 12px;
+    }
+    .empty-state i { font-size: 20px; display: block; margin-bottom: 6px; opacity: 0.5; }
+
+    .skeleton-text {
+      display: inline-block; min-width: 34px; height: 1em;
+      background: var(--ta-border-light); border-radius: 4px;
+      color: transparent !important;
+    }
   </style>
 </head>
 
@@ -265,28 +273,28 @@
           </ol>
         </nav>
 
-        <!-- ── Bandeau établissement ── -->
+        <!-- ── Bandeau établissement (rempli via /api/auth/me + /api/etablissements/<id>) ── -->
         <div class="etab-banner">
-          <div class="etab-logo">LB</div>
+          <div class="etab-logo" id="etabLogo">--</div>
           <div>
-            <h1 class="etab-title">Lycée Bilingue de Yaoundé</h1>
+            <h1 class="etab-title" id="etabNom">Chargement…</h1>
             <div class="etab-subtitle">
               <i class="fa-solid fa-location-dot me-1"></i>
-              Centre · Mfoundi · Francophone
+              <span id="etabLocalisation">—</span>
             </div>
           </div>
           <div class="etab-meta">
             <div class="etab-meta-item">
               <span class="etab-meta-label">Année scolaire</span>
-              <span class="etab-meta-value">2025 – 2026</span>
+              <span class="etab-meta-value" id="metaAnnee">—</span>
             </div>
             <div class="etab-meta-item">
               <span class="etab-meta-label">Trimestre en cours</span>
-              <span class="etab-meta-value">Trimestre 2</span>
+              <span class="etab-meta-value" id="metaTrimestre">—</span>
             </div>
             <div class="etab-meta-item">
               <span class="etab-meta-label">Séquence</span>
-              <span class="etab-meta-value">Séquence 1</span>
+              <span class="etab-meta-value" id="metaSequence">—</span>
             </div>
           </div>
         </div>
@@ -297,12 +305,13 @@
           <!-- Élèves inscrits -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +42</span>
+              <span class="stat-trend neutral" id="kpiElevesTrend">…</span>
               <div class="stat-icon primary"><i class="fa-solid fa-user-graduate"></i></div>
               <div class="stat-label">Élèves inscrits</div>
-              <div class="stat-value">1 247</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiElevesTotal">…</span></div>
               <div class="stat-change up">
-                <i class="fa-solid fa-circle-check"></i> 1 182 actifs · 95%
+                <i class="fa-solid fa-circle-check"></i>
+                <span id="kpiElevesActifs">…</span> actifs · <span id="kpiElevesActifsPct">…</span>%
               </div>
             </div>
           </div>
@@ -310,12 +319,12 @@
           <!-- Classes -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend neutral"><i class="fa-solid fa-equals"></i> stable</span>
               <div class="stat-icon info"><i class="fa-solid fa-chalkboard"></i></div>
               <div class="stat-label">Classes actives</div>
-              <div class="stat-value">32</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiClassesTotal">…</span></div>
               <div class="stat-change up">
-                <i class="fa-solid fa-layer-group"></i> 2 cycles · 6 niveaux
+                <i class="fa-solid fa-layer-group"></i>
+                <span id="kpiCyclesTotal">…</span> cycle(s) · <span id="kpiNiveauxTotal">…</span> niveau(x)
               </div>
             </div>
           </div>
@@ -323,25 +332,23 @@
           <!-- Enseignants -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +3</span>
               <div class="stat-icon success"><i class="fa-solid fa-chalkboard-user"></i></div>
               <div class="stat-label">Enseignants</div>
-              <div class="stat-value">68</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiEnseignantsTotal">…</span></div>
               <div class="stat-change up">
-                <i class="fa-solid fa-book"></i> 187 matières-classe
+                <i class="fa-solid fa-book"></i> <span id="kpiMatieresClasseTotal">…</span> matières-classe
               </div>
             </div>
           </div>
 
-          <!-- Taux de recouvrement -->
+          <!-- Taux de recouvrement (réel : perçu / attendu, année active) -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend down"><i class="fa-solid fa-triangle-exclamation"></i> -4%</span>
               <div class="stat-icon warning"><i class="fa-solid fa-sack-dollar"></i></div>
               <div class="stat-label">Recouvrement</div>
-              <div class="stat-value">78%</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiRecouvrementPct">…</span>%</div>
               <div class="stat-change down">
-                <i class="fa-solid fa-user-clock"></i> 87 élèves en retard
+                <i class="fa-solid fa-coins"></i> <span id="kpiResteAPercevoir">…</span> FCFA restants
               </div>
             </div>
           </div>
@@ -351,41 +358,39 @@
         <!-- ── KPIs secondaires ── -->
         <div class="dashboard-grid mb-3">
 
-          <!-- Notes saisies -->
+          <!-- Notes saisies (séquence courante) -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend neutral">67%</span>
+              <span class="stat-trend neutral"><span id="kpiNotesPct">…</span>%</span>
               <div class="stat-icon primary"><i class="fa-solid fa-pen-to-square"></i></div>
-              <div class="stat-label">Notes saisies (S1)</div>
-              <div class="stat-value">842 / 1 247</div>
+              <div class="stat-label">Notes saisies (séquence en cours)</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiNotesSaisies">…</span> / <span id="kpiNotesAttendu">…</span></div>
               <div class="stat-change down">
-                <i class="fa-solid fa-clock"></i> 405 en attente
+                <i class="fa-solid fa-clock"></i> <span id="kpiNotesEnAttente">…</span> en attente
               </div>
             </div>
           </div>
 
-          <!-- Bulletins -->
+          <!-- Répartition Filles / Garçons (réel, Eleve.sexe) -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend neutral">T2 en cours</span>
-              <div class="stat-icon info"><i class="fa-solid fa-file-lines"></i></div>
-              <div class="stat-label">Bulletins générés</div>
-              <div class="stat-value">1 182</div>
+              <div class="stat-icon info"><i class="fa-solid fa-venus-mars"></i></div>
+              <div class="stat-label">Filles / Garçons</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiFilles">…</span> / <span id="kpiGarcons">…</span></div>
               <div class="stat-change up">
-                <i class="fa-solid fa-file-pdf"></i> Trimestre 1
+                <i class="fa-solid fa-users"></i> Effectif total : <span id="kpiSexeTotal">…</span>
               </div>
             </div>
           </div>
 
-          <!-- Discipline -->
+          <!-- Discipline (séquence courante) -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend down"><i class="fa-solid fa-arrow-up"></i> +12</span>
               <div class="stat-icon danger"><i class="fa-solid fa-person-walking-arrow-right"></i></div>
-              <div class="stat-label">Absences ce mois</div>
-              <div class="stat-value">124</div>
+              <div class="stat-label">Absences (séquence en cours)</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiAbsencesTotal">…</span></div>
               <div class="stat-change down">
-                <i class="fa-solid fa-clock"></i> 38 retards · 6 exclusions
+                <i class="fa-solid fa-clock"></i> <span id="kpiRetards">…</span> retards · <span id="kpiExclusions">…</span> exclusions
               </div>
             </div>
           </div>
@@ -393,12 +398,11 @@
           <!-- Parents -->
           <div class="col-span-3">
             <div class="stat-card">
-              <span class="stat-trend up"><i class="fa-solid fa-arrow-up"></i> +28</span>
               <div class="stat-icon success"><i class="fa-solid fa-users"></i></div>
               <div class="stat-label">Parents enregistrés</div>
-              <div class="stat-value">1 089</div>
+              <div class="stat-value"><span class="skeleton-text" id="kpiParentsTotal">…</span></div>
               <div class="stat-change up">
-                <i class="fa-solid fa-mobile-screen"></i> 812 avec téléphone
+                <i class="fa-solid fa-mobile-screen"></i> <span id="kpiParentsTelephone">…</span> avec téléphone
               </div>
             </div>
           </div>
@@ -408,18 +412,15 @@
         <!-- ── Graphiques ── -->
         <div class="dashboard-grid mb-3">
 
-          <!-- Évolution des inscriptions -->
+          <!-- Évolution des inscriptions (réel : Inscription.date_inscription groupé par mois/cycle) -->
           <div class="col-span-8">
             <div class="card chart-card">
               <div class="chart-header">
                 <div>
                   <div class="chart-title">Évolution des inscriptions</div>
-                  <div class="chart-subtitle">Effectifs cumulés par mois — année scolaire 2025-2026</div>
+                  <div class="chart-subtitle" id="inscChartSubtitle">Effectifs cumulés par mois</div>
                 </div>
-                <div class="chart-legend">
-                  <span><span class="dot" style="background: var(--ta-primary);"></span> Collège</span>
-                  <span><span class="dot" style="background: #6D28D9;"></span> Lycée</span>
-                </div>
+                <div class="chart-legend" id="inscChartLegend"></div>
               </div>
               <div style="position: relative; height: 280px;">
                 <canvas id="inscriptionsChart"></canvas>
@@ -427,28 +428,19 @@
             </div>
           </div>
 
-          <!-- Répartition par cycle -->
+          <!-- Répartition par cycle (réel) -->
           <div class="col-span-4">
             <div class="card chart-card">
               <div class="chart-header">
                 <div>
                   <div class="chart-title">Répartition par cycle</div>
-                  <div class="chart-subtitle">1 247 élèves · 32 classes</div>
+                  <div class="chart-subtitle" id="cyclesChartSubtitle">—</div>
                 </div>
               </div>
               <div style="position: relative; height: 180px;">
                 <canvas id="cyclesChart"></canvas>
               </div>
-              <div class="d-flex justify-content-around mt-3" style="font-size: 11px;">
-                <div class="text-center">
-                  <div style="font-weight: 700; color: var(--ta-primary);">742</div>
-                  <div class="text-muted">Collège (18 classes)</div>
-                </div>
-                <div class="text-center">
-                  <div style="font-weight: 700; color: #6D28D9;">505</div>
-                  <div class="text-muted">Lycée (14 classes)</div>
-                </div>
-              </div>
+              <div class="d-flex justify-content-around mt-3 flex-wrap" id="cycleSummary" style="font-size: 11px; gap: 8px;"></div>
             </div>
           </div>
 
@@ -457,118 +449,56 @@
         <!-- ── Ligne 2 : Répartition par classe + Recouvrement ── -->
         <div class="dashboard-grid mb-3">
 
-          <!-- Répartition par classe -->
+          <!-- Effectifs par classe (réel, top 8) -->
           <div class="col-span-6">
             <div class="card chart-card">
               <div class="chart-header">
                 <div>
                   <div class="chart-title">Effectifs par classe</div>
-                  <div class="chart-subtitle">Top 8 — classes les plus peuplées</div>
+                  <div class="chart-subtitle">Top 8 — classes les plus peuplées (année en cours)</div>
                 </div>
                 <a href="/classes" class="btn btn-light btn-sm">Voir tout</a>
               </div>
-
-              <div class="class-bar">
-                <span class="class-name">3ème A</span>
-                <div class="class-track"><div class="class-fill college" style="width: 92%;"></div></div>
-                <span class="class-value">58</span>
+              <div id="classBarsContainer">
+                <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i>Chargement…</div>
               </div>
-              <div class="class-bar">
-                <span class="class-name">4ème B</span>
-                <div class="class-track"><div class="class-fill college" style="width: 85%;"></div></div>
-                <span class="class-value">54</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">2nde C</span>
-                <div class="class-track"><div class="class-fill lycee" style="width: 80%;"></div></div>
-                <span class="class-value">51</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">6ème A</span>
-                <div class="class-track"><div class="class-fill college" style="width: 78%;"></div></div>
-                <span class="class-value">49</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">1ère D</span>
-                <div class="class-track"><div class="class-fill lycee" style="width: 72%;"></div></div>
-                <span class="class-value">46</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">5ème A</span>
-                <div class="class-track"><div class="class-fill college" style="width: 68%;"></div></div>
-                <span class="class-value">43</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">Terminale A</span>
-                <div class="class-track"><div class="class-fill lycee" style="width: 65%;"></div></div>
-                <span class="class-value">41</span>
-              </div>
-              <div class="class-bar">
-                <span class="class-name">3ème B</span>
-                <div class="class-track"><div class="class-fill college" style="width: 60%;"></div></div>
-                <span class="class-value">38</span>
-              </div>
-
             </div>
           </div>
 
-          <!-- Recouvrement par tranche -->
+          <!-- Recouvrement par tranche (réel : montants attendus réels ; le détail des versements
+               PAR tranche n'est pas exposé par l'API actuelle — seul le total global perçu l'est,
+               via /api/paiements/. Voir note en bas de carte. ) -->
           <div class="col-span-6">
             <div class="card chart-card">
               <div class="chart-header">
                 <div>
-                  <div class="chart-title">Recouvrement par tranche</div>
-                  <div class="chart-subtitle">Année scolaire 2025-2026 · Suivi des paiements</div>
+                  <div class="chart-title">Échéancier de paiement</div>
+                  <div class="chart-subtitle">Montants attendus réels par tranche — année en cours</div>
                 </div>
                 <a href="/paiements" class="btn btn-light btn-sm">Détails</a>
               </div>
 
-              <div class="tranche-item">
-                <span class="tranche-label">Tranche 1</span>
-                <div class="tranche-progress">
-                  <div class="progress">
-                    <div class="progress-bar bg-success" style="width: 96%;"></div>
-                  </div>
-                </div>
-                <div class="tranche-value"><strong>96%</strong> · 1 197 / 1 247</div>
-              </div>
-
-              <div class="tranche-item">
-                <span class="tranche-label">Tranche 2</span>
-                <div class="tranche-progress">
-                  <div class="progress">
-                    <div class="progress-bar" style="width: 78%;"></div>
-                  </div>
-                </div>
-                <div class="tranche-value"><strong>78%</strong> · 973 / 1 247</div>
-              </div>
-
-              <div class="tranche-item">
-                <span class="tranche-label">Tranche 3</span>
-                <div class="tranche-progress">
-                  <div class="progress">
-                    <div class="progress-bar bg-warning" style="width: 32%;"></div>
-                  </div>
-                </div>
-                <div class="tranche-value"><strong>32%</strong> · 399 / 1 247</div>
+              <div id="trancheContainer">
+                <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i>Chargement…</div>
               </div>
 
               <hr class="divider" />
 
               <div class="d-flex justify-content-between align-items-center" style="font-size: 11.5px;">
                 <div>
-                  <div class="text-muted">Total perçu</div>
+                  <div class="text-muted">Total perçu (paiements validés)</div>
                   <div style="font-size: 15px; font-weight: 700; color: var(--ta-text);">
-                    187,4 M <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
+                    <span id="totalPercu">…</span> <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
                   </div>
                 </div>
                 <div class="text-end">
                   <div class="text-muted">Reste à percevoir</div>
                   <div style="font-size: 15px; font-weight: 700; color: var(--ta-warning);">
-                    52,8 M <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
+                    <span id="totalResteFooter">…</span> <span style="font-size: 11px; font-weight: 500; color: var(--ta-text-muted);">FCFA</span>
                   </div>
                 </div>
               </div>
+             
 
             </div>
           </div>
@@ -578,75 +508,25 @@
         <!-- ── Ligne 3 : Top élèves + Alertes ── -->
         <div class="dashboard-grid mb-3">
 
-          <!-- Top 5 élèves -->
+          <!-- Top 5 élèves (réel : moyenne pondérée par coefficient, séquence en cours) -->
           <div class="col-span-6">
             <div class="card">
               <div class="card-header">
                 <div class="card-title">
                   <i class="fa-solid fa-trophy text-warning me-1"></i>
-                  Top 5 élèves — Trimestre 1
+                  Top 5 élèves — <span id="topElevesSequence">séquence en cours</span>
                 </div>
                 <a href="/eleves/classement" class="btn btn-light btn-sm">
                   Classement complet <i class="fa-solid fa-arrow-right ms-1"></i>
                 </a>
               </div>
-              <div class="card-body" style="padding: 8px 18px;">
-
-                <div class="top-eleve-item">
-                  <div class="top-eleve-rang rang-1">1</div>
-                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">AM</div>
-                  <div class="top-eleve-info">
-                    <div class="top-eleve-name">Aïcha Moussa</div>
-                    <div class="top-eleve-class">Terminale A · Mention Très Bien</div>
-                  </div>
-                  <div class="top-eleve-moyenne">18,42</div>
-                </div>
-
-                <div class="top-eleve-item">
-                  <div class="top-eleve-rang rang-2">2</div>
-                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">JN</div>
-                  <div class="top-eleve-info">
-                    <div class="top-eleve-name">Jean-Pierre Nkolo</div>
-                    <div class="top-eleve-class">Terminale D · Mention Très Bien</div>
-                  </div>
-                  <div class="top-eleve-moyenne">17,85</div>
-                </div>
-
-                <div class="top-eleve-item">
-                  <div class="top-eleve-rang rang-3">3</div>
-                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">FE</div>
-                  <div class="top-eleve-info">
-                    <div class="top-eleve-name">Fatima Elouardi</div>
-                    <div class="top-eleve-class">1ère C · Mention Très Bien</div>
-                  </div>
-                  <div class="top-eleve-moyenne">17,31</div>
-                </div>
-
-                <div class="top-eleve-item">
-                  <div class="top-eleve-rang">4</div>
-                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">SB</div>
-                  <div class="top-eleve-info">
-                    <div class="top-eleve-name">Samuel Biya</div>
-                    <div class="top-eleve-class">3ème A · Mention Bien</div>
-                  </div>
-                  <div class="top-eleve-moyenne">16,92</div>
-                </div>
-
-                <div class="top-eleve-item">
-                  <div class="top-eleve-rang">5</div>
-                  <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">CN</div>
-                  <div class="top-eleve-info">
-                    <div class="top-eleve-name">Christelle Ndjock</div>
-                    <div class="top-eleve-class">4ème B · Mention Bien</div>
-                  </div>
-                  <div class="top-eleve-moyenne">16,54</div>
-                </div>
-
+              <div class="card-body" style="padding: 8px 18px;" id="topElevesContainer">
+                <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i>Chargement…</div>
               </div>
             </div>
           </div>
 
-          <!-- Alertes à traiter -->
+          <!-- Alertes à traiter (réel, calculées) -->
           <div class="col-span-6">
             <div class="card">
               <div class="card-header">
@@ -654,76 +534,22 @@
                   <i class="fa-solid fa-bell text-danger me-1"></i>
                   Alertes à traiter
                 </div>
-                <span class="badge badge-danger">8</span>
+                <span class="badge badge-danger" id="alertesBadge">…</span>
               </div>
-              <div class="card-body p-0" style="padding: 4px 18px 10px !important;">
-
-                <div class="alert-item">
-                  <div class="alert-icon danger"><i class="fa-solid fa-money-bill-wave"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">87 élèves en retard de paiement</div>
-                    <div class="alert-desc">Tranche 2 — échéance dépassée depuis 5 jours</div>
-                  </div>
-                  <div class="alert-time">Aujourd'hui</div>
-                </div>
-
-                <div class="alert-item">
-                  <div class="alert-icon warn"><i class="fa-solid fa-pen-to-square"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">405 notes manquantes en Séquence 1</div>
-                    <div class="alert-desc">12 enseignants n'ont pas encore saisi leurs notes</div>
-                  </div>
-                  <div class="alert-time">Aujourd'hui</div>
-                </div>
-
-                <div class="alert-item">
-                  <div class="alert-icon danger"><i class="fa-solid fa-user-xmark"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">23 élèves avec absences excessives</div>
-                    <div class="alert-desc">Plus de 10 heures d'absence ce trimestre</div>
-                  </div>
-                  <div class="alert-time">Hier</div>
-                </div>
-
-                <div class="alert-item">
-                  <div class="alert-icon warn"><i class="fa-solid fa-graduation-cap"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">142 élèves en difficulté (< 8/20)</div>
-                    <div class="alert-desc">Conseil de classe à prévoir — décision "Redoublant"</div>
-                  </div>
-                  <div class="alert-time">Hier</div>
-                </div>
-
-                <div class="alert-item">
-                  <div class="alert-icon info"><i class="fa-solid fa-calendar-check"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">Fin de Séquence 1 dans 4 jours</div>
-                    <div class="alert-desc">Clôture des saisies le 20 juillet 2026</div>
-                  </div>
-                  <div class="alert-time">Il y a 2j</div>
-                </div>
-
-                <div class="alert-item">
-                  <div class="alert-icon success"><i class="fa-solid fa-file-pdf"></i></div>
-                  <div style="flex:1;">
-                    <div class="alert-title">65 bulletins du T1 non retirés</div>
-                    <div class="alert-desc">Relancer les parents par SMS / email</div>
-                  </div>
-                  <div class="alert-time">Il y a 3j</div>
-                </div>
-
+              <div class="card-body p-0" style="padding: 4px 18px 10px !important;" id="alertesContainer">
+                <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i>Chargement…</div>
               </div>
             </div>
           </div>
 
         </div>
 
-        <!-- ── Ligne 4 : Activité + Actions rapides ── -->
-        <div class="dashboard-grid mb-3">
+        <!-- ── Ligne 4 : Activité + Actions rapides (row / col-md-6) ── -->
+        <div class="row g-3 mb-3">
 
-          <!-- Activité récente -->
-          <div class="col-span-7">
-            <div class="card">
+          <!-- Activité récente (réel : derniers Paiement / Inscription / Note, fusionnés et triés par date) -->
+          <div class="col-md-6">
+            <div class="card h-100">
               <div class="card-header">
                 <div class="card-title">
                   <i class="fa-solid fa-timeline me-1"></i>
@@ -731,69 +557,15 @@
                 </div>
                 <a href="/journal" class="btn btn-light btn-sm">Journal complet</a>
               </div>
-              <div class="card-body" style="padding: 8px 18px;">
-
-                <div class="activity-item">
-                  <div class="activity-icon note"><i class="fa-solid fa-pen-to-square"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">Notes saisies — Mathématiques 3ème A</div>
-                    <div class="activity-desc">M. Emmanuel Mbeze · Séquence 1 · 58 élèves</div>
-                  </div>
-                  <div class="activity-time">Il y a 15 min</div>
-                </div>
-
-                <div class="activity-item">
-                  <div class="activity-icon paiement"><i class="fa-solid fa-money-bill-wave"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">Paiement reçu — 75 000 FCFA</div>
-                    <div class="activity-desc">Aïcha Moussa · Tranche 2 · Mobile Money</div>
-                  </div>
-                  <div class="activity-time">Il y a 1h</div>
-                </div>
-
-                <div class="activity-item">
-                  <div class="activity-icon eleve"><i class="fa-solid fa-user-plus"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">Nouvel élève inscrit</div>
-                    <div class="activity-desc">Paul Atangana · 6ème B · Parent : Mme Atangana</div>
-                  </div>
-                  <div class="activity-time">Il y a 2h</div>
-                </div>
-
-                <div class="activity-item">
-                  <div class="activity-icon discipline"><i class="fa-solid fa-person-walking-arrow-right"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">Absence enregistrée — 4 élèves</div>
-                    <div class="activity-desc">Français 4ème B · Séquence 1 · 2h d'absence</div>
-                  </div>
-                  <div class="activity-time">Il y a 3h</div>
-                </div>
-
-                <div class="activity-item">
-                  <div class="activity-icon bulletin"><i class="fa-solid fa-file-pdf"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">12 bulletins du T1 téléchargés</div>
-                    <div class="activity-desc">Classe de 3ème A · Par 8 parents différents</div>
-                  </div>
-                  <div class="activity-time">Il y a 5h</div>
-                </div>
-
-                <div class="activity-item">
-                  <div class="activity-icon note"><i class="fa-solid fa-file-excel"></i></div>
-                  <div class="activity-content">
-                    <div class="activity-title">Import Excel de notes</div>
-                    <div class="activity-desc">Mme Cécile Tchoupo · Physique-Chimie 2nde C · 51 notes</div>
-                  </div>
-                  <div class="activity-time">Hier</div>
-                </div>
-
+              <div class="card-body" style="padding: 8px 18px;" id="activityContainer">
+                <div class="empty-state"><i class="fa-solid fa-spinner fa-spin"></i>Chargement…</div>
               </div>
             </div>
           </div>
 
           <!-- Actions rapides -->
-          <div class="col-span-5">
-            <div class="card">
+          <div class="col-md-6">
+            <div class="card h-100">
               <div class="card-header">
                 <div class="card-title">
                   <i class="fa-solid fa-bolt text-warning me-1"></i>
@@ -809,16 +581,6 @@
                   <div>
                     <div class="qa-label">Saisir les notes</div>
                     <div class="qa-desc">Par matière-classe et séquence</div>
-                  </div>
-                </a>
-
-                <a href="/bulletins/generer" class="quick-action">
-                  <div class="qa-icon" style="background: #EDE9FE; color: #6D28D9;">
-                    <i class="fa-solid fa-file-pdf"></i>
-                  </div>
-                  <div>
-                    <div class="qa-label">Générer les bulletins</div>
-                    <div class="qa-desc">Calcul & export PDF</div>
                   </div>
                 </a>
 
@@ -876,97 +638,588 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <script src="{{ url_for('static', filename='js/intercepteur.js') }}"></script>
-<script src="{{ url_for('static', filename='js/auth.js') }}"></script>
-<script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
   <script>
-    // ── Chart : Évolution des inscriptions ──
-    const ctxInsc = document.getElementById('inscriptionsChart');
-    if (ctxInsc) {
-      new Chart(ctxInsc, {
-        type: 'line',
-        data: {
-          labels: ['Sept','Oct','Nov','Déc','Jan','Fév','Mar','Avr','Mai','Juin','Juil'],
-          datasets: [
-            {
-              label: 'Collège',
-              data: [680, 705, 718, 722, 728, 731, 735, 738, 740, 741, 742],
-              borderColor: '#3C50E0',
-              backgroundColor: 'rgba(60, 80, 224, 0.1)',
-              fill: true,
-              tension: 0.4,
-              borderWidth: 2,
-              pointRadius: 3,
-              pointBackgroundColor: '#3C50E0'
-            },
-            {
-              label: 'Lycée',
-              data: [460, 475, 482, 488, 492, 495, 498, 500, 502, 504, 505],
-              borderColor: '#6D28D9',
-              backgroundColor: 'rgba(109, 40, 217, 0.08)',
-              fill: true,
-              tension: 0.4,
-              borderWidth: 2,
-              pointRadius: 3,
-              pointBackgroundColor: '#6D28D9'
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#1C2434',
-              padding: 10,
-              titleFont: { size: 11 },
-              bodyFont: { size: 11 }
-            }
-          },
-          scales: {
-            x: {
-              grid: { display: false },
-              ticks: { font: { size: 11 }, color: '#94A3B8' }
-            },
-            y: {
-              beginAtZero: false,
-              grid: { color: '#F1F5F9' },
-              ticks: { font: { size: 11 }, color: '#94A3B8' }
-            }
-          }
-        }
-      });
+  /* ==========================================================================
+     DASHBOARD — 100% données réelles, aucune valeur codée en dur.
+     Toutes les métriques ci-dessous sont recalculées à partir des endpoints
+     Flask existants (voir commentaires par section). Deux limites honnêtes,
+     documentées plutôt que masquées par une fausse donnée :
+       1. Le détail des versements PAR tranche (montant réellement encaissé
+          par échéance) n'est pas exposé par l'API : seul le montant ATTENDU
+          par tranche et le TOTAL perçu (toutes tranches confondues) le sont.
+       2. Il n'existe pas d'endpoint "journal d'activité" : le fil d'activité
+          récente est reconstitué à partir des 3 seules tables qui portent un
+          horodatage réel (Paiement.date_paiement, Inscription.date_inscription,
+          Note.saisie_le).
+     ========================================================================== */
+
+  const PALETTE = ['#3C50E0', '#6D28D9', '#0EA5E9', '#059669', '#D97706', '#DC2626'];
+
+  async function apiGet(url) {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error(`GET ${url} -> ${res.status}`);
+    return res.json();
+  }
+
+  function fmtNombre(n) {
+    return new Intl.NumberFormat('fr-FR').format(Math.round(n || 0));
+  }
+
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    // Les valeurs sont posées dans des <span class="skeleton-text"> pendant le
+    // chargement (color: transparent, pour masquer le "…" tant que la vraie
+    // donnée n'est pas là). Sans ce retrait, la classe reste active et le
+    // texte final reste invisible même une fois rempli.
+    el.classList.remove('skeleton-text');
+  }
+
+  function classeLabel(classe, cycleMap) {
+    if (!classe) return '—';
+    const cycle = cycleMap.get(classe.cycle_id);
+    const cycleLibelle = cycle ? cycle.libelle : null;
+    if (cycleLibelle && classe.option) return `${cycleLibelle} ${classe.option}`;
+    return cycleLibelle || classe.option || `Classe #${classe.id}`;
+  }
+
+  function initiales(nom) {
+    return (nom || '')
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(w => w[0].toUpperCase())
+      .join('') || '--';
+  }
+
+  function dateDansMoisCourant(dateStr, now) {
+    if (!dateStr) return false;
+    const d = new Date(dateStr);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  }
+
+  function moisLabel(date) {
+    return date.toLocaleDateString('fr-FR', { month: 'short' });
+  }
+
+  function relTime(date, now) {
+    const diffMs = now - date;
+    const min = Math.floor(diffMs / 60000);
+    if (min < 1) return "À l'instant";
+    if (min < 60) return `Il y a ${min} min`;
+    const h = Math.floor(min / 60);
+    if (h < 24) return `Il y a ${h}h`;
+    const j = Math.floor(h / 24);
+    if (j === 1) return 'Hier';
+    if (j < 7) return `Il y a ${j}j`;
+    return date.toLocaleDateString('fr-FR');
+  }
+
+  function emptyState(container, message, icon = 'fa-circle-check') {
+    container.innerHTML = `<div class="empty-state"><i class="fa-solid ${icon}"></i>${message}</div>`;
+  }
+
+  async function initDashboard() {
+    const now = new Date();
+
+    // ------------------------------------------------------------------
+    // 1) Identité + établissement (/api/auth/me, /api/etablissements/<id>)
+    // ------------------------------------------------------------------
+    let me;
+    try {
+      me = await apiGet('/api/auth/me');
+    } catch (e) {
+      console.error('Impossible de récupérer la session courante', e);
+      return;
+    }
+    const etabId = me.etablissement_id;
+    if (!etabId) {
+      console.error('Aucun etablissement_id sur ce compte.');
+      return;
     }
 
-    // ── Chart : Répartition par cycle ──
+    let etab = {};
+    try { etab = await apiGet(`/api/etablissements/${etabId}`); } catch (e) { console.warn(e); }
+
+    setText('etabNom', etab.nom || me.etablissement_nom || 'Établissement');
+    setText('etabLocalisation', [etab.region, etab.adresse].filter(Boolean).join(' · ') || '—');
+    document.getElementById('etabLogo').textContent = initiales(etab.nom || me.etablissement_nom);
+
+    // ------------------------------------------------------------------
+    // 2) Chargement en parallèle de tous les référentiels nécessaires
+    // ------------------------------------------------------------------
+    const qs = `?etablissement_id=${etabId}`;
+    const [
+      annees, trimestresAll, sequencesAll,
+      classes, cycles, eleves, enseignants, parents,
+      inscriptions, matieresClasse, tranches,
+      paiementsValides, disciplines, notes,
+    ] = await Promise.all([
+      apiGet(`/api/annees-scolaires/${qs}`).catch(() => []),
+      apiGet(`/api/trimestres/${qs}`).catch(() => []),
+      apiGet(`/api/sequences/${qs}`).catch(() => []),
+      apiGet(`/api/classes/${qs}`).catch(() => []),
+      apiGet(`/api/cycles/${qs}`).catch(() => []),
+      apiGet(`/api/eleves/${qs}`).catch(() => []),
+      apiGet(`/api/enseignants/${qs}`).catch(() => []),
+      apiGet(`/api/parents/${qs}`).catch(() => []),
+      apiGet(`/api/inscriptions/${qs}`).catch(() => []),
+      apiGet(`/api/matieres-classe/${qs}`).catch(() => []),
+      apiGet(`/api/tranches-classe/${qs}`).catch(() => []),
+      apiGet(`/api/paiements/${qs}&statut=VALIDE`).catch(() => []),
+      apiGet(`/api/disciplines/${qs}`).catch(() => []),
+      apiGet(`/api/notes/${qs}`).catch(() => []),
+    ]);
+
+    // Année scolaire active (flag 'active', sinon la plus récente)
+    const anneeActive = annees.find(a => a.active) || [...annees].sort((a, b) => b.id - a.id)[0] || null;
+
+    // Trimestre en cours = celui dont [date_debut, date_fin] contient aujourd'hui,
+    // sinon le dernier trimestre de l'année active.
+    const trimestres = anneeActive ? trimestresAll.filter(t => t.annee_scolaire_id === anneeActive.id) : [];
+    const trimestreCourant = trimestres.find(t => t.date_debut && t.date_fin
+      && new Date(t.date_debut) <= now && now <= new Date(t.date_fin))
+      || [...trimestres].sort((a, b) => b.id - a.id)[0] || null;
+
+    const sequencesTrim = trimestreCourant ? sequencesAll.filter(s => s.trimestre_id === trimestreCourant.id) : [];
+    const sequenceCourante = sequencesTrim.find(s => s.date_debut && s.date_fin
+      && new Date(s.date_debut) <= now && now <= new Date(s.date_fin))
+      || [...sequencesTrim].sort((a, b) => b.id - a.id)[0] || null;
+
+    setText('metaAnnee', anneeActive ? anneeActive.libelle : '—');
+    setText('metaTrimestre', trimestreCourant ? trimestreCourant.libelle : '—');
+    setText('metaSequence', sequenceCourante ? sequenceCourante.libelle : '—');
+    setText('topElevesSequence', sequenceCourante ? sequenceCourante.libelle : 'séquence en cours');
+
+    // Maps utilitaires
+    const cycleMap = new Map(cycles.map(c => [c.id, c]));
+    const classeMap = new Map(classes.map(c => [c.id, c]));
+    const eleveMap = new Map(eleves.map(e => [e.id, e]));
+    const inscriptionMap = new Map(inscriptions.map(i => [i.id, i]));
+    const mcMap = new Map(matieresClasse.map(mc => [mc.id, mc]));
+
+    // Effectif RÉEL par classe pour l'année active : inscriptions actives de
+    // cette année, groupées par classe_id (plus fiable que Classe.effectif,
+    // qui ne filtre pas par année scolaire côté backend).
+    const inscriptionsAnnee = anneeActive
+      ? inscriptions.filter(i => i.annee_scolaire_id === anneeActive.id && i.statut === 'Actif')
+      : [];
+    const effectifParClasse = new Map();
+    inscriptionsAnnee.forEach(i => effectifParClasse.set(i.classe_id, (effectifParClasse.get(i.classe_id) || 0) + 1));
+
+    // ------------------------------------------------------------------
+    // 3) KPI — Élèves
+    // ------------------------------------------------------------------
+    const elevesActifs = eleves.filter(e => e.statut === 'Actif').length;
+    setText('kpiElevesTotal', fmtNombre(eleves.length));
+    setText('kpiElevesActifs', fmtNombre(elevesActifs));
+    setText('kpiElevesActifsPct', eleves.length ? Math.round(elevesActifs / eleves.length * 100) : 0);
+    const inscritsCeMois = inscriptions.filter(i => dateDansMoisCourant(i.date_inscription, now)).length;
+    const trendEl = document.getElementById('kpiElevesTrend');
+    trendEl.textContent = `+${inscritsCeMois} ce mois-ci`;
+    trendEl.className = 'stat-trend ' + (inscritsCeMois > 0 ? 'up' : 'neutral');
+
+    // ------------------------------------------------------------------
+    // 4) KPI — Classes
+    // ------------------------------------------------------------------
+    setText('kpiClassesTotal', fmtNombre(classes.length));
+    setText('kpiCyclesTotal', fmtNombre(cycles.length));
+    setText('kpiNiveauxTotal', fmtNombre(new Set(classes.map(c => c.option).filter(Boolean)).size));
+
+    // ------------------------------------------------------------------
+    // 5) KPI — Enseignants
+    // ------------------------------------------------------------------
+    setText('kpiEnseignantsTotal', fmtNombre(enseignants.length));
+    setText('kpiMatieresClasseTotal', fmtNombre(matieresClasse.length));
+
+    // ------------------------------------------------------------------
+    // 6) KPI — Parents
+    // ------------------------------------------------------------------
+    setText('kpiParentsTotal', fmtNombre(parents.length));
+    setText('kpiParentsTelephone', fmtNombre(parents.filter(p => p.telephone).length));
+
+    // ------------------------------------------------------------------
+    // 7) KPI — Filles / Garçons (réel)
+    // ------------------------------------------------------------------
+    const filles = eleves.filter(e => e.sexe === 'F').length;
+    const garcons = eleves.filter(e => e.sexe === 'M').length;
+    setText('kpiFilles', fmtNombre(filles));
+    setText('kpiGarcons', fmtNombre(garcons));
+    setText('kpiSexeTotal', fmtNombre(eleves.length));
+
+    // ------------------------------------------------------------------
+    // 8) KPI — Notes saisies (séquence en cours)
+    //    numérateur = Note existantes sur la séquence
+    //    dénominateur = Σ(effectif de la classe × nb matières-classe de la classe)
+    // ------------------------------------------------------------------
+    const notesSeq = sequenceCourante ? notes.filter(n => n.sequence_id === sequenceCourante.id) : [];
+    const mcParClasse = new Map();
+    matieresClasse.forEach(mc => mcParClasse.set(mc.classe_id, (mcParClasse.get(mc.classe_id) || 0) + 1));
+    let notesAttendues = 0;
+    classes.forEach(c => { notesAttendues += (effectifParClasse.get(c.id) || 0) * (mcParClasse.get(c.id) || 0); });
+    const notesEnAttente = Math.max(0, notesAttendues - notesSeq.length);
+    setText('kpiNotesSaisies', fmtNombre(notesSeq.length));
+    setText('kpiNotesAttendu', fmtNombre(notesAttendues));
+    setText('kpiNotesEnAttente', fmtNombre(notesEnAttente));
+    setText('kpiNotesPct', notesAttendues ? Math.round(notesSeq.length / notesAttendues * 100) : 0);
+
+    // ------------------------------------------------------------------
+    // 9) KPI — Discipline (séquence en cours, réel)
+    // ------------------------------------------------------------------
+    const disciplinesSeq = sequenceCourante ? disciplines.filter(d => d.sequence_id === sequenceCourante.id) : [];
+    const sumAbs = disciplinesSeq.reduce((s, d) => s + (d.absences_justifiees || 0) + (d.absences_non_justifiees || 0), 0);
+    const sumRetards = disciplinesSeq.reduce((s, d) => s + (d.retards || 0), 0);
+    const sumExclusions = disciplinesSeq.reduce((s, d) => s + (d.exclusions || 0), 0);
+    setText('kpiAbsencesTotal', fmtNombre(sumAbs));
+    setText('kpiRetards', fmtNombre(sumRetards));
+    setText('kpiExclusions', fmtNombre(sumExclusions));
+
+    // ------------------------------------------------------------------
+    // 10) Recouvrement (réel) — attendu = Σ(montant_attendu × effectif réel
+    //     de la classe) pour l'année active ; perçu = Σ montant_total des
+    //     Paiement VALIDE dont l'inscription appartient à l'année active.
+    // ------------------------------------------------------------------
+    const tranchesAnnee = anneeActive ? tranches.filter(t => t.annee_scolaire_id === anneeActive.id) : [];
+    let totalAttendu = 0;
+    tranchesAnnee.forEach(t => { totalAttendu += (t.montant_attendu || 0) * (effectifParClasse.get(t.classe_id) || 0); });
+
+    const paiementsAnnee = anneeActive
+      ? paiementsValides.filter(p => {
+          const insc = inscriptionMap.get(p.inscription_id);
+          return insc && insc.annee_scolaire_id === anneeActive.id;
+        })
+      : paiementsValides;
+    const totalPercu = paiementsAnnee.reduce((s, p) => s + (p.montant_total || 0), 0);
+    const totalReste = Math.max(0, totalAttendu - totalPercu);
+    const pctRecouvrement = totalAttendu ? Math.round(totalPercu / totalAttendu * 100) : 0;
+
+    setText('kpiRecouvrementPct', pctRecouvrement);
+    setText('kpiResteAPercevoir', fmtNombre(totalReste));
+    setText('totalPercu', fmtNombre(totalPercu));
+    setText('totalResteFooter', fmtNombre(totalReste));
+
+    // Détail par tranche (montant attendu réel uniquement, cf. note sous la carte)
+    const parLibelle = new Map();
+    tranchesAnnee.forEach(t => {
+      const cur = parLibelle.get(t.libelle) || { attendu: 0, ordre: t.ordre, nbClasses: 0 };
+      cur.attendu += (t.montant_attendu || 0) * (effectifParClasse.get(t.classe_id) || 0);
+      cur.nbClasses += 1;
+      parLibelle.set(t.libelle, cur);
+    });
+    const trancheContainer = document.getElementById('trancheContainer');
+    const trancheEntries = [...parLibelle.entries()].sort((a, b) => a[1].ordre - b[1].ordre);
+    if (!trancheEntries.length) {
+      emptyState(trancheContainer, "Aucune tranche définie pour l'année en cours.", 'fa-file-circle-question');
+    } else {
+      const maxAttendu = Math.max(...trancheEntries.map(([, v]) => v.attendu), 1);
+      trancheContainer.innerHTML = trancheEntries.map(([libelle, v]) => `
+        <div class="tranche-item">
+          <span class="tranche-label">${libelle}</span>
+          <div class="tranche-progress">
+            <div class="progress"><div class="progress-bar" style="width:${Math.round(v.attendu / maxAttendu * 100)}%;"></div></div>
+          </div>
+          <div class="tranche-value"><strong>${fmtNombre(v.attendu)}</strong> FCFA attendus</div>
+        </div>
+      `).join('');
+    }
+
+    // ------------------------------------------------------------------
+    // 11) Effectifs par classe (top 8 réel)
+    // ------------------------------------------------------------------
+    const classBars = classes
+      .map(c => ({ classe: c, effectif: effectifParClasse.get(c.id) || 0 }))
+      .sort((a, b) => b.effectif - a.effectif)
+      .slice(0, 8);
+    const classBarsContainer = document.getElementById('classBarsContainer');
+    if (!classBars.length) {
+      emptyState(classBarsContainer, 'Aucune inscription enregistrée pour cette année.', 'fa-chalkboard');
+    } else {
+      const maxEffectif = Math.max(...classBars.map(b => b.effectif), 1);
+      classBarsContainer.innerHTML = classBars.map((b, idx) => `
+        <div class="class-bar">
+          <span class="class-name" title="${classeLabel(b.classe, cycleMap)}">${classeLabel(b.classe, cycleMap)}</span>
+          <div class="class-track"><div class="class-fill" style="width:${Math.round(b.effectif / maxEffectif * 100)}%; background:${PALETTE[idx % PALETTE.length]};"></div></div>
+          <span class="class-value">${b.effectif}</span>
+        </div>
+      `).join('');
+    }
+
+    // ------------------------------------------------------------------
+    // 12) Répartition par cycle + évolution des inscriptions (réel)
+    // ------------------------------------------------------------------
+    const effectifParCycle = new Map();
+    classes.forEach(c => {
+      const eff = effectifParClasse.get(c.id) || 0;
+      effectifParCycle.set(c.cycle_id, (effectifParCycle.get(c.cycle_id) || 0) + eff);
+    });
+    const cyclesTries = [...effectifParCycle.entries()]
+      .map(([cycleId, effectif]) => ({ cycle: cycleMap.get(cycleId), effectif }))
+      .filter(x => x.cycle)
+      .sort((a, b) => b.effectif - a.effectif);
+
+    setText('cyclesChartSubtitle', `${fmtNombre(eleves.length)} élèves · ${fmtNombre(classes.length)} classes`);
+    document.getElementById('cycleSummary').innerHTML = cyclesTries.map((x, idx) => `
+      <div class="text-center">
+        <div style="font-weight:700; color:${PALETTE[idx % PALETTE.length]};">${fmtNombre(x.effectif)}</div>
+        <div class="text-muted">${x.cycle.libelle}</div>
+      </div>
+    `).join('');
+
     const ctxCycles = document.getElementById('cyclesChart');
-    if (ctxCycles) {
+    if (ctxCycles && cyclesTries.length) {
       new Chart(ctxCycles, {
         type: 'doughnut',
         data: {
-          labels: ['Collège', 'Lycée'],
+          labels: cyclesTries.map(x => x.cycle.libelle),
           datasets: [{
-            data: [742, 505],
-            backgroundColor: ['#3C50E0', '#6D28D9'],
+            data: cyclesTries.map(x => x.effectif),
+            backgroundColor: cyclesTries.map((_, i) => PALETTE[i % PALETTE.length]),
             borderWidth: 0,
             cutout: '70%'
           }]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#1C2434',
-              padding: 10,
-              titleFont: { size: 11 },
-              bodyFont: { size: 11 }
-            }
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1C2434', padding: 10 } }
+        }
+      });
+    }
+
+    // Évolution des inscriptions : cumul mensuel par cycle, sur les 11
+    // derniers mois glissants (calculé à partir de Inscription.date_inscription réelles).
+    const moisAffiches = [];
+    for (let k = 10; k >= 0; k--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - k, 1);
+      moisAffiches.push(d);
+    }
+    const cyclesPourChart = cyclesTries.slice(0, 2); // même mise en page qu'avant : 2 séries maximum
+    document.getElementById('inscChartLegend').innerHTML = cyclesPourChart.map((x, i) =>
+      `<span><span class="dot" style="background:${PALETTE[i]};"></span> ${x.cycle.libelle}</span>`
+    ).join('');
+    setText('inscChartSubtitle', anneeActive ? `Inscriptions cumulées par mois — ${anneeActive.libelle}` : 'Inscriptions cumulées par mois');
+
+    const inscriptionsParClasseId = inscriptions; // toutes années, on filtre par date ci-dessous
+    function cumulAuMois(cycleId, moisDate) {
+      const finMois = new Date(moisDate.getFullYear(), moisDate.getMonth() + 1, 1);
+      return inscriptionsParClasseId.filter(i => {
+        if (!i.date_inscription) return false;
+        const classe = classeMap.get(i.classe_id);
+        if (!classe || classe.cycle_id !== cycleId) return false;
+        return new Date(i.date_inscription) < finMois;
+      }).length;
+    }
+    const ctxInsc = document.getElementById('inscriptionsChart');
+    if (ctxInsc) {
+      new Chart(ctxInsc, {
+        type: 'line',
+        data: {
+          labels: moisAffiches.map(moisLabel),
+          datasets: cyclesPourChart.map((x, i) => ({
+            label: x.cycle.libelle,
+            data: moisAffiches.map(m => cumulAuMois(x.cycle.id, m)),
+            borderColor: PALETTE[i], backgroundColor: PALETTE[i] + '1A',
+            fill: true, tension: 0.4, borderWidth: 2, pointRadius: 3, pointBackgroundColor: PALETTE[i]
+          }))
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1C2434', padding: 10 } },
+          scales: {
+            x: { grid: { display: false }, ticks: { font: { size: 11 }, color: '#94A3B8' } },
+            y: { beginAtZero: true, grid: { color: '#F1F5F9' }, ticks: { font: { size: 11 }, color: '#94A3B8' } }
           }
         }
       });
     }
+
+    // ------------------------------------------------------------------
+    // 13) Top 5 élèves (réel) — moyenne pondérée par coefficient, séquence en cours
+    // ------------------------------------------------------------------
+    const parInscription = new Map(); // inscription_id -> { points, coefs }
+    notesSeq.forEach(n => {
+      if (n.absent || n.valeur === null || n.valeur === undefined) return;
+      const mc = mcMap.get(n.matiere_classe_id);
+      const coef = mc ? (mc.coefficient || 1) : 1;
+      const cur = parInscription.get(n.inscription_id) || { points: 0, coefs: 0 };
+      cur.points += n.valeur * coef;
+      cur.coefs += coef;
+      parInscription.set(n.inscription_id, cur);
+    });
+    const classements = [...parInscription.entries()]
+      .filter(([, v]) => v.coefs > 0)
+      .map(([inscriptionId, v]) => {
+        const insc = inscriptionMap.get(inscriptionId);
+        const eleve = insc ? eleveMap.get(insc.eleve_id) : null;
+        const classe = insc ? classeMap.get(insc.classe_id) : null;
+        return {
+          nom: eleve ? `${eleve.prenom} ${eleve.nom}` : `Inscription #${inscriptionId}`,
+          classeLabel: classeLabel(classe, cycleMap),
+          moyenne: v.points / v.coefs,
+        };
+      })
+      .sort((a, b) => b.moyenne - a.moyenne)
+      .slice(0, 5);
+
+    const topElevesContainer = document.getElementById('topElevesContainer');
+    if (!classements.length) {
+      emptyState(topElevesContainer, "Pas encore de notes saisies pour cette séquence.", 'fa-pen-to-square');
+    } else {
+      topElevesContainer.innerHTML = classements.map((c, idx) => `
+        <div class="top-eleve-item">
+          <div class="top-eleve-rang ${idx < 3 ? 'rang-' + (idx + 1) : ''}">${idx + 1}</div>
+          <div class="eleve-avatar-placeholder" style="width:34px;height:34px;font-size:11px;">${initiales(c.nom)}</div>
+          <div class="top-eleve-info">
+            <div class="top-eleve-name">${c.nom}</div>
+            <div class="top-eleve-class">${c.classeLabel}</div>
+          </div>
+          <div class="top-eleve-moyenne">${c.moyenne.toFixed(2)}</div>
+        </div>
+      `).join('');
+    }
+
+    // ------------------------------------------------------------------
+    // 14) Alertes (réel, uniquement affichées si la condition est vraie)
+    // ------------------------------------------------------------------
+    const alertes = [];
+
+    const mcIncompletes = matieresClasse.filter(mc =>
+      (effectifParClasse.get(mc.classe_id) || 0) > 0 &&
+      notesSeq.filter(n => n.matiere_classe_id === mc.id).length < (effectifParClasse.get(mc.classe_id) || 0)
+    ).length;
+    if (mcIncompletes > 0) {
+      alertes.push({
+        icon: 'warn', iconClass: 'fa-pen-to-square',
+        titre: `${fmtNombre(notesEnAttente)} notes manquantes`,
+        desc: `${fmtNombre(mcIncompletes)} matière(s)-classe encore incomplète(s) sur la séquence en cours`,
+      });
+    }
+
+    const enDifficulte = classements.length
+      ? [...parInscription.values()].filter(v => (v.points / v.coefs) < 8).length
+      : 0;
+    if (enDifficulte > 0) {
+      alertes.push({
+        icon: 'danger', iconClass: 'fa-graduation-cap',
+        titre: `${fmtNombre(enDifficulte)} élève(s) en difficulté (< 8/20)`,
+        desc: 'Moyenne pondérée sur la séquence en cours',
+      });
+    }
+
+    const SEUIL_ABSENCES = 10;
+    const absencesExcessives = disciplinesSeq.filter(d =>
+      (d.absences_justifiees || 0) + (d.absences_non_justifiees || 0) > SEUIL_ABSENCES
+    ).length;
+    if (absencesExcessives > 0) {
+      alertes.push({
+        icon: 'danger', iconClass: 'fa-user-xmark',
+        titre: `${fmtNombre(absencesExcessives)} élève(s) avec absences excessives`,
+        desc: `Plus de ${SEUIL_ABSENCES} absences cumulées ce trimestre`,
+      });
+    }
+
+    if (totalReste > 0) {
+      alertes.push({
+        icon: 'warn', iconClass: 'fa-sack-dollar',
+        titre: `${fmtNombre(totalReste)} FCFA restant à percevoir`,
+        desc: `Sur un total attendu de ${fmtNombre(totalAttendu)} FCFA (année en cours)`,
+      });
+    }
+
+    if (sequenceCourante && sequenceCourante.date_fin) {
+      const finSeq = new Date(sequenceCourante.date_fin);
+      const joursRestants = Math.ceil((finSeq - now) / (1000 * 60 * 60 * 24));
+      if (joursRestants >= 0 && joursRestants <= 14) {
+        alertes.push({
+          icon: 'info', iconClass: 'fa-calendar-check',
+          titre: `Fin de ${sequenceCourante.libelle} dans ${joursRestants} jour(s)`,
+          desc: `Clôture prévue le ${finSeq.toLocaleDateString('fr-FR')}`,
+        });
+      }
+    }
+
+    const alertesContainer = document.getElementById('alertesContainer');
+    document.getElementById('alertesBadge').textContent = alertes.length;
+    if (!alertes.length) {
+      emptyState(alertesContainer, 'Aucune alerte active pour le moment.', 'fa-circle-check');
+    } else {
+      alertesContainer.innerHTML = alertes.map(a => `
+        <div class="alert-item">
+          <div class="alert-icon ${a.icon}"><i class="fa-solid ${a.iconClass}"></i></div>
+          <div style="flex:1;">
+            <div class="alert-title">${a.titre}</div>
+            <div class="alert-desc">${a.desc}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ------------------------------------------------------------------
+    // 15) Activité récente (réel) — fusion des 3 seules sources horodatées :
+    //     Paiement.date_paiement, Inscription.date_inscription, Note.saisie_le
+    // ------------------------------------------------------------------
+    const matieres = matieresClasse.length ? await apiGet(`/api/matieres/${qs}`).catch(() => []) : [];
+    const matiereMap = new Map(matieres.map(m => [m.id, m]));
+
+    const events = [];
+
+    [...paiementsAnnee].sort((a, b) => new Date(b.date_paiement) - new Date(a.date_paiement)).slice(0, 5)
+      .forEach(p => events.push({
+        ts: new Date(p.date_paiement), icon: 'paiement', iconClass: 'fa-money-bill-wave',
+        titre: `Paiement reçu — ${fmtNombre(p.montant_total)} FCFA`,
+        desc: `Reçu n°${p.numero_recu} · ${p.mode_paiement}`,
+      }));
+
+    [...inscriptions].filter(i => i.date_inscription)
+      .sort((a, b) => new Date(b.date_inscription) - new Date(a.date_inscription)).slice(0, 5)
+      .forEach(i => {
+        const eleve = eleveMap.get(i.eleve_id);
+        const classe = classeMap.get(i.classe_id);
+        events.push({
+          ts: new Date(i.date_inscription), icon: 'eleve', iconClass: 'fa-user-plus',
+          titre: 'Nouvelle inscription',
+          desc: `${eleve ? eleve.prenom + ' ' + eleve.nom : 'Élève #' + i.eleve_id} · ${classeLabel(classe, cycleMap)}`,
+        });
+      });
+
+    [...notes].filter(n => n.saisie_le)
+      .sort((a, b) => new Date(b.saisie_le) - new Date(a.saisie_le)).slice(0, 5)
+      .forEach(n => {
+        const insc = inscriptionMap.get(n.inscription_id);
+        const eleve = insc ? eleveMap.get(insc.eleve_id) : null;
+        const mc = mcMap.get(n.matiere_classe_id);
+        const matiere = mc ? matiereMap.get(mc.matiere_id) : null;
+        events.push({
+          ts: new Date(n.saisie_le), icon: 'note', iconClass: 'fa-pen-to-square',
+          titre: `Note saisie — ${matiere ? matiere.libelle : 'Matière'}`,
+          desc: `${eleve ? eleve.prenom + ' ' + eleve.nom : 'Élève'} · ${n.absent ? 'Absent' : (n.valeur ?? '—') + '/20'}`,
+        });
+      });
+
+    events.sort((a, b) => b.ts - a.ts);
+    const activityContainer = document.getElementById('activityContainer');
+    if (!events.length) {
+      emptyState(activityContainer, 'Aucune activité récente enregistrée.', 'fa-timeline');
+    } else {
+      activityContainer.innerHTML = events.slice(0, 6).map(e => `
+        <div class="activity-item">
+          <div class="activity-icon ${e.icon}"><i class="fa-solid ${e.iconClass}"></i></div>
+          <div class="activity-content">
+            <div class="activity-title">${e.titre}</div>
+            <div class="activity-desc">${e.desc}</div>
+          </div>
+          <div class="activity-time">${relTime(e.ts, now)}</div>
+        </div>
+      `).join('');
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    initDashboard().catch(err => console.error('Erreur de chargement du dashboard :', err));
+  });
   </script>
 
 </body>

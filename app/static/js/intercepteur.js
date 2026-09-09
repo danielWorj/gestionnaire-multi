@@ -93,15 +93,24 @@
 
     let res = await doFetch();
 
-    if (res.status === 401) {
+    // 401 = access token absent/expiré (cas nominal). 422 = token présent
+    // mais rejeté par flask-jwt-extended AVANT même de regarder l'expiration
+    // (signature invalide, token malformé) — notamment après une rotation de
+    // JWT_SECRET_KEY côté serveur : les cookies posés avec l'ancienne clé
+    // sont alors silencieusement rejetés en 422, jamais en 401, donc jamais
+    // retentés jusqu'ici. On traite les deux cas de la même façon : une
+    // tentative de refresh, puis un seul retry.
+    if (res.status === 401 || res.status === 422) {
       const refreshed = await refreshAccessToken();
       if (refreshed) {
         res = await doFetch();
       }
-      // Si le refresh échoue, on renvoie la 401 telle quelle : c'est à
-      // l'appelant (ex. auth.js pour une page protégée, ou un composant qui
-      // affiche juste un message) de décider s'il redirige, affiche une
-      // bannière, désactive un bouton, etc.
+      // Si le refresh échoue aussi (cas attendu si le refresh token porte la
+      // même signature invalide : /refresh répond alors lui-même 401/422),
+      // on renvoie la réponse d'échec telle quelle : c'est à l'appelant (ex.
+      // auth.js pour une page protégée, ou un composant qui affiche juste un
+      // message) de décider s'il redirige, affiche une bannière, désactive
+      // un bouton, etc. On ne redirige JAMAIS depuis ce fichier (cf. docstring).
     }
 
     return res;

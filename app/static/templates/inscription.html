@@ -9,6 +9,108 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/style-extras.css') }}" rel="stylesheet">
+
+  <!-- ═══════════════ FEUILLE D'IMPRESSION DÉDIÉE ═══════════════
+       Corrige l'affichage des listes imprimées : la page imprimée
+       ne montre plus que le document (#apercuWrap), sans la marge
+       vide laissée par le reste de l'interface, et le tableau est
+       correctement mis en forme (bordures, en-têtes répétés,
+       lignes non coupées entre deux pages, signatures alignées). -->
+  <style>
+    @media print {
+      @page { size: A4 portrait; margin: 14mm 12mm; }
+
+      html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+
+      /* On retire complètement (display:none, pas juste visibility) tout le reste
+         de l'application, pour qu'il n'occupe plus aucun espace en impression :
+         c'est ça qui provoquait les pages blanches avant le document. On ne
+         réaffiche que la carte contenant le document, puis le document lui-même. */
+      body > *:not(.app-wrapper) { display: none !important; }
+      .app-wrapper > *:not(.main-content) { display: none !important; }
+      .main-content > *:not(.page-content) { display: none !important; }
+      .page-content > * { display: none !important; }
+      .page-content > .card:has(#apercuWrap) { display: block !important; border: 0 !important; box-shadow: none !important; }
+      .page-content > .card:has(#apercuWrap) > *:not(#apercuWrap) { display: none !important; }
+
+      #apercuWrap {
+        display: block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        background: #fff !important;
+      }
+
+      .print-doc { padding: 0; }
+
+      .print-head {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        border-bottom: 2px solid #1f2937;
+        padding-bottom: 8px;
+        margin-bottom: 10px;
+      }
+      .print-logo { width: 52px; height: 52px; object-fit: contain; }
+      .print-etab { font-size: 14px; font-weight: 700; color: #111; }
+      .print-etab-sub { font-size: 10px; color: #444; margin-top: 2px; }
+
+      .print-title {
+        text-align: center;
+        font-size: 15px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+        margin: 10px 0 2px;
+      }
+      .print-subtitle { text-align: center; font-size: 11px; color: #333; margin-bottom: 10px; }
+
+      .print-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 20px;
+        font-size: 10.5px;
+        margin: 6px 0 8px;
+      }
+
+      .print-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 10px;
+        margin-top: 4px;
+      }
+      .print-table th, .print-table td {
+        border: 1px solid #333;
+        padding: 3px 6px;
+        text-align: left;
+        vertical-align: top;
+      }
+      .print-table th {
+        background: #eef1f6 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .print-table td.num, .print-table th.num { width: 24px; text-align: center; }
+      .print-table thead { display: table-header-group; } /* en-tête répété sur chaque page */
+      .print-table tr { page-break-inside: avoid; break-inside: avoid; }
+
+      /* Chaque bloc "classe" (en-tête + tableau) commence proprement, si possible sans se couper juste après le titre */
+      .print-doc > div[style] { break-inside: auto; }
+      .print-meta { break-after: avoid; }
+
+      .print-signature {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 50px;
+        font-size: 11px;
+        break-inside: avoid;
+      }
+      .print-signature div { width: 45%; text-align: center; }
+      .print-signature span { display: block; margin-top: 45px; border-top: 1px solid #333; }
+    }
+  </style>
 </head>
 <body data-page="inscriptions">
 

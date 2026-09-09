@@ -231,7 +231,7 @@ def make_scoped_crud_blueprint(name, model, url_prefix,
 # toute façon pas une donnée sensible.
 # ---------------------------------------------------------------------------
 
-etablissement_logo_bp = Blueprint('etablissement_logo_api', __name__, url_prefix='/api/etablissements/logos')
+etablissement_logo_bp = Blueprint('etablissement_logo_api', __name__, url_prefix='/api/etablissements/storage/logos')
 
 
 @etablissement_logo_bp.route('/<path:filename>', methods=['GET'])

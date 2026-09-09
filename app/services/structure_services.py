@@ -2,6 +2,7 @@ import os
 import re
 import unicodedata
 from werkzeug.utils import secure_filename
+from flask import current_app
 
 from models.structure_models import (
     Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence
@@ -167,8 +168,20 @@ def create_entity(model_class, data):
         db.session.add(entity)
         db.session.commit()
         return entity.to_dict(), 201
-    except IntegrityError:
+    except IntegrityError as e:
         db.session.rollback()
+        # DIAGNOSTIC TEMPORAIRE : le message générique ci-dessous ("Violation
+        # de contrainte d'unicité") est renvoyé pour TOUTE IntegrityError, pas
+        # seulement les doublons — une violation de clé étrangère, de NOT
+        # NULL, de CHECK, ou une collision de clé primaire (séquence
+        # désynchronisée après un seed en base) déclenchent exactement la
+        # même IntegrityError. On logue donc ici le détail réel (nom de
+        # contrainte, message SQL brut) côté serveur, pour pouvoir
+        # diagnostiquer avec certitude au lieu de deviner à partir du seul
+        # message générique renvoyé au frontend.
+        current_app.logger.error(
+            "IntegrityError sur %s : %s", model_class.__name__, getattr(e, "orig", e)
+        )
         return {"erreur": "Violation de contrainte d'unicité"}, 409
     except Exception:
         db.session.rollback()
@@ -190,8 +203,11 @@ def update_entity(entity, data):
             setattr(entity, key, value)
         db.session.commit()
         return entity.to_dict(), 200
-    except IntegrityError:
+    except IntegrityError as e:
         db.session.rollback()
+        current_app.logger.error(
+            "IntegrityError sur update %s : %s", type(entity).__name__, getattr(e, "orig", e)
+        )
         return {"erreur": "Violation de contrainte d'unicité"}, 409
     except Exception:
         db.session.rollback()

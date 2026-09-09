@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gestionnaire — Le pilotage scolaire, simplifié</title>
+<meta name="description" content="Gestionnaire est la plateforme de gestion des établissements scolaires camerounais : inscriptions, notes, bulletins, emploi du temps et paiements, accessible partout et en toute sécurité.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400..700&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#151233;
+    --ink-soft:#4b4870;
+    --indigo:#4F46E5;
+    --indigo-deep:#1E1A4D;
+    --indigo-dark:#100D2E;
+    --indigo-50:#EEEDFC;
+    --indigo-100:#E1DEFA;
+    --paper:#F7F6FC;
+    --white:#FFFFFF;
+    --green:#12A454;
+    --amber:#D98A0F;
+    --red:#D2232A;
+    --line:#E4E1F4;
+    --cm-green:#1EAA59;
+    --cm-red:#D2232A;
+    --cm-yellow:#FCD116;
+    --radius-lg:20px;
+    --radius-md:14px;
+    --radius-sm:9px;
+    --shadow-soft: 0 1px 2px rgba(21,18,51,.04), 0 12px 32px -12px rgba(21,18,51,.14);
+    --shadow-hover: 0 1px 2px rgba(21,18,51,.05), 0 24px 48px -16px rgba(79,70,229,.28);
+    --ease: cubic-bezier(.22,1,.36,1);
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto;}
+    *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important;}
+  }
+
+  body{
+    font-family:'Inter', system-ui, sans-serif;
+    color:var(--ink);
+    background:var(--paper);
+    -webkit-font-smoothing:antialiased;
+    line-height:1.5;
+    overflow-x:hidden;
+  }
+
+  h1,h2,h3,h4{
+    font-family:'Space Grotesk', 'Inter', sans-serif;
+    font-weight:600;
+    letter-spacing:-0.02em;
+    color:var(--ink);
+  }
+
+  .mono{ font-family:'IBM Plex Mono', monospace; letter-spacing:0.01em; }
+
+  a{ color:inherit; text-decoration:none; }
+  img,svg{ display:block; max-width:100%; }
+  ul{ list-style:none; }
+  button{ font:inherit; cursor:pointer; border:none; background:none; color:inherit; }
+
+  .wrap{
+    max-width:1180px;
+    margin:0 auto;
+    padding:0 32px;
+  }
+  @media (max-width:640px){ .wrap{ padding:0 20px; } }
+
+  .eyebrow{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--indigo);
+    font-weight:500;
+  }
+  .eyebrow::before{
+    content:"";
+    width:7px; height:7px;
+    border-radius:2px;
+    background:var(--indigo);
+    display:inline-block;
+    transform:rotate(45deg);
+  }
+
+  .cm-rule{
+    height:4px;
+    width:100%;
+    background: linear-gradient(90deg, var(--cm-green) 0 33.3%, var(--cm-red) 33.3% 66.6%, var(--cm-yellow) 66.6% 100%);
+  }
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:13px 24px;
+    border-radius:999px;
+    font-weight:600;
+    font-size:15px;
+    transition: transform .25s var(--ease), box-shadow .25s var(--ease), background .25s var(--ease);
+    white-space:nowrap;
+  }
+  .btn-primary{
+    background:var(--indigo);
+    color:#fff;
+    box-shadow:0 10px 24px -8px rgba(79,70,229,.55);
+  }
+  .btn-primary:hover{ transform:translateY(-2px); box-shadow:0 16px 30px -10px rgba(79,70,229,.6); }
+  .btn-ghost{
+    background:transparent;
+    color:var(--ink);
+    border:1.5px solid var(--line);
+  }
+  .btn-ghost:hover{ border-color:var(--indigo); color:var(--indigo); }
+  .btn-light{
+    background:#fff;
+    color:var(--indigo-deep);
+  }
+  .btn-light:hover{ transform:translateY(-2px); }
+  .btn-sm{ padding:9px 16px; font-size:13.5px; }
+
+  /* ---------- Nav ---------- */
+  header{
+    position:sticky; top:0; z-index:100;
+    background:rgba(247,246,252,.86);
+    backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--line);
+  }
+  nav.wrap{
+    display:flex; align-items:center; justify-content:space-between;
+    height:74px;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:19px; }
+  .brand .mark{
+    width:34px; height:34px; border-radius:10px;
+    background:var(--indigo);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 6px 14px -4px rgba(79,70,229,.6);
+  }
+  .nav-links{ display:flex; align-items:center; gap:36px; }
+  .nav-links a{ font-size:14.5px; font-weight:500; color:var(--ink-soft); transition:color .2s; }
+  .nav-links a:hover{ color:var(--indigo); }
+  .nav-cta{ display:flex; align-items:center; gap:14px; }
+  .nav-signin{ font-size:14.5px; font-weight:600; color:var(--ink); }
+  .burger{ display:none; width:38px; height:38px; align-items:center; justify-content:center; }
+  .burger span, .burger::before, .burger::after{ content:''; }
+
+  @media (max-width:900px){
+    .nav-links{ display:none; }
+    .nav-signin{ display:none; }
+  }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    padding:88px 0 40px;
+    position:relative;
+  }
+  .hero-grid{
+    display:grid;
+    grid-template-columns:1.05fr 1fr;
+    gap:56px;
+    align-items:center;
+  }
+  @media (max-width:980px){ .hero-grid{ grid-template-columns:1fr; } }
+
+  .hero h1{
+    font-size:clamp(34px, 5vw, 58px);
+    line-height:1.04;
+    margin:18px 0 22px;
+  }
+  .hero h1 em{
+    font-style:normal;
+    color:var(--indigo);
+    position:relative;
+  }
+  .hero p.lead{
+    font-size:18px;
+    color:var(--ink-soft);
+    max-width:480px;
+    margin-bottom:32px;
+  }
+  .hero-ctas{ display:flex; gap:14px; flex-wrap:wrap; margin-bottom:28px; }
+  .hero-trust{ display:flex; align-items:center; gap:14px; font-size:13.5px; color:var(--ink-soft); }
+  .hero-trust .avatars{ display:flex; }
+  .hero-trust .avatars span{
+    width:30px; height:30px; border-radius:50%;
+    border:2.5px solid var(--paper);
+    margin-left:-9px;
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Space Grotesk',sans-serif; font-size:11px; font-weight:700; color:#fff;
+  }
+  .hero-trust .avatars span:first-child{ margin-left:0; }
+
+  /* --- Pipeline board mockup (signature element) --- */
+  .board-frame{
+    background:var(--white);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-soft);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  .board-topbar{
+    display:flex; align-items:center; gap:8px;
+    padding:14px 18px;
+    border-bottom:1px solid var(--line);
+  }
+  .board-topbar .dot{ width:9px; height:9px; border-radius:50%; }
+  .board-topbar .dot:nth-child(1){ background:#F3766A; }
+  .board-topbar .dot:nth-child(2){ background:#F2B84B; }
+  .board-topbar .dot:nth-child(3){ background:#59C67D; }
+  .board-topbar span.url{
+    margin-left:10px; font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--ink-soft);
+    background:var(--paper); padding:5px 12px; border-radius:6px; flex:1;
+  }
+  .board-body{
+    display:grid;
+    grid-template-columns:repeat(4, 1fr);
+    gap:12px;
+    padding:20px;
+    background: linear-gradient(180deg, #FBFAFF, #F3F1FC);
+    position:relative;
+    min-height:340px;
+  }
+  .board-col{
+    background:var(--white);
+    border-radius:12px;
+    border:1px solid var(--line);
+    padding:10px;
+    display:flex; flex-direction:column; gap:9px;
+  }
+  .board-col h5{
+    font-family:'IBM Plex Mono',monospace;
+    font-size:10.5px; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--ink-soft); font-weight:500;
+    padding:2px 4px 6px;
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .board-col h5 b{ color:var(--indigo); font-weight:600; }
+  .mini-card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:9px;
+    padding:9px 10px;
+    font-size:11.5px;
+    color:var(--ink-soft);
+    font-weight:500;
+  }
+  .mini-card .tag{
+    display:inline-block; font-family:'IBM Plex Mono',monospace; font-size:9.5px;
+    padding:2px 6px; border-radius:5px; margin-bottom:6px; font-weight:600; letter-spacing:.02em;
+  }
+  .tag-green{ background:#E4F7EC; color:var(--green); }
+  .tag-amber{ background:#FBF0DD; color:var(--amber); }
+  .tag-indigo{ background:var(--indigo-50); color:var(--indigo); }
+
+  .traveling-card{
+    position:absolute;
+    width:150px;
+    background:#fff;
+    border-radius:11px;
+    border:1.5px solid var(--indigo);
+    box-shadow:0 14px 28px -10px rgba(79,70,229,.45);
+    padding:10px 11px;
+    font-size:11.5px;
+    top:100px;
+    left:32px;
+    animation: travel 12s var(--ease) infinite;
+  }
+  .traveling-card .name{ font-weight:700; margin-bottom:3px; }
+  .traveling-card .id{ font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--ink-soft); }
+  .traveling-card .bar{ height:5px; border-radius:3px; background:var(--indigo-100); margin-top:8px; overflow:hidden; }
+  .traveling-card .bar i{ display:block; height:100%; background:var(--indigo); width:20%; animation: fillbar 12s var(--ease) infinite; }
+
+  @keyframes travel{
+    0%, 6%{ left:32px; top:96px; }
+    25%, 31%{ left:224px; top:150px; }
+    50%, 56%{ left:416px; top:110px; }
+    75%, 81%{ left:608px; top:170px; }
+    95%,100%{ left:608px; top:170px; }
+  }
+  @keyframes fillbar{
+    0%,6%{ width:15%; }
+    25%,31%{ width:40%; }
+    50%,56%{ width:70%; }
+    75%,100%{ width:100%; }
+  }
+  @media (max-width:980px){
+    .board-body{ grid-template-columns:repeat(2, 1fr); }
+    .traveling-card{ display:none; }
+  }
+
+  /* ---------- Everywhere band ---------- */
+  .everywhere-band{ padding:70px 0; background:var(--white); }
+  .everywhere-inner{ display:grid; grid-template-columns:0.85fr 1.15fr; gap:48px; align-items:center; }
+  @media (max-width:900px){ .everywhere-inner{ grid-template-columns:1fr; } }
+  .everywhere-copy h2{ font-size:clamp(24px,3vw,32px); margin:14px 0 14px; line-height:1.15; }
+  .everywhere-copy p{ color:var(--ink-soft); font-size:15.5px; }
+  .everywhere-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:520px){ .everywhere-grid{ grid-template-columns:1fr; } }
+  .everywhere-item{ background:var(--paper); border:1px solid var(--line); border-radius:14px; padding:18px; }
+  .everywhere-item .icon{ width:38px; height:38px; border-radius:10px; background:var(--indigo-50); display:flex; align-items:center; justify-content:center; margin-bottom:12px; }
+  .everywhere-item h4{ font-size:14.5px; margin-bottom:6px; }
+  .everywhere-item p{ font-size:13px; color:var(--ink-soft); }
+
+  /* ---------- Logo / stat strip ---------- */
+  .stripband{
+    border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);
+    padding:36px 0;
+    background:var(--white);
+  }
+  .stripband .wrap{
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:24px;
+  }
+  .stripband .item{ display:flex; align-items:center; gap:10px; color:var(--ink-soft); font-size:14px; font-weight:500; }
+  .stripband .item b{ font-family:'Space Grotesk',sans-serif; color:var(--ink); font-size:15px; }
+
+  /* ---------- Section headers ---------- */
+  section{ padding:110px 0; }
+  @media (max-width:640px){ section{ padding:72px 0; } }
+  .sec-head{ max-width:620px; margin-bottom:56px; }
+  .sec-head h2{ font-size:clamp(28px,3.6vw,42px); margin:14px 0 16px; line-height:1.1; }
+  .sec-head p{ font-size:17px; color:var(--ink-soft); }
+  .sec-head.center{ margin-left:auto; margin-right:auto; text-align:center; }
+
+  /* ---------- Feature grid ---------- */
+  .feature-grid{
+    display:grid;
+    grid-template-columns:repeat(3, 1fr);
+    gap:20px;
+  }
+  @media (max-width:900px){ .feature-grid{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:600px){ .feature-grid{ grid-template-columns:1fr; } }
+
+  .feature-card{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:var(--radius-md);
+    padding:26px;
+    transition: transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s;
+  }
+  .feature-card:hover{ transform:translateY(-4px); box-shadow:var(--shadow-hover); border-color:transparent; }
+  .feature-card .icon{
+    width:44px; height:44px; border-radius:11px;
+    background:var(--indigo-50);
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:18px;
+  }
+  .feature-card .icon svg{ stroke:var(--indigo); }
+  .feature-card h3{ font-size:18px; margin-bottom:8px; }
+  .feature-card p{ font-size:14.5px; color:var(--ink-soft); }
+  .feature-card .tags{ display:flex; gap:6px; flex-wrap:wrap; margin-top:14px; }
+  .feature-card .tags span{
+    font-family:'IBM Plex Mono',monospace; font-size:10.5px; color:var(--ink-soft);
+    background:var(--paper); border:1px solid var(--line); padding:3px 8px; border-radius:6px;
+  }
+
+  /* ---------- Productions list ---------- */
+  .productions-block{ margin-top:70px; padding-top:70px; border-top:1px solid var(--line); }
+  .productions-grid{ display:grid; grid-template-columns:repeat(2, 1fr); gap:14px; }
+  @media (max-width:700px){ .productions-grid{ grid-template-columns:1fr; } }
+  .production-item{
+    display:flex; gap:14px; align-items:flex-start;
+    background:var(--white); border:1px solid var(--line); border-radius:12px; padding:16px 18px;
+  }
+  .production-item .icon{
+    width:38px; height:38px; border-radius:10px; background:var(--indigo-50); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .production-item h4{ font-size:14.5px; margin-bottom:4px; }
+  .production-item p{ font-size:13px; color:var(--ink-soft); }
+
+  /* ---------- Deep dive (bulletin / paiements) ---------- */
+  .deepdive{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:64px;
+    align-items:center;
+  }
+  .deepdive.reverse .visual{ order:2; }
+  .deepdive.reverse .copy{ order:1; }
+  @media (max-width:900px){
+    .deepdive, .deepdive.reverse{ grid-template-columns:1fr; }
+    .deepdive.reverse .visual, .deepdive.reverse .copy{ order:initial; }
+  }
+  .deepdive .copy h3{ font-size:28px; margin:14px 0 14px; }
+  .deepdive .copy p{ color:var(--ink-soft); font-size:15.5px; margin-bottom:22px; }
+  .checklist{ display:flex; flex-direction:column; gap:12px; }
+  .checklist li{ display:flex; gap:10px; align-items:flex-start; font-size:14.5px; color:var(--ink); }
+  .checklist svg{ flex-shrink:0; margin-top:2px; stroke:var(--green); }
+
+  /* bulletin mock */
+  .bulletin-card{
+    background:var(--white); border:1px solid var(--line); border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-soft); overflow:hidden;
+  }
+  .bulletin-head{ padding:22px 24px 16px; border-bottom:1px dashed var(--line); }
+  .bulletin-head .row1{ display:flex; justify-content:space-between; align-items:flex-start; }
+  .bulletin-head h4{ font-size:16px; }
+  .bulletin-head .school{ display:flex; gap:10px; align-items:center; }
+  .bulletin-head .school .sq{ width:34px; height:34px; border-radius:8px; background:var(--indigo-50); }
+  .bulletin-head .meta{ font-size:11.5px; color:var(--ink-soft); margin-top:2px; }
+  .bulletin-badge{ background:var(--indigo-50); color:var(--indigo); font-family:'IBM Plex Mono',monospace; font-size:10.5px; padding:5px 10px; border-radius:7px; font-weight:600; }
+  table.bulletin-table{ width:100%; border-collapse:collapse; font-size:12px; }
+  table.bulletin-table th{
+    text-align:left; font-family:'IBM Plex Mono',monospace; font-size:9.5px; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--ink-soft); font-weight:500;
+    padding:10px 24px 8px; border-bottom:1px solid var(--line);
+  }
+  table.bulletin-table td{ padding:9px 24px; border-bottom:1px solid var(--line); color:var(--ink); }
+  table.bulletin-table td.matiere{ font-weight:600; }
+  table.bulletin-table td.subtext{ font-weight:400; color:var(--ink-soft); font-size:11px; }
+  .pill{ font-weight:700; font-size:11px; padding:2px 8px; border-radius:6px; display:inline-block; }
+  .pill-a{ background:#E4F7EC; color:var(--green); }
+  .pill-eca{ background:#FBF0DD; color:var(--amber); }
+  .bulletin-foot{ display:flex; gap:10px; padding:16px 24px 22px; }
+  .bulletin-foot .stat{ flex:1; background:var(--paper); border-radius:10px; padding:10px 12px; text-align:center; }
+  .bulletin-foot .stat b{ display:block; font-family:'Space Grotesk',sans-serif; font-size:17px; }
+  .bulletin-foot .stat span{ font-size:9.5px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.04em; }
+
+  /* payment mock */
+  .pay-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
+  .pay-card{ background:var(--white); border:1px solid var(--line); border-radius:14px; padding:18px; box-shadow:var(--shadow-soft); }
+  .pay-card .icon{ width:36px; height:36px; border-radius:9px; display:flex; align-items:center; justify-content:center; margin-bottom:14px; }
+  .pay-card b{ display:block; font-family:'Space Grotesk',sans-serif; font-size:21px; margin-top:2px; }
+  .pay-card span{ font-size:11px; color:var(--ink-soft); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.03em; }
+  .pay-row{ background:var(--white); border:1px solid var(--line); border-radius:14px; padding:16px 18px; display:flex; justify-content:space-between; align-items:center; font-size:13px; box-shadow:var(--shadow-soft); }
+  .pay-row .who{ display:flex; align-items:center; gap:10px; }
+  .pay-row .who .av{ width:30px; height:30px; border-radius:50%; background:var(--indigo-100); color:var(--indigo); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; font-family:'Space Grotesk',sans-serif; }
+  .pay-row .status{ font-size:10.5px; font-weight:700; background:#E4F7EC; color:var(--green); padding:3px 9px; border-radius:6px; }
+
+  /* ---------- Real screenshots ---------- */
+  .hero-shot{ width:100%; filter:drop-shadow(0 30px 60px -18px rgba(21,18,51,.35)); }
+  .shot{ border-radius:12px; }
+  .shot-desktop{ filter:drop-shadow(0 24px 48px -16px rgba(21,18,51,.3)); }
+  .shot-phone{ filter:drop-shadow(0 18px 36px -14px rgba(21,18,51,.28)); }
+  .showcase-row{ display:grid; grid-template-columns:1.6fr 1fr; gap:32px; align-items:center; margin-bottom:70px; }
+  .showcase-row.reverse{ grid-template-columns:1fr 1.6fr; }
+  .showcase-row.reverse .shot-desktop{ order:2; }
+  .showcase-row.reverse .shot-phone{ order:1; }
+  @media (max-width:800px){
+    .showcase-row, .showcase-row.reverse{ grid-template-columns:1fr; }
+    .showcase-row.reverse .shot-desktop, .showcase-row.reverse .shot-phone{ order:initial; }
+  }
+  .showcase-cap{ text-align:center; font-size:14px; color:var(--ink-soft); margin-top:14px; }
+  .showcase-nav{ max-width:280px; margin:0 auto; }
+
+  /* ---------- Real-screenshot notice card ---------- */
+  .realshot-card{
+    max-width:620px; margin:0 auto;
+    background:var(--white); border:1px solid var(--line); border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-soft); padding:40px 36px; text-align:center;
+  }
+  .realshot-icon{
+    width:56px; height:56px; border-radius:14px; background:var(--indigo-50);
+    display:flex; align-items:center; justify-content:center; margin:0 auto 18px;
+  }
+  .realshot-card h3{ font-size:21px; margin-bottom:10px; }
+  .realshot-card p{ color:var(--ink-soft); font-size:15px; margin-bottom:24px; }
+
+  /* ---------- Maquettes overlay / gallery ---------- */
+  .maquettes-overlay{
+    display:none; position:fixed; inset:0; z-index:1000;
+    background:rgba(16,13,46,.66); backdrop-filter:blur(3px);
+    align-items:center; justify-content:center; padding:24px;
+  }
+  .maquettes-overlay.show{ display:flex; }
+  .maquettes-panel{
+    background:var(--paper); border-radius:var(--radius-lg); max-width:980px; width:100%;
+    max-height:86vh; overflow:hidden; display:flex; flex-direction:column;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.5);
+  }
+  .maquettes-panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:18px 24px; border-bottom:1px solid var(--line); background:var(--white);
+  }
+  .maquettes-panel-head h4{ font-size:16px; }
+  .maquettes-close{
+    width:34px; height:34px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    color:var(--ink-soft); transition:background .2s, color .2s;
+  }
+  .maquettes-close:hover{ background:var(--indigo-50); color:var(--indigo); }
+  .maquettes-grid{
+    padding:24px; overflow-y:auto;
+    display:grid; grid-template-columns:repeat(3, 1fr); gap:18px;
+  }
+  @media (max-width:760px){ .maquettes-grid{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:480px){ .maquettes-grid{ grid-template-columns:1fr; } }
+  .maquettes-grid figure{
+    background:var(--white); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+  }
+  .maquettes-grid img{ width:100%; display:block; }
+  .maquettes-grid figcaption{ font-size:12.5px; color:var(--ink-soft); padding:10px 12px; font-weight:500; }
+
+  /* ---------- Roles tabs ---------- */
+  .roles-panel{
+    background:var(--white);
+    border:1px solid var(--line);
+    border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-soft);
+    padding:10px;
+  }
+  .role-tabs{
+    display:flex; gap:6px; overflow-x:auto; padding:8px;
+    scrollbar-width:none;
+  }
+  .role-tabs::-webkit-scrollbar{ display:none; }
+  .role-tab{
+    padding:11px 18px; border-radius:999px; font-size:13.5px; font-weight:600; color:var(--ink-soft);
+    white-space:nowrap; transition:all .2s;
+  }
+  .role-tab.active{ background:var(--indigo); color:#fff; }
+  .role-tab:not(.active):hover{ background:var(--paper); color:var(--ink); }
+  .role-content{
+    padding:34px 30px 30px;
+    display:grid; grid-template-columns:1.1fr 1fr; gap:40px; align-items:center;
+  }
+  @media (max-width:800px){ .role-content{ grid-template-columns:1fr; } }
+  .role-content .rc-eyebrow{ font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:var(--indigo); text-transform:uppercase; letter-spacing:.06em; margin-bottom:10px; display:block;}
+  .role-content h3{ font-size:24px; margin-bottom:12px; }
+  .role-content p.desc{ color:var(--ink-soft); font-size:15px; margin-bottom:18px; }
+  .role-content .rc-list{ display:flex; flex-direction:column; gap:10px; }
+  .role-content .rc-list li{ display:flex; gap:9px; font-size:14px; align-items:flex-start; }
+  .role-content .rc-list svg{ margin-top:3px; stroke:var(--indigo); flex-shrink:0; }
+  .role-visual{
+    background:linear-gradient(160deg, var(--indigo-50), #fff);
+    border-radius:16px;
+    padding:14px;
+    min-height:220px;
+    display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  .role-visual .role-shot{
+    width:100%; border-radius:11px; border:1px solid var(--line);
+    box-shadow:var(--shadow-soft); display:block;
+  }
+
+  /* ---------- Security ---------- */
+  .security{
+    background:radial-gradient(1200px 500px at 20% -10%, #2A2570, transparent), var(--indigo-dark);
+    color:#fff;
+    border-radius:28px;
+    margin:0 32px;
+    padding:80px 48px;
+    position:relative;
+    overflow:hidden;
+  }
+  @media (max-width:640px){ .security{ margin:0 12px; padding:56px 22px; border-radius:20px; } }
+  .security::after{
+    content:"";
+    position:absolute; inset:0;
+    background-image: radial-gradient(circle, rgba(255,255,255,.08) 1px, transparent 1px);
+    background-size:26px 26px;
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 20%, #000 60%, transparent);
+            mask-image: linear-gradient(180deg, transparent, #000 20%, #000 60%, transparent);
+    pointer-events:none;
+  }
+  .security-inner{ position:relative; z-index:1; }
+  .security .sec-head p{ color:#C6C2ED; }
+  .security .eyebrow{ color:#B7B0FF; }
+  .security .eyebrow::before{ background:#B7B0FF; }
+  .security h2{ color:#fff; }
+  .pillars{ display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-top:20px; }
+  @media (max-width:900px){ .pillars{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:560px){ .pillars{ grid-template-columns:1fr; } }
+  .pillar{ background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.12); border-radius:14px; padding:22px; }
+  .pillar .icon{ width:38px; height:38px; border-radius:10px; background:rgba(255,255,255,.1); display:flex; align-items:center; justify-content:center; margin-bottom:16px; }
+  .pillar .icon svg{ stroke:#fff; }
+  .pillar h4{ color:#fff; font-size:15.5px; margin-bottom:8px; }
+  .pillar p{ color:#B9B4E6; font-size:13.5px; }
+
+  .devices-row{
+    display:flex; align-items:center; gap:28px; margin-top:52px; padding-top:40px;
+    border-top:1px solid rgba(255,255,255,.14); flex-wrap:wrap; justify-content:space-between;
+  }
+  .devices-row .lbl{ color:#B9B4E6; font-size:13.5px; max-width:260px; }
+  .devices-row .icons{ display:flex; gap:28px; align-items:center; flex-wrap:wrap;}
+  .devices-row .icons .di{ display:flex; align-items:center; gap:9px; color:#fff; font-size:13.5px; font-weight:500; }
+  .devices-row .icons svg{ stroke:#fff; }
+
+  /* ---------- Numbers band ---------- */
+  .numbers{ background:var(--white); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+  .numbers .wrap{ display:grid; grid-template-columns:repeat(4,1fr); gap:20px; padding:56px 32px; }
+  @media (max-width:800px){ .numbers .wrap{ grid-template-columns:repeat(2,1fr); } }
+  .numbers .n{ text-align:center; }
+  .numbers .n b{ font-family:'Space Grotesk',sans-serif; font-size:clamp(28px,3.4vw,40px); color:var(--indigo); display:block; }
+  .numbers .n span{ font-size:13px; color:var(--ink-soft); }
+
+  /* ---------- CTA / contact ---------- */
+  .cta-band{
+    background:var(--indigo);
+    background-image: radial-gradient(700px 340px at 85% 0%, rgba(255,255,255,.14), transparent);
+    border-radius:28px; margin:0 32px; padding:64px 48px; color:#fff;
+    display:flex; align-items:center; justify-content:space-between; gap:32px; flex-wrap:wrap;
+  }
+  @media (max-width:640px){ .cta-band{ margin:0 12px; padding:44px 26px; border-radius:20px; flex-direction:column; text-align:center; } }
+  .cta-band h2{ color:#fff; font-size:clamp(24px,3vw,32px); max-width:480px; }
+  .cta-band p{ color:#DEDBFA; margin-top:8px; font-size:15px; }
+
+  #contact{ padding-top:100px; }
+  .contact-grid{ display:grid; grid-template-columns:1fr 1fr; gap:56px; }
+  @media (max-width:860px){ .contact-grid{ grid-template-columns:1fr; } }
+  .contact-form{
+    background:#fff; border:1px solid var(--line); border-radius:var(--radius-lg); padding:32px;
+    box-shadow:var(--shadow-soft);
+  }
+  .field{ margin-bottom:16px; }
+  .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; color:var(--ink-soft); }
+  .field input, .field select, .field textarea{
+    width:100%; padding:12px 14px; border-radius:10px; border:1.5px solid var(--line);
+    font:inherit; font-size:14.5px; background:var(--paper); color:var(--ink);
+    transition:border-color .2s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{ outline:none; border-color:var(--indigo); background:#fff;}
+  .field-row{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:480px){ .field-row{ grid-template-columns:1fr; } }
+  .contact-info h3{ font-size:24px; margin-bottom:14px; }
+  .contact-info p{ color:var(--ink-soft); font-size:15px; margin-bottom:28px; }
+  .contact-info .ci-item{ display:flex; gap:14px; margin-bottom:22px; }
+  .contact-info .ci-item .icon{ width:38px; height:38px; border-radius:10px; background:var(--indigo-50); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .contact-info .ci-item h5{ font-size:14.5px; margin-bottom:2px; }
+  .contact-info .ci-item p{ margin:0; font-size:13.5px; }
+  .form-note{ font-size:12px; color:var(--ink-soft); margin-top:14px; text-align:center; }
+  .toast{
+    display:none; background:#E4F7EC; color:#0E7A3E; border:1px solid #BEEBD1; border-radius:10px;
+    padding:12px 16px; font-size:13.5px; font-weight:600; margin-top:14px; align-items:center; gap:8px;
+  }
+  .toast.show{ display:flex; }
+
+  /* ---------- Footer ---------- */
+  footer{ background:var(--indigo-dark); color:#B9B4E6; margin-top:110px; }
+  .footer-top{ padding:64px 0 40px; display:grid; grid-template-columns:1.4fr repeat(3,1fr); gap:40px; }
+  @media (max-width:800px){ .footer-top{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:480px){ .footer-top{ grid-template-columns:1fr; } }
+  .footer-top .brand{ color:#fff; margin-bottom:14px; }
+  .footer-top .brand .mark{ box-shadow:none; }
+  .footer-top p.about{ font-size:13.5px; max-width:260px; color:#9C97CE; }
+  .footer-top h6{ color:#fff; font-size:12.5px; text-transform:uppercase; letter-spacing:.06em; font-family:'IBM Plex Mono',monospace; margin-bottom:16px; font-weight:500; }
+  .footer-top ul li{ margin-bottom:11px; }
+  .footer-top ul a{ font-size:14px; color:#B9B4E6; transition:color .2s; }
+  .footer-top ul a:hover{ color:#fff; }
+  .footer-bottom{
+    border-top:1px solid rgba(255,255,255,.1); padding:22px 0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; font-size:12.5px; color:#8B86BE;
+  }
+
+  .reveal{ opacity:0; transform:translateY(18px); transition:opacity .7s var(--ease), transform .7s var(--ease); }
+  .reveal.in{ opacity:1; transform:translateY(0); }
+
+  .skip-link{ position:absolute; left:-999px; top:0; background:var(--indigo); color:#fff; padding:10px 16px; border-radius:8px; z-index:1000; }
+  .skip-link:focus{ left:16px; top:16px; }
+
+  a:focus-visible, button:focus-visible, input:focus-visible, .role-tab:focus-visible{
+    outline:2.5px solid var(--indigo); outline-offset:2px;
+  }
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Aller au contenu</a>
+
+<header>
+  <nav class="wrap" aria-label="Navigation principale">
+    <a href="#top" class="brand">
+      <span class="mark" aria-hidden="true">
+        <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/></svg>
+      </span>
+      Gestionnaire.
+    </a>
+    <div class="nav-links">
+      <a href="#fonctionnalites">Fonctionnalités</a>
+      <a href="#apercu">Aperçu</a>
+      <a href="#roles">Rôles</a>
+      <a href="#securite">Sécurité</a>
+      <a href="#contact">Démo</a>
+    </div>
+    <div class="nav-cta">
+      <a href="#contact" class="nav-signin">Connexion</a>
+      <a href="#contact" class="btn btn-primary btn-sm">Demander une démo</a>
+    </div>
+  </nav>
+</header>
+
+<main id="main">
+
+  <!-- HERO -->
+  <section class="hero" id="top">
+    <div class="wrap hero-grid">
+      <div>
+        <span class="eyebrow">Fait pour le système francophone camerounais</span>
+        <h1>Le pilotage scolaire, <em>du bulletin au dernier franc encaissé.</em></h1>
+        <p class="lead">Gestionnaire réunit inscriptions, notes, emploi du temps et paiements sur une seule plateforme, accessible depuis n'importe quel appareil, avec les données de chaque établissement strictement séparées et protégées.</p>
+        <div class="hero-ctas">
+          <a href="#contact" class="btn btn-primary">Demander une démo</a>
+          <a href="#fonctionnalites" class="btn btn-ghost">Voir les fonctionnalités</a>
+        </div>
+        <div class="hero-trust">
+          <div class="avatars" aria-hidden="true">
+            <span style="background:#4F46E5;">PR</span>
+            <span style="background:#12A454;">CE</span>
+            <span style="background:#D98A0F;">CO</span>
+            <span style="background:#D2232A;">SE</span>
+          </div>
+          <span>Conçu avec des proviseurs, censeurs, comptables et secrétariats d'établissements</span>
+        </div>
+      </div>
+
+      <img class="hero-shot reveal" src="assets/dashboard.png" alt="Tableau de bord de Gestionnaire : effectifs, classes actives, enseignants, taux de recouvrement">
+    </div>
+  </section>
+
+  <section class="everywhere-band">
+    <div class="wrap everywhere-inner">
+      <div class="everywhere-copy reveal">
+        <span class="eyebrow">Où que vous soyez</span>
+        <h2>La gestion de votre établissement ne s'arrête jamais à la porte du bureau</h2>
+        <p>Inscrire un élève, saisir des notes, enregistrer un paiement ou générer un bulletin : toutes les opérations de gestion — pas seulement la consultation — se font en direct depuis n'importe quel appareil connecté, dans l'établissement comme en dehors.</p>
+      </div>
+      <div class="everywhere-grid">
+        <div class="everywhere-item reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div>
+          <h4>Au bureau, sur ordinateur</h4>
+          <p>Le secrétariat, la comptabilité et la direction pilotent l'ensemble des modules depuis un poste fixe, comme d'habitude.</p>
+        </div>
+        <div class="everywhere-item reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg></div>
+          <h4>En salle de classe, sur téléphone</h4>
+          <p>Un enseignant saisit ses notes ou consulte son emploi du temps entre deux cours, sans attendre de retourner à un ordinateur.</p>
+        </div>
+        <div class="everywhere-item reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></svg></div>
+          <h4>En déplacement, sur tablette</h4>
+          <p>Un proviseur ou un censeur en déplacement continue de suivre les résultats et de valider des décisions à distance.</p>
+        </div>
+        <div class="everywhere-item reveal">
+          <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg></div>
+          <h4>Depuis n'importe quelle ville</h4>
+          <p>Aucun logiciel à installer, aucun serveur local à maintenir : un navigateur et une connexion internet suffisent, où que vous soyez au Cameroun.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="stripband">
+    <div class="wrap">
+      <div class="item"><b>10</b>&nbsp;rôles utilisateurs distincts</div>
+      <div class="item"><b>4</b>&nbsp;grilles d'appréciation calculées automatiquement</div>
+      <div class="item"><b>1</b>&nbsp;espace isolé par établissement</div>
+      <div class="item"><b>PDF</b>&nbsp;bulletins et reçus générés à la demande</div>
+    </div>
+  </div>
+
+  <!-- FEATURES -->
+  <section id="fonctionnalites">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="eyebrow">Fonctionnalités</span>
+        <h2>Tout ce qu'un établissement gère au quotidien, au même endroit</h2>
+        <p>De l'inscription en début d'année à la remise du bulletin, chaque module correspond à un métier réel de votre établissement — et à un rôle précis dans l'application.</p>
+      </div>
+
+      <div class="feature-grid">
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <h3>Élèves &amp; inscriptions</h3>
+          <p>Fiches élèves avec matricule unique, photo 4x4 et rattachement obligatoire à un parent. Réinscription d'une année sur l'autre en quelques clics.</p>
+          <div class="tags"><span>Secrétariat</span><span>Matricule auto</span></div>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 11h1"/></svg></div>
+          <h3>Notes &amp; bulletins</h3>
+          <p>Saisie par séquence, import en masse depuis Excel, calcul pondéré par coefficient, rangs et mentions générés automatiquement, export PDF prêt à imprimer.</p>
+          <div class="tags"><span>Enseignant</span><span>Censeur</span></div>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+          <h3>Cycles, classes &amp; emploi du temps</h3>
+          <p>Années scolaires, trimestres et séquences hiérarchisés. Classes rattachées à un cycle, avec titulaire, matières et coefficients propres à chaque affectation.</p>
+          <div class="tags"><span>Admin</span><span>Censeur</span></div>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg></div>
+          <h3>Paiements &amp; finances</h3>
+          <p>Tranches de scolarité par année, enregistrement des versements, suivi des soldes restants, reçus PDF et exports Excel pour la comptabilité.</p>
+          <div class="tags"><span>Comptable</span><span>Reçus PDF</span></div>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg></div>
+          <h3>Discipline &amp; assiduité</h3>
+          <p>Absences justifiées ou non, retards, exclusions et observations, saisis par séquence et visibles directement sur le bulletin de l'élève.</p>
+          <div class="tags"><span>Surveillant</span></div>
+        </div>
+
+        <div class="feature-card reveal">
+          <div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18M5 21V7l7-4 7 4v14M9 9h1m4 0h1m-6 4h1m4 0h1m-6 4h1m4 0h1"/></svg></div>
+          <h3>Multi-établissements</h3>
+          <p>Un réseau d'écoles ? Chaque établissement dispose d'un espace totalement isolé, avec ses propres abonnements et quotas, supervisés depuis un tableau de bord global.</p>
+          <div class="tags"><span>SuperAdmin</span></div>
+        </div>
+
+      </div>
+
+      <div class="productions-block reveal">
+        <div class="sec-head" style="margin-bottom:32px;">
+          <span class="eyebrow">Ce que l'application produit pour vous</span>
+          <h2 style="font-size:clamp(24px,3vw,32px);">Des documents prêts à imprimer ou à transmettre, générés en un clic</h2>
+          <p>Chaque module ne se contente pas d'enregistrer des données : il produit le document officiel correspondant, mis en forme et daté, sans ressaisie.</p>
+        </div>
+        <div class="productions-grid">
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 15h6"/><path d="M9 11h1"/></svg></div>
+            <div><h4>Bulletins de notes</h4><p>Par élève, par classe et par trimestre, avec moyenne, rang et mention calculés automatiquement.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M9 12h6M9 16h6"/></svg></div>
+            <div><h4>Listes de classes</h4><p>Registre des élèves inscrits, par classe ou pour tout l'établissement, avec matricule, parent et téléphone.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2h11l5 5v15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Z"/><path d="M15 2v5h5"/><path d="m9 15 2 2 4-4"/></svg></div>
+            <div><h4>Reçus de paiement</h4><p>Un reçu PDF officiel et numéroté est généré à chaque versement enregistré par la comptabilité.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg></div>
+            <div><h4>Journal comptable</h4><p>État de solvabilité de l'établissement : montant attendu, versé, solde restant et taux de recouvrement par classe.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke="#4F46E5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
+            <div><h4>Emplois du temps</h4><p>Grille par classe ou par enseignant, exportable en PDF pour affichage ou en Excel pour retraitement.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke="#4F46E5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg></div>
+            <div><h4>Relevés de notes</h4><p>Statistiques de classe par séquence pour chaque enseignant : moyennes, taux de réussite, meilleure et plus basse note.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke="#4F46E5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4M16 2v4M3 10h18M5 6h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z"/></svg></div>
+            <div><h4>Historiques de paiement</h4><p>Situation financière complète d'un élève, consultable par la comptabilité et par ses parents.</p></div>
+          </div>
+          <div class="production-item">
+            <div class="icon" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke="#4F46E5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+            <div><h4>Notifications automatiques</h4><p>Email et SMS envoyés aux parents : bulletin disponible, retard de paiement, absences excessives.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SHOWCASE : vraies captures d'écran -->
+  <section id="apercu">
+    <div class="wrap">
+      <div class="sec-head center reveal">
+        <span class="eyebrow">En situation réelle</span>
+        <h2>Pas une maquette — l'application telle qu'elle est utilisée</h2>
+        <p>Ce que vous voyez sur cette page n'est pas une simulation graphique : ce sont des captures d'écran de Gestionnaire, prises pendant une utilisation réelle par une équipe pédagogique et administrative.</p>
+      </div>
+
+      <div class="realshot-card reveal">
+        <div class="realshot-icon" aria-hidden="true">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>
+        </div>
+        <h3>Ce ne sont pas des maquettes de design</h3>
+        <p>Chaque tableau de bord, chaque bulletin et chaque écran présenté ici a été capturé directement dans l'application, avec des données réelles d'établissement — rien n'est retouché ni recomposé pour la démonstration.</p>
+        <button type="button" class="btn btn-primary" id="voirMaquettesBtn">Voir les maquettes</button>
+      </div>
+
+      <div class="maquettes-overlay" id="maquettesOverlay" aria-hidden="true">
+        <div class="maquettes-panel">
+          <div class="maquettes-panel-head">
+            <h4>Captures d'écran réelles de Gestionnaire</h4>
+            <button type="button" class="maquettes-close" id="fermerMaquettesBtn" aria-label="Fermer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="maquettes-grid">
+            <figure><img src="assets/dashboard.png" alt="Tableau de bord de l'établissement"><figcaption>Tableau de bord — Admin</figcaption></figure>
+            <figure><img src="assets/emploi-du-temps.png" alt="Emploi du temps par classe"><figcaption>Emploi du temps — grille par classe</figcaption></figure>
+            <figure><img src="assets/emploi-responsive.png" alt="Emploi du temps sur téléphone"><figcaption>Emploi du temps — sur téléphone</figcaption></figure>
+            <figure><img src="assets/notes.png" alt="Saisie des notes par un enseignant"><figcaption>Saisie des notes — Enseignant</figcaption></figure>
+            <figure><img src="assets/notes-responsive.png" alt="Saisie des notes sur téléphone"><figcaption>Saisie des notes — sur téléphone</figcaption></figure>
+            <figure><img src="assets/bulletin.png" alt="Bulletin de notes généré"><figcaption>Bulletin de notes généré</figcaption></figure>
+            <figure><img src="assets/gestion_des_paiements.png" alt="Gestion des paiements"><figcaption>Gestion des paiements</figcaption></figure>
+            <figure><img src="assets/journal_financier.png" alt="État de solvabilité de l'établissement"><figcaption>État de solvabilité — export PDF</figcaption></figure>
+            <figure><img src="assets/liste-classe.png" alt="Liste des élèves inscrits par classe"><figcaption>Liste des élèves inscrits</figcaption></figure>
+            <figure><img src="assets/listes_de_notes.png" alt="Relevé de notes exporté en PDF"><figcaption>Relevé de notes — export PDF</figcaption></figure>
+            <figure><img src="assets/emploi-pdf.png" alt="Emploi du temps exporté en PDF"><figcaption>Emploi du temps — export PDF</figcaption></figure>
+            <figure><img src="assets/inscription.png" alt="Registre des inscriptions"><figcaption>Registre des inscriptions</figcaption></figure>
+            <figure><img src="assets/navigation.png" alt="Menu de navigation adapté au rôle"><figcaption>Navigation — adaptée au rôle</figcaption></figure>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEEP DIVE : BULLETINS -->
+  <section>
+    <div class="wrap">
+      <div class="deepdive">
+        <div class="copy reveal">
+          <span class="eyebrow">Cœur du métier</span>
+          <h3>Des bulletins toujours justes, jamais ressaisis</h3>
+          <p>Le bulletin n'est pas retapé chaque trimestre : il est recalculé à la demande à partir des notes saisies, avec la moyenne pondérée, le rang de classe et la mention, selon les grilles en usage dans le système francophone camerounais.</p>
+          <ul class="checklist">
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Moyenne pondérée par coefficient et rang automatiques</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Appréciations NA · ECA · A · A+ par matière</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Décision de conseil de classe : admis, rattrapage, redoublant</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Export PDF immédiat, prêt pour signature et distribution</li>
+          </ul>
+        </div>
+        <div class="visual reveal">
+          <img class="shot" style="border:1px solid var(--line); box-shadow:var(--shadow-soft); width:100%;" src="assets/bulletin.png" alt="Bulletin de notes réel généré par Gestionnaire, avec moyenne, rang et mention">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEEP DIVE : PAIEMENTS -->
+  <section>
+    <div class="wrap">
+      <div class="deepdive reverse">
+        <div class="copy reveal">
+          <span class="eyebrow">Suivi financier</span>
+          <h3>Chaque franc encaissé, tracé et reçu</h3>
+          <p>Le comptable définit les tranches de l'année, enregistre les versements et suit en temps réel les soldes restants. Un reçu officiel est généré pour chaque paiement, et les parents voient leur situation sans avoir à appeler le secrétariat.</p>
+          <ul class="checklist">
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Tranches de scolarité configurables par année</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Reçus PDF et exports Excel pour la comptabilité</li>
+            <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Un paiement mal saisi s'annule avec motif, il ne se corrige jamais en silence</li>
+          </ul>
+        </div>
+        <div class="visual reveal">
+          <img class="shot" style="border:1px solid var(--line); box-shadow:var(--shadow-soft); width:100%;" src="assets/gestion_des_paiements.png" alt="Écran de gestion des paiements : montant attendu, versé, solde restant et historique">
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROLES -->
+  <section id="roles">
+    <div class="wrap">
+      <div class="sec-head reveal">
+        <span class="eyebrow">Un rôle, un écran</span>
+        <h2>Chaque membre de l'équipe voit exactement ce qui le concerne</h2>
+        <p>Dix rôles distincts, des permissions strictes, et une interface qui s'adapte à ce que chacun a réellement à faire — sans surcharger personne d'informations qui ne le concernent pas.</p>
+      </div>
+
+      <div class="roles-panel reveal">
+        <div class="role-tabs" role="tablist" aria-label="Rôles de l'application">
+          <button class="role-tab active" data-role="proviseur" role="tab" aria-selected="true">Proviseur</button>
+          <button class="role-tab" data-role="censeur" role="tab" aria-selected="false">Censeur</button>
+          <button class="role-tab" data-role="secretaire" role="tab" aria-selected="false">Secrétaire</button>
+          <button class="role-tab" data-role="enseignant" role="tab" aria-selected="false">Enseignant</button>
+          <button class="role-tab" data-role="comptable" role="tab" aria-selected="false">Comptable</button>
+          <button class="role-tab" data-role="parent" role="tab" aria-selected="false">Parent</button>
+        </div>
+
+        <div class="role-content" id="role-content">
+          <!-- filled by JS -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SECURITY -->
+  <section id="securite">
+    <div class="wrap">
+      <div class="security">
+        <div class="security-inner">
+          <div class="sec-head reveal">
+            <span class="eyebrow">Sécurité &amp; accès à distance</span>
+            <h2>Vos données, cloisonnées, chiffrées, et accessibles où que vous soyez</h2>
+            <p>Chaque établissement travaille dans son propre espace, sans jamais voir ni toucher les données d'un autre — le tout accessible depuis un simple navigateur, au bureau comme sur le terrain.</p>
+          </div>
+
+          <div class="pillars">
+            <div class="pillar reveal">
+              <div class="icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
+              <h4>Cloisonnement par établissement</h4>
+              <p>Chaque école dispose de son espace isolé : aucune donnée n'est jamais partagée entre deux établissements.</p>
+            </div>
+            <div class="pillar reveal">
+              <div class="icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m22 11-3 3-1.5-1.5"/></svg></div>
+              <h4>Accès strictement par rôle</h4>
+              <p>Un enseignant saisit des notes, un comptable enregistre des paiements — chacun n'accède qu'à ce que sa fonction exige.</p>
+            </div>
+            <div class="pillar reveal">
+              <div class="icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/><path d="M12 14v3"/></svg></div>
+              <h4>Connexion chiffrée</h4>
+              <p>Tout le trafic transite en HTTPS. Les mots de passe ne sont jamais stockés en clair, ni consultables par qui que ce soit.</p>
+            </div>
+            <div class="pillar reveal">
+              <div class="icon"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.1"/><path d="M21 3v6h-6"/></svg></div>
+              <h4>Sauvegardes régulières</h4>
+              <p>Vos bulletins, notes et paiements sont dupliqués automatiquement et restent récupérables en cas d'incident.</p>
+            </div>
+          </div>
+
+          <div class="devices-row reveal">
+            <p class="lbl">Accessible depuis n'importe quel appareil connecté à internet, sans logiciel à installer.</p>
+            <div class="icons">
+              <div class="di"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> Ordinateur</div>
+              <div class="di"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M12 18h.01"/></svg> Tablette</div>
+              <div class="di"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></svg> Téléphone</div>
+              <div class="di"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"/></svg> Depuis n'importe quelle région</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- NUMBERS -->
+  <div class="numbers">
+    <div class="wrap">
+      <div class="n reveal"><b>3</b><span>Niveaux temporels — année, trimestre, séquence</span></div>
+      <div class="n reveal"><b>10</b><span>Rôles utilisateurs, chacun avec ses permissions</span></div>
+      <div class="n reveal"><b>100%</b><span>Conforme au système francophone camerounais</span></div>
+      <div class="n reveal"><b>24/7</b><span>Accès à distance depuis tout appareil connecté</span></div>
+    </div>
+  </div>
+
+  <!-- CTA BAND -->
+  <section style="padding-bottom:0;">
+    <div class="wrap">
+      <div class="cta-band reveal">
+        <div>
+          <h2>Prêt à faire entrer votre établissement dans Gestionnaire ?</h2>
+          <p>Une démonstration personnalisée, sur les données réelles de votre système pédagogique.</p>
+        </div>
+        <a href="#contact" class="btn btn-light">Demander une démo</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section id="contact">
+    <div class="wrap">
+      <div class="contact-grid">
+        <div class="contact-info reveal">
+          <span class="eyebrow">Démarrer</span>
+          <h3 style="margin-top:14px;">Parlons de votre établissement</h3>
+          <p>Laissez-nous vos coordonnées : nous configurons un espace de démonstration avec les cycles, classes et grilles de votre établissement.</p>
+
+          <div class="ci-item">
+            <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92Z"/></svg></div>
+            <div><h5>Par téléphone</h5><p>+237 6 89 09 65 45</p></div>
+          </div>
+          <div class="ci-item">
+            <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg></div>
+            <div><h5>Par email</h5><p>contact@gestionnaire.cm</p></div>
+          </div>
+          <div class="ci-item">
+            <div class="icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>
+            <div><h5>Basé au Cameroun</h5><p>Nous accompagnons les établissements sur tout le territoire</p></div>
+          </div>
+        </div>
+
+        <form class="contact-form reveal" id="demoForm">
+          <div class="field-row">
+            <div class="field">
+              <label for="nom">Nom complet</label>
+              <input id="nom" name="nom" type="text" placeholder="Ex. MANGA Betene" required>
+            </div>
+            <div class="field">
+              <label for="fonction">Fonction</label>
+              <select id="fonction" name="fonction" required>
+                <option value="">Sélectionner…</option>
+                <option>Proviseur / Directeur</option>
+                <option>Censeur</option>
+                <option>Secrétaire</option>
+                <option>Comptable</option>
+                <option>Fondateur / Promoteur</option>
+                <option>Autre</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="etab">Nom de l'établissement</label>
+            <input id="etab" name="etab" type="text" placeholder="Ex. Lycée Nsam Efoulan" required>
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="tel">Téléphone</label>
+              <input id="tel" name="tel" type="tel" placeholder="6XX XXX XXX" required>
+            </div>
+            <div class="field">
+              <label for="effectif">Effectif approximatif</label>
+              <select id="effectif" name="effectif">
+                <option value="">Sélectionner…</option>
+                <option>Moins de 300 élèves</option>
+                <option>300 – 800 élèves</option>
+                <option>800 – 1500 élèves</option>
+                <option>Plus de 1500 élèves</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="msg">Message (facultatif)</label>
+            <textarea id="msg" name="msg" rows="3" placeholder="Précisez vos besoins : nombre de classes, réseau d'écoles, migration de données existantes…"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%;">Envoyer la demande</button>
+          <div class="toast" id="toast">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0E7A3E" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            Demande enregistrée. Notre équipe vous recontacte sous peu.
+          </div>
+          <p class="form-note">Vos informations servent uniquement à préparer votre démonstration.</p>
+        </form>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <div class="cm-rule" aria-hidden="true"></div>
+  <div class="wrap footer-top">
+    <div>
+      <a href="#top" class="brand">
+        <span class="mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10 12 5 2 10l10 5 10-5Z"/><path d="M6 12v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/></svg></span>
+        Gestionnaire.
+      </a>
+      <p class="about">La plateforme de gestion scolaire pensée pour les établissements camerounais, du secrétariat au conseil de classe.</p>
+    </div>
+    <div>
+      <h6>Produit</h6>
+      <ul>
+        <li><a href="#fonctionnalites">Fonctionnalités</a></li>
+        <li><a href="#roles">Rôles &amp; permissions</a></li>
+        <li><a href="#securite">Sécurité</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Établissements</h6>
+      <ul>
+        <li><a href="#contact">Demander une démo</a></li>
+        <li><a href="#contact">Migration de données</a></li>
+        <li><a href="#contact">Réseaux d'écoles</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Contact</h6>
+      <ul>
+        <li><a href="tel:+237689096545">+237 6 89 09 65 45</a></li>
+        <li><a href="mailto:contact@gestionnaire.cm">contact@gestionnaire.cm</a></li>
+        <li><a href="#contact">Yaoundé, Cameroun</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap footer-bottom">
+    <span>© 2026 Gestionnaire. Tous droits réservés.</span>
+    <span>Conçu pour le système éducatif francophone du Cameroun</span>
+  </div>
+</footer>
+
+<script>
+  // Reveal on scroll
+  const revealEls = document.querySelectorAll('.reveal');
+  const io = new IntersectionObserver((entries)=>{
+    entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12 });
+  revealEls.forEach(el=>io.observe(el));
+
+  // Roles tab content
+  const roleData = {
+    proviseur: {
+      eyebrow: "Direction générale",
+      title: "Une vue d'ensemble pour piloter, pas pour saisir",
+      desc: "Le proviseur suit les indicateurs de son établissement, valide les décisions de conseil de classe et supervise la diffusion des bulletins, sans se substituer aux équipes pédagogiques et administratives.",
+      items: [
+        "Résultats, effectifs et discipline en un coup d'œil",
+        "Validation des décisions de conseil de classe",
+        "Supervision de la génération et de la diffusion des bulletins"
+      ],
+      shot: "assets/dashboard.png",
+      shotAlt: "Tableau de bord consulté par le proviseur : effectifs, classes actives, recouvrement"
+    },
+    censeur: {
+      eyebrow: "Vie pédagogique",
+      title: "L'organisation des enseignements, bout en bout",
+      desc: "Le censeur affecte les enseignants titulaires par classe, répartit les matières et leurs coefficients, coordonne l'emploi du temps — et génère les bulletins des classes dont il a la charge.",
+      items: [
+        "Affectations enseignant / classe / matière et coefficients",
+        "Coordination de l'emploi du temps",
+        "Génération des bulletins pour ses classes titulaires"
+      ],
+      shot: "assets/emploi-du-temps.png",
+      shotAlt: "Grille d'emploi du temps par classe, coordonnée par le censeur"
+    },
+    secretaire: {
+      eyebrow: "Administration",
+      title: "Le dossier de chaque élève, complet et à jour",
+      desc: "Le secrétariat gère les inscriptions et réinscriptions, crée les fiches élèves et parents avec matricule et photo, et assure le rattachement obligatoire de chaque élève à un parent.",
+      items: [
+        "Inscriptions et réinscriptions annuelles",
+        "Fiches élèves : état civil, matricule, photo 4x4",
+        "Rattachement élève / parent obligatoire"
+      ],
+      shot: "assets/inscription.png",
+      shotAlt: "Registre des inscriptions tenu par le secrétariat"
+    },
+    enseignant: {
+      eyebrow: "Pédagogie",
+      title: "La saisie des notes, sans ressaisie ni erreur",
+      desc: "L'enseignant saisit ses notes par matière, classe et séquence, importe un fichier Excel pour aller plus vite, et consulte à tout moment son emploi du temps et les moyennes de ses matières.",
+      items: [
+        "Saisie des notes par séquence, avec gestion des absences",
+        "Import de notes en masse depuis Excel",
+        "Consultation de l'emploi du temps et des classes affectées"
+      ],
+      shot: "assets/notes-responsive.png",
+      shotAlt: "Saisie des notes par l'enseignant, consultée sur téléphone"
+    },
+    comptable: {
+      eyebrow: "Finances",
+      title: "Chaque paiement suivi, chaque reçu archivé",
+      desc: "Le comptable définit les tranches de scolarité, enregistre les versements des familles, suit les soldes restants et génère les reçus officiels et les exports pour la comptabilité.",
+      items: [
+        "Tranches de paiement par année scolaire",
+        "Suivi des soldes et alertes de retard",
+        "Reçus PDF et exports Excel"
+      ],
+      shot: "assets/journal_financier.png",
+      shotAlt: "État de solvabilité de l'établissement suivi par le comptable"
+    },
+    parent: {
+      eyebrow: "Famille",
+      title: "La situation de son enfant, sans passer par le secrétariat",
+      desc: "Le parent consulte les bulletins de ses enfants, suit sa situation financière et reçoit des notifications automatiques : bulletin disponible, retard de paiement, absences excessives.",
+      items: [
+        "Téléchargement des bulletins en PDF",
+        "Suivi des paiements et du solde restant dû",
+        "Notifications email / SMS automatiques"
+      ],
+      shot: "assets/bulletin.png",
+      shotAlt: "Bulletin de notes que le parent consulte et télécharge"
+    }
+  };
+
+  const roleContent = document.getElementById('role-content');
+  const tabs = document.querySelectorAll('.role-tab');
+
+  function renderRole(key){
+    const d = roleData[key];
+    roleContent.innerHTML = `
+      <div>
+        <span class="rc-eyebrow">${d.eyebrow}</span>
+        <h3>${d.title}</h3>
+        <p class="desc">${d.desc}</p>
+        <ul class="rc-list">
+          ${d.items.map(i=>`<li><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>${i}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="role-visual">
+        <img class="role-shot" src="${d.shot}" alt="${d.shotAlt}">
+      </div>
+    `;
+  }
+  renderRole('proviseur');
+
+  tabs.forEach(tab=>{
+    tab.addEventListener('click', ()=>{
+      tabs.forEach(t=>{ t.classList.remove('active'); t.setAttribute('aria-selected','false'); });
+      tab.classList.add('active');
+      tab.setAttribute('aria-selected','true');
+      renderRole(tab.dataset.role);
+    });
+  });
+
+  // Maquettes overlay (real screenshots gallery)
+  const maquettesOverlay = document.getElementById('maquettesOverlay');
+  const voirMaquettesBtn = document.getElementById('voirMaquettesBtn');
+  const fermerMaquettesBtn = document.getElementById('fermerMaquettesBtn');
+  function openMaquettes(){ maquettesOverlay.classList.add('show'); maquettesOverlay.setAttribute('aria-hidden','false'); document.body.style.overflow='hidden'; }
+  function closeMaquettes(){ maquettesOverlay.classList.remove('show'); maquettesOverlay.setAttribute('aria-hidden','true'); document.body.style.overflow=''; }
+  voirMaquettesBtn.addEventListener('click', openMaquettes);
+  fermerMaquettesBtn.addEventListener('click', closeMaquettes);
+  maquettesOverlay.addEventListener('click', (e)=>{ if(e.target === maquettesOverlay) closeMaquettes(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeMaquettes(); });
+
+  // Contact form (visual only, no backend wired up)
+  const form = document.getElementById('demoForm');
+  const toast = document.getElementById('toast');
+  form.addEventListener('submit', (e)=>{
+    e.preventDefault();
+    toast.classList.add('show');
+    form.reset();
+  });
+</script>
+
+</body>
+</html>

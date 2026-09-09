@@ -14,6 +14,24 @@ from api.pedagogie_api import (
 )
 from api.emploi_du_temps_api import creneau_horaire_bp, horaire_bp
 from api.inscription_api import parent_bp, eleve_bp, inscription_bp
+# tranche_classe_bp / paiement_bp : suivi financier (échéancier par classe +
+# année scolaire, versements), réservé à Admin/SuperAdmin/Comptable — cf.
+# api/paiements_api.py. Renommé depuis tranche_paiement_bp -> tranche_classe_bp
+# suite à la refonte TranchePaiement -> TrancheClasse (échéancier scopé au
+# couple classe_id/annee_scolaire_id, cf. models/paiements_models.py) ; sans
+# cet import à jour, /api/tranches-classe/ et /api/paiements/ n'existent pas
+# (404 côté frontend paiements.html).
+from api.paiements_api import tranche_classe_bp, paiement_bp
+# enseignant_espace_bp : portail « mon espace » de l'enseignant connecté
+# (/api/enseignant/mon-espace, /sequences, /roster). À NE PAS confondre avec
+# pedagogie_api.enseignant_bp importé plus haut (/api/enseignants, gestion
+# des comptes enseignants par l'Admin) : noms de blueprint distincts,
+# sinon Flask lève ValueError au démarrage.
+# censeur_espace_bp : « mon espace » du Censeur/Surveillant connecté
+# (/api/censeur/mon-espace, /sequences, /roster) — strict pendant de
+# enseignant_espace_bp, mais scopé par classes assignées. Alimente
+# templates/censeur/notes.html et templates/censeur/bulletin.html.
+from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
 from api.authentification_api import authentification_bp, superadmin_bp, enforce_password_change
 
 def create_app(env=None):
@@ -87,6 +105,28 @@ def create_app(env=None):
     app.register_blueprint(parent_bp)
     app.register_blueprint(eleve_bp)
     app.register_blueprint(inscription_bp)
+    # Module Paiements : échéancier par classe (TrancheClasse) et versements
+    # (Paiement + LignePaiement), Admin/SuperAdmin/Comptable — cf.
+    # api/paiements_api.py. Sans ces deux lignes, /api/tranches-classe/ et
+    # /api/paiements/ répondaient 404 (page paiements.html).
+    app.register_blueprint(tranche_classe_bp)
+    app.register_blueprint(paiement_bp)
+    # Module Évaluation : notes (lecture pour Admin/SuperAdmin/Censeur/
+    # Surveillant/Enseignant, écriture réservée à l'Enseignant titulaire) et
+    # suivi disciplinaire (lecture+écriture Admin/SuperAdmin/Censeur/
+    # Surveillant) — cf. api/evaluation_api.py. Oublié à l'enregistrement :
+    # sans ce blueprint, /api/notes/ et /api/disciplines/ n'existaient pas.
+    app.register_blueprint(note_bp)
+    app.register_blueprint(discipline_bp)
+    # Portail enseignant : alimente la page /enseignant/notes en
+    # matières-classe attribuées, années/trimestres/séquences et listes
+    # d'élèves — périmètre déduit du profil Enseignant connecté.
+    app.register_blueprint(enseignant_espace_bp)
+    # Portail Censeur/Surveillant : alimente /censeur/notes et
+    # /censeur/bulletin en classes assignées, matières-classe, années/
+    # trimestres/séquences et listes d'élèves — périmètre déduit de
+    # resolve_classe_ids_restriction (cf. api/evaluation_api.py).
+    app.register_blueprint(censeur_espace_bp)
     app.register_blueprint(authentification_bp)
     app.register_blueprint(superadmin_bp)
 
@@ -180,7 +220,11 @@ def create_app(env=None):
     @app.route("/inscriptions")
     def inscriptions_etablissement():
         return render_template("inscription.html")
-
+    
+    @app.route("/paiements")
+    def paiements_etablissement():
+        return render_template("paiements.html")
+    
     #POUR LE CENSEUR (périmètre restreint aux classes qui lui sont assignées,
     # cf. CenseurClasse dans pedagogie_models.py) : aucune vérification de
     # rôle ici, comme les autres routes de page ci-dessus — sidebar.js
@@ -191,19 +235,87 @@ def create_app(env=None):
         return render_template("pedagogie.html")
     @app.route("/emploi-du-temps-censeur")
     def emploi_du_temps_censeur():
-        return render_template("horaire_censeur.html")
+        return render_template("censeur/horaire.html")
+
+    # Notes & discipline (consultation) et génération des bulletins, pour le
+    # Censeur — périmètre restreint aux classes assignées, cf.
+    # api/evaluation_api.py:censeur_espace_bp. Comme pour /pedagogie,
+    # /emploi-du-temps-censeur, etc. : aucune vérification de rôle ici,
+    # sidebar.js (GestionnaireAuth.requireAuth) et les 403 de l'API font foi.
+    @app.route("/censeur/notes")
+    def censeur_notes_page():
+        return render_template("censeur/notes.html")
+
+    @app.route("/censeur/bulletin")
+    def censeur_bulletin_page():
+        return render_template("censeur/bulletin.html")
 
     #POUR LE SURVEILLANT (même périmètre restreint aux classes assignées,
     # cf. SurveillantClasse) : réutilise le MÊME template que le Censeur
-    # ci-dessus. horaire_censeur.html ne contient aucune logique dépendant
-    # du rôle exact — elle affiche fidèlement ce que /api/horaires/ et
-    # /api/classes/ lui renvoient, déjà filtrés côté back par rôle+profil_id
-    # (cf. resolve_classe_ids_restriction) — seuls le titre de page et la
+    # ci-dessus. censeur/horaire.html (ex-horaire_censeur.html, déplacé/
+    # renommé) ne contient aucune logique dépendant du rôle exact — elle
+    # affiche fidèlement ce que /api/horaires/ et /api/classes/ lui
+    # renvoient, déjà filtrés côté back par rôle+profil_id (cf.
+    # resolve_classe_ids_restriction) — seuls le titre de page et la
     # signature d'impression s'adaptent dynamiquement au rôle courant
-    # (cf. <script> de horaire_censeur.html, GestionnaireAuth.getRole()).
+    # (cf. <script> de censeur/horaire.html, GestionnaireAuth.getRole()).
     @app.route("/emploi-du-temps-surveillant")
     def emploi_du_temps_surveillant():
-        return render_template("horaire_censeur.html")
+        return render_template("censeur/horaire.html")
+
+    # Même périmètre restreint aux classes assignées (cf. SurveillantClasse) :
+    # réutilise les MÊMES templates que le Censeur ci-dessus (censeur/notes.html,
+    # censeur/bulletin.html) — ces pages n'ont aucune logique dépendant du rôle
+    # exact, elles affichent fidèlement ce que /api/censeur/*, /api/notes/ et
+    # /api/disciplines/ leur renvoient, déjà filtrés côté back par rôle+profil_id
+    # (cf. resolve_classe_ids_restriction), même logique que
+    # /emploi-du-temps-surveillant ci-dessus.
+    @app.route("/surveillant/notes")
+    def surveillant_notes_page():
+        return render_template("censeur/notes.html")
+
+    @app.route("/surveillant/bulletin")
+    def surveillant_bulletin_page():
+        return render_template("censeur/bulletin.html")
+
+    #POUR L'ENSEIGNANT (portail dédié — distinct de /enseignant qui sert la
+    # page Admin de gestion des comptes enseignants). Les routes ci-dessous
+    # correspondent aux hrefs déclarés dans la section "Enseignant" de
+    # sidebar.js (dashboard, notes, horaires, communiques, primes).
+    #
+    # ⚠️ HYPOTHÈSES à valider/ajuster :
+    #   - Les templates sont supposés vivre dans
+    #     static/templates/enseignant/ (même logique que static/templates/
+    #     admin/ pour le SuperAdmin) : à créer s'ils n'existent pas encore.
+    #   - Comme pour /configuration, /matiere, etc., aucune vérification de
+    #     rôle n'est faite ici : sidebar.js (GestionnaireAuth.requireAuth)
+    #     protège l'accès à la page, et l'API doit renvoyer les 403 qui font
+    #     foi côté données (à confirmer : existe-t-il bien un rôle
+    #     "Enseignant" reconnu par GestionnaireAuth.getRole() et par les
+    #     before_request des blueprints concernés, ex. note_bp pour /notes ?).
+    #   - "Primes" et "Communiqués" n'ont pas d'API associée dans les imports
+    #     actuels (pas de prime_bp / communique_bp) : ces pages afficheront
+    #     donc un template vide tant que le blueprint + les modèles
+    #     correspondants n'existent pas côté back.
+    @app.route("/enseignant/dashboard")
+    def enseignant_dashboard_page():
+        return render_template("enseignant/dashboard.html")
+
+    @app.route("/enseignant/notes")
+    def enseignant_notes_page():
+        return render_template("enseignant/notes.html")
+
+    @app.route("/enseignant/emploi-du-temps")
+    def enseignant_horaires_page():
+        return render_template("enseignant/horaire.html")
+
+    @app.route("/enseignant/communiques")
+    def enseignant_communiques_page():
+        return render_template("enseignant/communiques.html")
+
+    @app.route("/enseignant/primes")
+    def enseignant_primes_page():
+        return render_template("enseignant/primes.html")
 
 
     @app.route("/api/health")

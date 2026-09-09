@@ -1,4 +1,3 @@
-
 (function () {
   "use strict";
 
@@ -81,20 +80,78 @@
      HELPERS
   ════════════════════════════════════════════════ */
 
-  /** Retourne la page active depuis data-page sur <body> ou <main>. */
-  function getActivePage() {
-    return (
-      document.body.dataset.page ||
-      document.querySelector("main")?.dataset.page ||
-      ""
+  /** Normalise un chemin pour comparaison (retire query string, fragment,
+   *  barre oblique finale). */
+  function normalizePath(path) {
+    if (!path) return "";
+    const clean = path.split("?")[0].split("#")[0].replace(/\/+$/, "");
+    return clean === "" ? "/" : clean;
+  }
+
+  /** Aplatit le MENU (items + sous-menus) en une liste plate { key, href }
+   *  pour pouvoir retrouver la clé associée à l'URL couramment affichée. */
+  function flattenMenuItems(menu) {
+    const flat = [];
+    menu.forEach((group) => {
+      group.items.forEach((item) => {
+        if (item.href) flat.push({ key: item.key, href: item.href });
+        if (item.submenu) {
+          item.submenu.forEach((sub) => {
+            if (sub.href) flat.push({ key: sub.key, href: sub.href });
+          });
+        }
+      });
+    });
+    return flat;
+  }
+
+  /** Retrouve la clé de menu dont le href correspond au chemin donné. */
+  function findKeyByPathname(pathname) {
+    const target = normalizePath(pathname);
+    const match = flattenMenuItems(MENU).find(
+      (entry) => normalizePath(entry.href) === target
     );
+    return match ? match.key : "";
+  }
+
+  /** Retourne la page active. Ordre de priorité : data-page du template,
+   *  puis l'URL couramment affichée comparée aux "href" du menu (fiable
+   *  même sans data-page côté template), puis la clé mémorisée au clic
+   *  précédent en sessionStorage. */
+  function getActivePage() {
+    const domPage =
+      document.body.dataset.page || document.querySelector("main")?.dataset.page;
+    if (domPage) {
+      try {
+        sessionStorage.setItem("sidebarActiveKey", domPage);
+      } catch (e) {
+        /* sessionStorage indisponible (mode privé, etc.) : on ignore */
+      }
+      return domPage;
+    }
+
+    const keyFromUrl = findKeyByPathname(window.location.pathname);
+    if (keyFromUrl) {
+      try {
+        sessionStorage.setItem("sidebarActiveKey", keyFromUrl);
+      } catch (e) {
+        /* sessionStorage indisponible : on ignore */
+      }
+      return keyFromUrl;
+    }
+
+    try {
+      return sessionStorage.getItem("sidebarActiveKey") || "";
+    } catch (e) {
+      return "";
+    }
   }
 
   /** Construit le HTML d'un lien de sous-menu. */
   function buildSubmenuItem(sub, activePage) {
     const isActive = activePage === sub.key ? " active" : "";
     return `<li class="nav-item">
-      <a class="nav-link${isActive}" href="${sub.href}">${sub.label}</a>
+      <a class="nav-link${isActive}" href="${sub.href}" data-key="${sub.key}">${sub.label}</a>
     </li>`;
   }
 
@@ -123,7 +180,7 @@
 
     if (!hasSubmenu) {
       return `<li class="nav-item">
-        <a class="nav-link${activeClass}" href="${item.href}">
+        <a class="nav-link${activeClass}" href="${item.href}" data-key="${item.key}">
           <span class="nav-icon"><i class="fa-solid ${item.icon}"></i></span>
           <span class="nav-label">${item.label}</span>
           ${badgeHtml}
@@ -309,6 +366,56 @@
   }
 
   /* ═══════════════════════════════════════════════
+     STYLES — hover + surbrillance au clic/actif
+     Injecté ici pour que l'effet fonctionne même si le
+     CSS externe ne définit pas encore ces états.
+  ════════════════════════════════════════════════ */
+
+  function injectSidebarStyles() {
+    if (document.getElementById("sidebarNavStateStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "sidebarNavStateStyles";
+    style.textContent = `
+      .sidebar-nav .nav-link {
+        position: relative;
+        cursor: pointer;
+        transition: background-color var(--ta-transition, .2s ease),
+                    color var(--ta-transition, .2s ease);
+      }
+      .sidebar-nav .nav-link:hover {
+        background-color: rgba(var(--ta-primary-rgb, 37, 99, 235), 0.08);
+        color: var(--ta-primary, #2563eb);
+      }
+      .sidebar-nav .nav-link:hover .nav-icon i {
+        color: var(--ta-primary, #2563eb);
+      }
+      .sidebar-nav .nav-link.active {
+        background-color: rgba(var(--ta-primary-rgb, 37, 99, 235), 0.12);
+        color: var(--ta-primary, #2563eb);
+        font-weight: 600;
+      }
+      .sidebar-nav .nav-link.active::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        border-radius: 0 2px 2px 0;
+        background: var(--ta-primary, #2563eb);
+      }
+      .sidebar-nav .nav-link.active .nav-icon i {
+        color: var(--ta-primary, #2563eb);
+      }
+      .sidebar-nav .nav-submenu .nav-link.active {
+        background-color: rgba(var(--ta-primary-rgb, 37, 99, 235), 0.08);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  /* ═══════════════════════════════════════════════
      INJECTION
   ════════════════════════════════════════════════ */
 
@@ -318,6 +425,8 @@
       console.warn("[sidebar_admin.js] Élément .app-wrapper introuvable. Le sidebar ne peut pas être injecté.");
       return;
     }
+
+    injectSidebarStyles();
 
     /* Injecter sidebar + overlay avant le .main-content */
     const mainContent = wrapper.querySelector(".main-content") || wrapper.querySelector("#mainContent");
@@ -412,6 +521,27 @@
       if (isDesktop()) {
         closeSidebar();
       }
+    });
+
+    /* ── Surbrillance immédiate au clic (avant même le chargement de la
+           page cible) + mémorisation en sessionStorage pour que la
+           surbrillance survive au rechargement complet de page ── */
+    sidebar.querySelectorAll(".sidebar-nav a.nav-link").forEach((link) => {
+      link.addEventListener("click", () => {
+        sidebar.querySelectorAll(".nav-link.active").forEach((el) => {
+          el.classList.remove("active");
+        });
+        link.classList.add("active");
+
+        if (link.dataset.key) {
+          try {
+            sessionStorage.setItem("sidebarActiveKey", link.dataset.key);
+          } catch (err) {
+            /* sessionStorage indisponible : la page cible s'appuiera
+               uniquement sur data-page, comme avant */
+          }
+        }
+      });
     });
   }
 

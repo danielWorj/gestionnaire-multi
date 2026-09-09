@@ -287,6 +287,18 @@ def resolve_surveillant_profil(user_id):
     return Surveillant.query.filter_by(utilisateur_id=user_id).first()
 
 
+def resolve_enseignant_profil(user_id):
+    """Équivalent de resolve_censeur_profil pour un Enseignant — AJOUTÉ pour
+    le module Évaluation (cf. evaluation_service.py /
+    Enseignant.utilisateur_id ci-dessus dans pedagogie_models.py) : résout EN
+    DIRECT (pas de cache) le profil Enseignant relié à ce compte de
+    connexion, ou None si aucun (compte pas encore relié à un profil, ou
+    rôle différent)."""
+    if not user_id:
+        return None
+    return Enseignant.query.filter_by(utilisateur_id=user_id).first()
+
+
 def resolve_classe_ids_restriction(role, user_id):
     """Calcule la restriction de périmètre "classes" à appliquer pour
     l'utilisateur courant :

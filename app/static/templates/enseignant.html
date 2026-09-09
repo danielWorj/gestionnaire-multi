@@ -11,6 +11,47 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <!-- Style projet -->
   <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <!-- ═══════════════════════════════════════════════
+       Styles spécifiques à cette page : badges "matières enseignées"
+       (avec coefficient) et badge "statut" (Titulaire / Non titulaire).
+       Définis ICI en dur (couleurs explicites, pas de dépendance aux
+       classes .badge-light/.badge-success de style.css) car ces classes
+       globales rendaient le texte quasi invisible dans le tableau
+       (contraste insuffisant) — cf. capture d'écran signalée.
+  ═══════════════════════════════════════════════ -->
+  <style>
+    .matieres-cell {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+      max-width: 320px;
+    }
+    .badge-matiere {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #EEF2FF; color: #3730A3; border: 1px solid #C7D2FE;
+      font-size: 11px; font-weight: 600; line-height: 1.4;
+      padding: 3px 6px 3px 10px; border-radius: 999px; white-space: nowrap;
+    }
+    .badge-matiere .coef {
+      background: #4338CA; color: #fff;
+      font-size: 10px; font-weight: 700; line-height: 1;
+      padding: 3px 6px; border-radius: 999px;
+    }
+    .badge-matiere-plus {
+      display: inline-flex; align-items: center; justify-content: center;
+      background: #F1F5F9; color: #475569; border: 1px solid #E2E8F0;
+      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .badge-matieres-vide { color: #94A3B8; font-size: 12px; }
+
+    .badge-statut {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .badge-statut.titulaire { background: #DCFCE7; color: #166534; border: 1px solid #86EFAC; }
+    .badge-statut.non-titulaire { background: #F1F5F9; color: #64748B; border: 1px solid #E2E8F0; }
+  </style>
 </head>
 <body data-page="enseignants">
 
@@ -400,7 +441,7 @@
               <div style="font-weight:700;font-size:14px;" id="detailNomComplet">—</div>
               <div class="text-muted" id="detailGrade">—</div>
             </div>
-            <span class="badge badge-success ms-auto d-none" id="detailBadgeTitulaire"><i class="fa-solid fa-chalkboard-user me-1"></i>Titulaire</span>
+            <span class="badge-statut titulaire ms-auto d-none" id="detailBadgeTitulaire"><i class="fa-solid fa-chalkboard-user"></i>Titulaire</span>
           </div>
           <div class="row g-3 mb-3">
             <div class="col-md-4">
@@ -960,9 +1001,14 @@
         tbody.innerHTML = list.map((e) => {
           const matiereList = matieresByEnseignant[e.id] || [];
           const matieresBadges = matiereList.length
-            ? matiereList.slice(0, 3).map((m) => `<span class="badge badge-light me-1 mb-1">${escapeHtml(m.matiere)}</span>`).join("") +
-              (matiereList.length > 3 ? `<span class="text-muted" style="font-size:11px;">+${matiereList.length - 3}</span>` : "")
-            : '<span class="text-muted">—</span>';
+            ? `<div class="matieres-cell">` +
+              matiereList.slice(0, 3).map((m) => `
+                <span class="badge-matiere">
+                  ${escapeHtml(m.matiere)}${m.coefficient != null ? `<span class="coef">×${escapeHtml(String(m.coefficient))}</span>` : ""}
+                </span>`).join("") +
+              (matiereList.length > 3 ? `<span class="badge-matiere-plus">+${matiereList.length - 3}</span>` : "") +
+              `</div>`
+            : '<span class="badge-matieres-vide">—</span>';
           const sexeIcon = e.sexe === "M"
             ? '<i class="fa-solid fa-mars text-primary ms-1" title="Masculin"></i>'
             : e.sexe === "F"
@@ -986,10 +1032,11 @@
               <td>${escapeHtml(departementLabel(e.departement_id)) || "—"}</td>
               <td>${escapeHtml(gradeLabel(e.grade_id)) || "—"}</td>
               <td>${e.est_titulaire
-                ? '<span class="badge badge-success">Titulaire</span>'
-                : '<span class="badge badge-light">Non titulaire</span>'}</td>
+                ? '<span class="badge-statut titulaire"><i class="fa-solid fa-chalkboard-user"></i>Titulaire</span>'
+                : '<span class="badge-statut non-titulaire">Non titulaire</span>'}</td>
               <td>${matieresBadges}</td>
               <td class="text-end">
+                ${!e.utilisateur_id ? `<button class="btn btn-icon btn-sm btn-warning" title="Compte de connexion non lié : cet enseignant ne peut pas accéder à ses classes/matières/notes. Cliquer pour réparer." onclick="reparerLiaisonCompte(${e.id})"><i class="fa-solid fa-link-slash"></i></button>` : ""}
                 <button class="btn btn-icon btn-sm btn-light" title="Détails" onclick="openDetailModal(${e.id})"><i class="fa-solid fa-eye"></i></button>
                 <button class="btn btn-icon btn-sm btn-light" title="Modifier" onclick="openEditModal(${e.id})"><i class="fa-solid fa-pen"></i></button>
                 <button class="btn btn-icon btn-sm btn-light text-danger" title="Supprimer" onclick="openDeleteModal(${e.id})"><i class="fa-solid fa-trash"></i></button>
@@ -997,6 +1044,40 @@
             </tr>`;
         }).join("");
       }
+
+      /* ─────────────────────────────────────────
+         RÉPARATION — enseignants créés AVANT le correctif de liaison
+         Enseignant.utilisateur_id, restés orphelins de leur compte de
+         connexion (cf. creerCompteConnexion ci-dessous). Cherche d'abord un
+         compte 'Enseignant' existant avec le même email (créé par l'ancien
+         flux, jamais lié) ; à défaut, en crée un nouveau via le flux normal.
+      ───────────────────────────────────────── */
+      window.reparerLiaisonCompte = async function (id) {
+        const e = enseignants.find((x) => x.id === id);
+        if (!e) return;
+        if (e.utilisateur_id) {
+          toast("Ce compte est déjà lié.");
+          return;
+        }
+        try {
+          const utilisateurs = await api.get(`/api/auth/utilisateurs?role=Enseignant`);
+          const match = (utilisateurs || []).find(
+            (u) => (u.email || "").toLowerCase() === (e.email || "").toLowerCase()
+          );
+          if (match) {
+            await api.put(`/api/enseignants/${id}`, { utilisateur_id: match.id });
+            toast("Compte de connexion existant relié avec succès.");
+            await loadAll();
+          } else {
+            // Aucun compte trouvé pour cet email : on en crée un nouveau
+            // (même chemin que pour une création normale), avec liaison.
+            await creerCompteConnexion(id, e.nom, e.prenom, e.email);
+            await loadAll();
+          }
+        } catch (err) {
+          toast(err.message || "Impossible de réparer la liaison du compte.", "error");
+        }
+      };
 
       /* ─────────────────────────────────────────
          COMPTE DE CONNEXION (Utilisateur) + POPUP IDENTIFIANTS
@@ -1049,7 +1130,7 @@
         "Les identifiants"
       ));
 
-      async function creerCompteConnexion(nom, prenom, email) {
+      async function creerCompteConnexion(enseignantId, nom, prenom, email) {
         if (!enseignantRoleId) {
           toast("Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement (rôle « Enseignant » introuvable).", "error");
           return;
@@ -1059,6 +1140,7 @@
           toast("Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement (établissement introuvable). Créez-le depuis la gestion des utilisateurs.", "error");
           return;
         }
+        let result;
         try {
           const payload = {
             nom: `${prenom} ${nom}`.trim(),
@@ -1066,8 +1148,7 @@
             role_id: enseignantRoleId,
             etablissement_id: etablissementId,
           };
-          const result = await api.post("/api/auth/utilisateurs", payload);
-          openIdentifiantsModal(result.email || email, result.mot_de_passe_temporaire);
+          result = await api.post("/api/auth/utilisateurs", payload);
         } catch (err) {
           toast(
             "Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement" +
@@ -1075,7 +1156,30 @@
             ". Vous pouvez le créer depuis la gestion des utilisateurs.",
             "error"
           );
+          return;
         }
+
+        // ÉTAPE CRITIQUE, sans laquelle l'enseignant ne peut accéder à AUCUNE
+        // de ses données (matières-classe, classes, séquences, notes...) :
+        // /api/enseignant/mon-espace résout son profil via
+        // Enseignant.utilisateur_id (cf. pedagogie_services.resolve_enseignant_profil),
+        // qui reste sinon NULL indéfiniment — le compte existe et permet de se
+        // connecter, mais reste "orphelin" de son profil métier.
+        if (enseignantId) {
+          try {
+            await api.put(`/api/enseignants/${enseignantId}`, { utilisateur_id: result.id });
+          } catch (err) {
+            toast(
+              "Compte de connexion créé, mais la liaison avec la fiche enseignant a échoué" +
+              (err.message ? ` (${err.message})` : "") +
+              ". L'enseignant pourra se connecter mais ne verra pas ses classes/matières tant que " +
+              "cette liaison n'est pas faite manuellement (modifier l'enseignant).",
+              "error"
+            );
+          }
+        }
+
+        openIdentifiantsModal(result.email || email, result.mot_de_passe_temporaire);
       }
 
       /* ─────────────────────────────────────────
@@ -1147,13 +1251,15 @@
             await hideModal("#modalEnseignant");
             await loadAll();
           } else {
-            await api.post("/api/enseignants/", payload);
+            const nouvelEnseignant = await api.post("/api/enseignants/", payload);
             toast("Enseignant créé avec succès.");
             await hideModal("#modalEnseignant");
             await loadAll();
             // Création automatique du compte de connexion associé, puis
-            // affichage du popup avec les identifiants à transmettre.
-            await creerCompteConnexion(nom, prenom, email);
+            // liaison Enseignant.utilisateur_id -> Utilisateur.id (cf.
+            // creerCompteConnexion), puis affichage du popup avec les
+            // identifiants à transmettre.
+            await creerCompteConnexion(nouvelEnseignant.id, nom, prenom, email);
           }
         } catch (err) {
           toast(err.message || "Une erreur est survenue.", "error");
