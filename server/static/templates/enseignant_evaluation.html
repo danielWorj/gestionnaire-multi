@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mes évaluations — Enseignant</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Font Awesome -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+  <!-- Style projet -->
+  <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+
+  <!-- ═══════════════════════════════════════════════
+       Styles spécifiques à la page « Mes évaluations » (Enseignant)
+       Repose entièrement sur les variables --ta-* de style.css, comme
+       evaluation.html (vue Gestionnaire) — mêmes classes de composants
+       (filter-bar, eval-table, note-cell...) pour rester visuellement
+       cohérent avec le reste de l'application.
+  ═══════════════════════════════════════════════ -->
+  <style>
+    /* Barre de filtres */
+    .filter-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; }
+    .filter-group { display: flex; flex-direction: column; gap: 4px; }
+    .filter-group label { font-size: 11px; font-weight: 600; color: var(--ta-text-muted); text-transform: uppercase; letter-spacing: .04em; }
+
+    /* Bandeau de contexte (matière/classe/séquence actives) */
+    .contexte-bandeau {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+      background: var(--ta-primary-light); border: 1px solid var(--ta-primary); border-radius: var(--ta-radius);
+      padding: 10px 16px; margin-bottom: 16px; font-size: 12.5px; color: var(--ta-primary-dark);
+    }
+    .contexte-bandeau .item { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+    .contexte-bandeau .item i { opacity: .8; }
+    .contexte-bandeau .sep { width: 1px; height: 16px; background: var(--ta-primary); opacity: .3; }
+
+    /* KPI (4 statistiques demandées) */
+    .kpi-card {
+      background: var(--ta-white); border: 1px solid var(--ta-border); border-radius: var(--ta-radius);
+      padding: 14px 16px; height: 100%;
+    }
+    .kpi-card .kpi-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ta-text-muted); margin-bottom: 6px; }
+    .kpi-card .kpi-value { font-size: 22px; font-weight: 800; color: var(--ta-text); line-height: 1; }
+    .kpi-card .kpi-sub { font-size: 11px; color: var(--ta-text-light); margin-top: 4px; }
+    .kpi-card.kpi-primary .kpi-value { color: var(--ta-primary); }
+    .kpi-card.kpi-info .kpi-value { color: var(--ta-info); }
+    .kpi-card.kpi-warning .kpi-value { color: var(--ta-warning); }
+    .kpi-card.kpi-success .kpi-value { color: var(--ta-success); }
+
+    /* Tableau de statistiques de classe (au-dessus de la grille de notes) */
+    .stats-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+    .stats-table th, .stats-table td { padding: 9px 12px; border-bottom: 1px solid var(--ta-border-light); text-align: center; }
+    .stats-table thead th {
+      background: var(--ta-bg); font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--ta-text-muted); border-bottom: 1px solid var(--ta-border);
+    }
+    .stats-table tbody td.libelle-col { text-align: left; font-weight: 600; color: var(--ta-text); }
+    .stats-table tbody tr:last-child td { border-bottom: none; }
+    .stats-table td.valeur-forte { color: var(--ta-success); font-weight: 700; }
+    .stats-table td.valeur-faible { color: var(--ta-danger); font-weight: 700; }
+
+    /* Grille de saisie des notes */
+    .eval-grid-wrap { overflow-x: auto; }
+    .eval-table { width: 100%; min-width: 620px; border-collapse: separate; border-spacing: 0; }
+    .eval-table thead th {
+      background: var(--ta-bg); font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--ta-text-muted); padding: 10px 8px; border-bottom: 1px solid var(--ta-border);
+      text-align: center; white-space: nowrap; position: sticky; top: 0; z-index: 1;
+    }
+    .eval-table thead th.eleve-col { width: 260px; text-align: left; padding-left: 14px; }
+    .eval-table tbody td { border: 1px solid var(--ta-border-light); padding: 7px; vertical-align: middle; text-align: center; }
+    .eval-table tbody td.eleve-col { text-align: left; padding-left: 14px; background: var(--ta-white); }
+    .eval-table tbody tr:hover td.eleve-col { background: var(--ta-bg); }
+
+    .eleve-identite { display: flex; align-items: center; gap: 8px; }
+    .eleve-avatar {
+      width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700;
+      background: var(--ta-primary-light); color: var(--ta-primary-dark);
+    }
+    .eleve-avatar.sexe-F { background: #FCE7F3; color: #9D174D; }
+    .eleve-avatar.sexe-M { background: #DBEAFE; color: #1E40AF; }
+    .eleve-nom { font-weight: 600; font-size: 12.5px; color: var(--ta-text); line-height: 1.2; }
+    .eleve-matricule { font-size: 10px; color: var(--ta-text-light); }
+
+    .sexe-badge {
+      display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+      border-radius: 50%; font-size: 10px; font-weight: 700;
+    }
+    .sexe-badge.sexe-F { background: #FCE7F3; color: #9D174D; }
+    .sexe-badge.sexe-M { background: #DBEAFE; color: #1E40AF; }
+
+    .note-cell { display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; min-width: 100px; }
+    .note-input {
+      width: 56px; text-align: center; border: 1px solid var(--ta-border); border-radius: var(--ta-radius-sm);
+      padding: 5px 2px; font-size: 13px; font-weight: 700; color: var(--ta-text);
+    }
+    .note-input:focus { outline: none; border-color: var(--ta-primary); box-shadow: 0 0 0 2px var(--ta-primary-light); }
+    .note-input:disabled { background: var(--ta-bg); color: var(--ta-text-light); }
+    .note-input.note-faible { color: var(--ta-danger); }
+    .note-input.note-forte { color: var(--ta-success); }
+    .note-abs-toggle {
+      border: 1px solid var(--ta-border); background: var(--ta-white); color: var(--ta-text-light);
+      font-size: 9px; font-weight: 700; border-radius: var(--ta-radius-sm); padding: 5px 7px; cursor: pointer; transition: all .15s ease;
+    }
+    .note-abs-toggle:hover { border-color: var(--ta-danger); color: var(--ta-danger); }
+    .note-abs-toggle.is-absent { background: var(--ta-danger-light); border-color: var(--ta-danger); color: var(--ta-danger); }
+    .note-saved-flash { animation: noteSaved .7s ease; }
+    @keyframes noteSaved { 0% { background: var(--ta-success-light); } 100% { background: transparent; } }
+    .note-save-state { width: 14px; text-align: center; font-size: 11px; color: var(--ta-text-light); }
+    .note-save-state.saving { color: var(--ta-warning); }
+    .note-save-state.error { color: var(--ta-danger); }
+
+    .appreciation-badge { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .appreciation-badge.ok { background: var(--ta-success-light); color: var(--ta-success); }
+    .appreciation-badge.moyen { background: #FEF3C7; color: #92400E; }
+    .appreciation-badge.faible { background: var(--ta-danger-light); color: var(--ta-danger); }
+    .appreciation-badge.absent { background: var(--ta-bg); color: var(--ta-text-light); }
+    .appreciation-badge.vide { background: var(--ta-bg); color: var(--ta-text-light); }
+
+    .grid-loading, .grid-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 48px; color: var(--ta-text-light); font-size: 13px; }
+    .grid-empty i { font-size: 26px; opacity: .5; }
+
+    @media (max-width: 575.98px) {
+      .eval-table { min-width: 560px; }
+    }
+  </style>
+</head>
+<body data-page="enseignant-evaluation">
+
+  <div class="app-wrapper">
+    <div class="main-content" id="mainContent">
+
+      <main class="page-content">
+
+        <!-- Fil d'ariane -->
+        <nav aria-label="breadcrumb">
+          <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/dashboard"><i class="fa-solid fa-house me-1"></i>Tableau de bord</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Mes évaluations</li>
+          </ol>
+        </nav>
+
+        <!-- Titre -->
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+          <div>
+            <h1 class="page-title mb-1">Mes évaluations</h1>
+            <p class="mb-0 text-muted" style="font-size:12px;">
+              Saisissez les notes de toutes vos classes et matières, séquence par séquence. La saisie est enregistrée automatiquement.
+            </p>
+          </div>
+          <button class="btn btn-light btn-sm" type="button" id="btnActualiser" title="Recharger la grille">
+            <i class="fa-solid fa-rotate"></i> Actualiser
+          </button>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             FILTRES
+        ═══════════════════════════════════════════════ -->
+        <div class="card mb-3">
+          <div class="card-body py-3">
+            <div class="filter-bar">
+              <div class="filter-group">
+                <label for="filterAnnee">Année scolaire</label>
+                <select class="form-select form-select-sm" id="filterAnnee" style="min-width:150px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label for="filterClasse">Classe</label>
+                <select class="form-select form-select-sm" id="filterClasse" style="min-width:170px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label for="filterMatiere">Matière</label>
+                <select class="form-select form-select-sm" id="filterMatiere" style="min-width:170px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label for="filterTrimestre">Trimestre</label>
+                <select class="form-select form-select-sm" id="filterTrimestre" style="min-width:150px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label for="filterSequence">Séquence</label>
+                <select class="form-select form-select-sm" id="filterSequence" style="min-width:150px;">
+                  <option value="">Chargement…</option>
+                </select>
+              </div>
+
+              <div class="filter-group flex-grow-1"></div>
+
+              <div class="filter-group">
+                <label for="filterRecherche">Rechercher un élève</label>
+                <input type="text" class="form-control form-control-sm" id="filterRecherche" placeholder="Nom, prénom, matricule…" style="min-width:190px;">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bandeau de contexte -->
+        <div class="contexte-bandeau" id="contexteBandeau" style="display:none;">
+          <div class="item"><i class="fa-solid fa-chalkboard"></i> <span id="ctxClasse">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-book"></i> <span id="ctxMatiere">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-calendar-days"></i> <span id="ctxSequence">—</span></div>
+          <div class="sep"></div>
+          <div class="item"><i class="fa-solid fa-users"></i> <span id="ctxEffectif">—</span></div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             STATISTIQUES DE LA SÉQUENCE (au-dessus de la grille de notes)
+        ═══════════════════════════════════════════════ -->
+        <div class="row g-3 mb-3" id="kpiRow" style="display:none;">
+          <div class="col-sm-6 col-xl-3">
+            <div class="kpi-card kpi-primary">
+              <div class="kpi-label">Moyenne générale</div>
+              <div class="kpi-value" id="kpiMoyenneGenerale">—</div>
+              <div class="kpi-sub">de la moyenne des notes saisies</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="kpi-card kpi-info">
+              <div class="kpi-label">Moyenne des filles</div>
+              <div class="kpi-value" id="kpiMoyenneFilles">—</div>
+              <div class="kpi-sub" id="kpiMoyenneFillesSub">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="kpi-card kpi-info">
+              <div class="kpi-label">Moyenne des garçons</div>
+              <div class="kpi-value" id="kpiMoyenneGarcons">—</div>
+              <div class="kpi-sub" id="kpiMoyenneGarconsSub">—</div>
+            </div>
+          </div>
+          <div class="col-sm-6 col-xl-3">
+            <div class="kpi-card kpi-success">
+              <div class="kpi-label">Taux de réussite</div>
+              <div class="kpi-value" id="kpiTauxReussite">—</div>
+              <div class="kpi-sub">élèves avec une moyenne ≥ 10/20</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card mb-4" id="statsCard" style="display:none;">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <h6 class="mb-0"><i class="fa-solid fa-chart-column me-2 text-primary"></i>Statistiques de la classe pour cette séquence</h6>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="stats-table">
+                <thead>
+                  <tr>
+                    <th style="text-align:left;">Indicateur</th>
+                    <th>Ensemble de la classe</th>
+                    <th>Filles</th>
+                    <th>Garçons</th>
+                  </tr>
+                </thead>
+                <tbody id="statsTableBody">
+                  <!-- rempli en JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════
+             GRILLE DE SAISIE DES NOTES
+        ═══════════════════════════════════════════════ -->
+        <div class="card">
+          <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <h6 class="mb-0"><i class="fa-solid fa-pen-to-square me-2 text-primary"></i>Saisie des notes</h6>
+            <div class="d-flex align-items-center gap-2">
+              <span class="badge badge-neutral" id="gridCount">0 élève(s)</span>
+              <span class="text-muted" style="font-size:11px;"><i class="fa-solid fa-circle-info me-1"></i>Note sur 20 — cochez « ABS » pour un élève absent.</span>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="eval-grid-wrap">
+              <table class="eval-table" id="grilleNotes">
+                <thead>
+                  <tr>
+                    <th style="width:40px;">#</th>
+                    <th class="eleve-col">Élève</th>
+                    <th style="width:60px;">Sexe</th>
+                    <th style="width:130px;">Note / 20</th>
+                    <th style="width:110px;">Appréciation</th>
+                  </tr>
+                </thead>
+                <tbody id="grilleNotesBody">
+                  <tr><td colspan="5" class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Sélectionnez une classe, une matière et une séquence…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card-footer">
+            <small class="text-muted"><i class="fa-solid fa-circle-info me-1"></i>Vous ne pouvez saisir des notes que pour les matières-classe qui vous ont été attribuées par l'administration de votre établissement.</small>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div class="position-fixed bottom-0 end-0 p-3" style="z-index:1080;">
+    <div id="toastNotif" class="toast" role="alert">
+      <div class="toast-header">
+        <i class="fa-solid fa-circle-check text-success me-2" id="toastIcon"></i>
+        <strong class="me-auto" id="toastTitle">Info</strong>
+        <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+      </div>
+      <div class="toast-body" id="toastBody"></div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Sidebar du projet -->
+  <script>
+    window.GESTIONNAIRE_USER = {
+      nom: "Enseignant connecté",
+      role: "Enseignant",
+      avatar: null
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/sidebar.js') }}" defer></script>
+
+  <!-- Script spécifique à la page « Mes évaluations » -->
+  <script>
+    (function () {
+      "use strict";
+
+      /* ═══════════════════════════════════════
+         CONFIGURATION DES ENDPOINTS
+
+         - /api/notes/ (GET/POST/PUT/DELETE) existe déjà tel quel dans
+           evaluation_api.py : un Enseignant y est automatiquement restreint
+           à ses propres matières-classe côté serveur (matiere_classe_ids_
+           restriction, cf. resolve_enseignant_matiere_classe_ids). Le GET
+           renvoie TOUTES les notes de l'enseignant (toutes classes/matières/
+           séquences confondues) : le filtrage par classe/matière/séquence
+           affiché à l'écran se fait donc côté client (cf. notesFiltrees()).
+
+         - /api/enseignant/mon-espace, /api/enseignant/sequences et
+           /api/enseignant/roster sont TROIS ENDPOINTS À AJOUTER côté
+           backend (aucun des blueprints existants — matiere_classe_bp,
+           classe_bp, cycle_bp, trimestre_bp, sequence_bp, inscription_bp —
+           n'autorise aujourd'hui le rôle "Enseignant", même en lecture
+           seule). Voir la structure de réponse attendue juste en dessous ;
+           ils peuvent être bâtis avec les briques déjà présentes dans
+           pedagogie_services.py (resolve_enseignant_profil,
+           resolve_enseignant_matiere_classe_ids).
+      ═══════════════════════════════════════ */
+      const ENDPOINTS = {
+        // -> { matieres_classe: [{id, classe_id, classe_label, effectif, matiere_id, matiere_libelle, coefficient}],
+        //      annees_scolaires: [{id, libelle, active}] }
+        monEspace: "/api/enseignant/mon-espace",
+
+        // -> [{trimestre_id, trimestre_libelle, sequences:[{id, libelle}]}]
+        sequences: (anneeId) => `/api/enseignant/sequences?annee_scolaire_id=${anneeId}`,
+
+        // -> [{inscription_id, eleve_id, nom, prenom, matricule, sexe}]
+        roster: (classeId, anneeId) => `/api/enseignant/roster?classe_id=${classeId}&annee_scolaire_id=${anneeId}`,
+
+        notes: "/api/notes/",
+        noteById: (id) => `/api/notes/${id}`,
+      };
+
+      /* ═══════════════════════════════════════
+         ÉTAT
+      ═══════════════════════════════════════ */
+      const state = {
+        matieresClasse: [],   // toutes les matières-classe de l'enseignant connecté
+        annees: [],
+
+        anneeActiveId: null,
+        classeActiveId: null,
+        matiereClasseActiveId: null,
+        trimestreActiveId: null,
+        sequenceActiveId: null,
+
+        sequencesTree: [],    // [{trimestre_id, trimestre_libelle, sequences:[...]}]
+        roster: [],           // inscriptions de la classe/année actives
+        notesToutes: [],      // toutes les notes de l'enseignant (non filtrées)
+        notesIndex: {},       // inscription_id -> note, pour la matière-classe/séquence actives
+
+        rosterKey: null,      // "classeId|anneeId" déjà chargé, pour éviter les rechargements inutiles
+      };
+
+      /* ═══════════════════════════════════════
+         HELPERS API
+      ═══════════════════════════════════════ */
+      async function apiFetch(url, options = {}) {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          ...options
+        });
+        let payload = null;
+        try { payload = await res.json(); } catch (e) { /* réponse vide */ }
+        if (!res.ok) {
+          const message = (payload && payload.erreur) || `Erreur ${res.status}`;
+          throw new Error(message);
+        }
+        return payload;
+      }
+
+      function showToast(message, type = "success") {
+        const body = document.getElementById("toastBody");
+        const title = document.getElementById("toastTitle");
+        const icon = document.getElementById("toastIcon");
+        body.textContent = message;
+        title.textContent = type === "error" ? "Erreur" : "Info";
+        icon.className = type === "error"
+          ? "fa-solid fa-circle-exclamation text-danger me-2"
+          : "fa-solid fa-circle-check text-success me-2";
+        new bootstrap.Toast(document.getElementById("toastNotif"), { delay: 3500 }).show();
+      }
+
+      /* ═══════════════════════════════════════
+         HELPERS DE DONNÉES
+      ═══════════════════════════════════════ */
+      function classesUniques() {
+        const map = new Map();
+        state.matieresClasse.forEach(mc => {
+          if (!map.has(mc.classe_id)) {
+            map.set(mc.classe_id, { id: mc.classe_id, label: mc.classe_label || `Classe #${mc.classe_id}`, effectif: mc.effectif });
+          }
+        });
+        return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, "fr"));
+      }
+
+      function matieresPourClasse(classeId) {
+        return state.matieresClasse
+          .filter(mc => String(mc.classe_id) === String(classeId))
+          .sort((a, b) => (a.matiere_libelle || "").localeCompare(b.matiere_libelle || "", "fr"));
+      }
+
+      function matiereClasseActive() {
+        return state.matieresClasse.find(mc => String(mc.id) === String(state.matiereClasseActiveId)) || null;
+      }
+
+      function sequenceActiveLibelle() {
+        for (const tri of state.sequencesTree) {
+          const seq = tri.sequences.find(s => String(s.id) === String(state.sequenceActiveId));
+          if (seq) return `${tri.trimestre_libelle} — ${seq.libelle}`;
+        }
+        return "—";
+      }
+
+      function rosterFiltre() {
+        const q = (document.getElementById("filterRecherche").value || "").trim().toLowerCase();
+        let liste = [...state.roster];
+        if (q) {
+          liste = liste.filter(e =>
+            `${e.nom} ${e.prenom} ${e.matricule || ""}`.toLowerCase().includes(q)
+          );
+        }
+        return liste.sort((a, b) => `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`, "fr"));
+      }
+
+      function eleveInitiales(e) {
+        return `${(e.nom || "?").charAt(0)}${(e.prenom || "?").charAt(0)}`.toUpperCase();
+      }
+
+      function noteValeurEleve(inscriptionId) {
+        const n = state.notesIndex[inscriptionId];
+        if (!n || n.absent || n.valeur === null || n.valeur === undefined) return null;
+        return Number(n.valeur);
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — CONTEXTE ENSEIGNANT (matières-classe + années)
+      ═══════════════════════════════════════ */
+      async function loadMonEspace() {
+        try {
+          const payload = await apiFetch(ENDPOINTS.monEspace);
+          state.matieresClasse = payload.matieres_classe || [];
+          state.annees = payload.annees_scolaires || [];
+        } catch (e) {
+          showToast(`Impossible de charger vos matières : ${e.message}`, "error");
+          state.matieresClasse = [];
+          state.annees = [];
+        }
+
+        // Année scolaire
+        const selectAnnee = document.getElementById("filterAnnee");
+        if (!state.annees.length) {
+          selectAnnee.innerHTML = `<option value="">Aucune année scolaire</option>`;
+        } else {
+          selectAnnee.innerHTML = state.annees.map(a =>
+            `<option value="${a.id}" ${a.active ? "selected" : ""}>${a.libelle}${a.active ? " (active)" : ""}</option>`
+          ).join("");
+          const active = state.annees.find(a => a.active) || state.annees[0];
+          state.anneeActiveId = active.id;
+        }
+
+        // Classe
+        const selectClasse = document.getElementById("filterClasse");
+        const classes = classesUniques();
+        if (!classes.length) {
+          selectClasse.innerHTML = `<option value="">Aucune classe assignée</option>`;
+          document.getElementById("filterMatiere").innerHTML = `<option value="">—</option>`;
+          renderGridEmpty("Aucune matière-classe ne vous a été attribuée pour le moment. Contactez l'administration de votre établissement.");
+          return false;
+        }
+        selectClasse.innerHTML = classes.map(c => `<option value="${c.id}">${c.label}</option>`).join("");
+        state.classeActiveId = classes[0].id;
+
+        peupleMatieresSelect();
+        return true;
+      }
+
+      function peupleMatieresSelect() {
+        const select = document.getElementById("filterMatiere");
+        const matieres = matieresPourClasse(state.classeActiveId);
+        if (!matieres.length) {
+          select.innerHTML = `<option value="">Aucune matière</option>`;
+          state.matiereClasseActiveId = null;
+          return;
+        }
+        select.innerHTML = matieres.map(mc =>
+          `<option value="${mc.id}">${mc.matiere_libelle} (coef. ${mc.coefficient})</option>`
+        ).join("");
+        state.matiereClasseActiveId = matieres[0].id;
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — TRIMESTRES / SÉQUENCES
+      ═══════════════════════════════════════ */
+      async function loadSequences() {
+        const selectTri = document.getElementById("filterTrimestre");
+        const selectSeq = document.getElementById("filterSequence");
+        if (!state.anneeActiveId) {
+          selectTri.innerHTML = `<option value="">—</option>`;
+          selectSeq.innerHTML = `<option value="">—</option>`;
+          state.sequencesTree = [];
+          return;
+        }
+        try {
+          state.sequencesTree = await apiFetch(ENDPOINTS.sequences(state.anneeActiveId));
+        } catch (e) {
+          state.sequencesTree = [];
+          showToast(`Séquences : ${e.message}`, "error");
+        }
+
+        if (!state.sequencesTree.length) {
+          selectTri.innerHTML = `<option value="">Aucun trimestre</option>`;
+          selectSeq.innerHTML = `<option value="">Aucune séquence</option>`;
+          state.trimestreActiveId = null;
+          state.sequenceActiveId = null;
+          return;
+        }
+
+        selectTri.innerHTML = state.sequencesTree.map(t =>
+          `<option value="${t.trimestre_id}">${t.trimestre_libelle}</option>`
+        ).join("");
+        state.trimestreActiveId = state.sequencesTree[0].trimestre_id;
+        peupleSequencesSelect();
+      }
+
+      function peupleSequencesSelect() {
+        const select = document.getElementById("filterSequence");
+        const tri = state.sequencesTree.find(t => String(t.trimestre_id) === String(state.trimestreActiveId));
+        const seqs = (tri && tri.sequences) || [];
+        if (!seqs.length) {
+          select.innerHTML = `<option value="">Aucune séquence</option>`;
+          state.sequenceActiveId = null;
+          return;
+        }
+        select.innerHTML = seqs.map(s => `<option value="${s.id}">${s.libelle}</option>`).join("");
+        state.sequenceActiveId = seqs[0].id;
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — ROSTER (élèves de la classe/année active)
+      ═══════════════════════════════════════ */
+      async function loadRosterSiNecessaire() {
+        if (!state.classeActiveId || !state.anneeActiveId) { state.roster = []; return; }
+        const key = `${state.classeActiveId}|${state.anneeActiveId}`;
+        if (state.rosterKey === key) return; // déjà chargé, on évite un appel réseau inutile
+        try {
+          state.roster = await apiFetch(ENDPOINTS.roster(state.classeActiveId, state.anneeActiveId));
+          state.rosterKey = key;
+        } catch (e) {
+          state.roster = [];
+          state.rosterKey = null;
+          showToast(`Liste des élèves : ${e.message}`, "error");
+        }
+      }
+
+      /* ═══════════════════════════════════════
+         CHARGEMENT — NOTES
+      ═══════════════════════════════════════ */
+      async function loadNotes() {
+        try {
+          state.notesToutes = await apiFetch(ENDPOINTS.notes);
+        } catch (e) {
+          state.notesToutes = [];
+          showToast(`Notes : ${e.message}`, "error");
+        }
+        reindexNotes();
+      }
+
+      function reindexNotes() {
+        state.notesIndex = {};
+        state.notesToutes
+          .filter(n => String(n.matiere_classe_id) === String(state.matiereClasseActiveId)
+                    && String(n.sequence_id) === String(state.sequenceActiveId))
+          .forEach(n => { state.notesIndex[n.inscription_id] = n; });
+      }
+
+      /* ═══════════════════════════════════════
+         STATISTIQUES
+      ═══════════════════════════════════════ */
+      function moyenne(valeurs) {
+        if (!valeurs.length) return null;
+        return valeurs.reduce((a, b) => a + b, 0) / valeurs.length;
+      }
+
+      function pct20(valeur) {
+        return valeur === null ? null : (valeur / 20) * 100;
+      }
+
+      function fmtNote(v) { return v === null ? "—" : v.toFixed(2); }
+      function fmtPct(v) { return v === null ? "—" : `${v.toFixed(1)} %`; }
+
+      function calculerStatistiques() {
+        const filles = state.roster.filter(e => e.sexe === "F");
+        const garcons = state.roster.filter(e => e.sexe === "M");
+
+        const valeursClasse = state.roster.map(e => noteValeurEleve(e.inscription_id)).filter(v => v !== null);
+        const valeursFilles = filles.map(e => noteValeurEleve(e.inscription_id)).filter(v => v !== null);
+        const valeursGarcons = garcons.map(e => noteValeurEleve(e.inscription_id)).filter(v => v !== null);
+
+        const absents = state.roster.filter(e => state.notesIndex[e.inscription_id] && state.notesIndex[e.inscription_id].absent).length;
+
+        const moyClasse = moyenne(valeursClasse);
+        const moyFilles = moyenne(valeursFilles);
+        const moyGarcons = moyenne(valeursGarcons);
+
+        const tauxReussite = valeursClasse.length
+          ? (valeursClasse.filter(v => v >= 10).length / valeursClasse.length) * 100
+          : null;
+        const tauxReussiteFilles = valeursFilles.length
+          ? (valeursFilles.filter(v => v >= 10).length / valeursFilles.length) * 100
+          : null;
+        const tauxReussiteGarcons = valeursGarcons.length
+          ? (valeursGarcons.filter(v => v >= 10).length / valeursGarcons.length) * 100
+          : null;
+
+        return {
+          effectifTotal: state.roster.length,
+          effectifFilles: filles.length,
+          effectifGarcons: garcons.length,
+          notesSaisies: valeursClasse.length + absents,
+          absents,
+
+          moyClasse, moyFilles, moyGarcons,
+          moyClassePct: pct20(moyClasse), moyFillesPct: pct20(moyFilles), moyGarconsPct: pct20(moyGarcons),
+
+          tauxReussite, tauxReussiteFilles, tauxReussiteGarcons,
+
+          meilleureNote: valeursClasse.length ? Math.max(...valeursClasse) : null,
+          noteLaPlusBasse: valeursClasse.length ? Math.min(...valeursClasse) : null,
+        };
+      }
+
+      function renderStatistiques() {
+        const s = calculerStatistiques();
+
+        document.getElementById("kpiRow").style.display = "flex";
+        document.getElementById("statsCard").style.display = "block";
+
+        document.getElementById("kpiMoyenneGenerale").textContent = fmtPct(s.moyClassePct);
+        document.getElementById("kpiMoyenneFilles").textContent = fmtPct(s.moyFillesPct);
+        document.getElementById("kpiMoyenneFillesSub").textContent = `${s.effectifFilles} fille(s) — moy. ${fmtNote(s.moyFilles)}/20`;
+        document.getElementById("kpiMoyenneGarcons").textContent = fmtPct(s.moyGarconsPct);
+        document.getElementById("kpiMoyenneGarconsSub").textContent = `${s.effectifGarcons} garçon(s) — moy. ${fmtNote(s.moyGarcons)}/20`;
+        document.getElementById("kpiTauxReussite").textContent = fmtPct(s.tauxReussite);
+
+        const cls = (v, seuilBas = 40, seuilHaut = 60) =>
+          v === null ? "" : v >= seuilHaut ? "valeur-forte" : v < seuilBas ? "valeur-faible" : "";
+
+        const rows = [
+          ["Effectif", s.effectifTotal, s.effectifFilles, s.effectifGarcons],
+          ["Notes saisies (sur l'effectif)", `${s.notesSaisies} / ${s.effectifTotal}`, "—", "—"],
+          ["Absents à cette séquence", s.absents, "—", "—"],
+          ["Moyenne générale (/20)", fmtNote(s.moyClasse), fmtNote(s.moyFilles), fmtNote(s.moyGarcons)],
+          ["Pourcentage de moyenne (%)", fmtPct(s.moyClassePct), fmtPct(s.moyFillesPct), fmtPct(s.moyGarconsPct)],
+          ["Taux de réussite (notes ≥ 10/20)", fmtPct(s.tauxReussite), fmtPct(s.tauxReussiteFilles), fmtPct(s.tauxReussiteGarcons)],
+          ["Meilleure note", fmtNote(s.meilleureNote), "—", "—"],
+          ["Note la plus basse", fmtNote(s.noteLaPlusBasse), "—", "—"],
+        ];
+
+        document.getElementById("statsTableBody").innerHTML = rows.map(([libelle, classe, f, g]) => `
+          <tr>
+            <td class="libelle-col">${libelle}</td>
+            <td>${classe}</td>
+            <td>${f}</td>
+            <td>${g}</td>
+          </tr>
+        `).join("");
+      }
+
+      /* ═══════════════════════════════════════
+         RENDU — BANDEAU DE CONTEXTE
+      ═══════════════════════════════════════ */
+      function renderContexte() {
+        const mc = matiereClasseActive();
+        const classe = classesUniques().find(c => String(c.id) === String(state.classeActiveId));
+        document.getElementById("contexteBandeau").style.display = "flex";
+        document.getElementById("ctxClasse").textContent = classe ? classe.label : "—";
+        document.getElementById("ctxMatiere").textContent = mc ? `${mc.matiere_libelle} (coef. ${mc.coefficient})` : "—";
+        document.getElementById("ctxSequence").textContent = sequenceActiveLibelle();
+        document.getElementById("ctxEffectif").textContent = `${state.roster.length} élève(s)`;
+      }
+
+      /* ═══════════════════════════════════════
+         RENDU — GRILLE DE SAISIE
+      ═══════════════════════════════════════ */
+      function appreciationInfo(inscriptionId) {
+        const n = state.notesIndex[inscriptionId];
+        if (!n) return { classe: "vide", label: "—" };
+        if (n.absent) return { classe: "absent", label: "Absent" };
+        if (n.valeur === null || n.valeur === undefined) return { classe: "vide", label: "—" };
+        const v = Number(n.valeur);
+        if (v >= 14) return { classe: "ok", label: "Très bien" };
+        if (v >= 10) return { classe: "moyen", label: "Passable" };
+        return { classe: "faible", label: "Insuffisant" };
+      }
+
+      function renderGridEmpty(message) {
+        document.getElementById("kpiRow").style.display = "none";
+        document.getElementById("statsCard").style.display = "none";
+        document.getElementById("contexteBandeau").style.display = "none";
+        document.getElementById("gridCount").textContent = "0 élève(s)";
+        document.getElementById("grilleNotesBody").innerHTML =
+          `<tr><td colspan="5" class="grid-empty"><i class="fa-solid fa-circle-info"></i>${message}</td></tr>`;
+      }
+
+      function renderGrid() {
+        const tbody = document.getElementById("grilleNotesBody");
+        const roster = rosterFiltre();
+        document.getElementById("gridCount").textContent = `${state.roster.length} élève(s)`;
+
+        if (!roster.length) {
+          tbody.innerHTML = `<tr><td colspan="5" class="grid-empty"><i class="fa-solid fa-user-slash"></i>Aucun élève ne correspond à la sélection.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = roster.map((eleve, idx) => {
+          const n = state.notesIndex[eleve.inscription_id];
+          const valeur = (n && n.valeur !== null && n.valeur !== undefined) ? Number(n.valeur) : "";
+          const estAbsent = !!(n && n.absent);
+          const appr = appreciationInfo(eleve.inscription_id);
+          const noteClass = valeur === "" ? "" : valeur < 10 ? "note-faible" : valeur >= 14 ? "note-forte" : "";
+
+          return `
+            <tr data-inscription-id="${eleve.inscription_id}">
+              <td>${idx + 1}</td>
+              <td class="eleve-col">
+                <div class="eleve-identite">
+                  <div class="eleve-avatar sexe-${eleve.sexe || "?"}">${eleveInitiales(eleve)}</div>
+                  <div>
+                    <div class="eleve-nom">${eleve.nom} ${eleve.prenom}</div>
+                    <div class="eleve-matricule">${eleve.matricule || "—"}</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="sexe-badge sexe-${eleve.sexe || "?"}">${eleve.sexe || "?"}</span></td>
+              <td>
+                <div class="note-cell">
+                  <input type="number" class="note-input ${noteClass}" min="0" max="20" step="0.25"
+                         value="${valeur}" ${estAbsent ? "disabled" : ""}
+                         data-role="note-input" placeholder="—">
+                  <button type="button" class="note-abs-toggle ${estAbsent ? "is-absent" : ""}" data-role="note-abs-toggle" title="Marquer absent">ABS</button>
+                  <span class="note-save-state" data-role="note-save-state"></span>
+                </div>
+              </td>
+              <td><span class="appreciation-badge ${appr.classe}" data-role="appreciation">${appr.label}</span></td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      /* ═══════════════════════════════════════
+         SAUVEGARDE D'UNE NOTE (création / mise à jour / suppression)
+      ═══════════════════════════════════════ */
+      function setSaveState(row, state_) {
+        const el = row.querySelector('[data-role="note-save-state"]');
+        el.className = `note-save-state ${state_ === "saving" ? "saving" : state_ === "error" ? "error" : ""}`;
+        el.innerHTML = state_ === "saving"
+          ? '<i class="fa-solid fa-spinner fa-spin"></i>'
+          : state_ === "error"
+          ? '<i class="fa-solid fa-triangle-exclamation"></i>'
+          : state_ === "ok"
+          ? '<i class="fa-solid fa-check"></i>'
+          : "";
+      }
+
+      async function sauvegarderNote(inscriptionId, { valeur, absent }) {
+        const row = document.querySelector(`tr[data-inscription-id="${inscriptionId}"]`);
+        if (!row) return;
+        setSaveState(row, "saving");
+
+        const existante = state.notesIndex[inscriptionId];
+        const body = {
+          inscription_id: Number(inscriptionId),
+          matiere_classe_id: Number(state.matiereClasseActiveId),
+          sequence_id: Number(state.sequenceActiveId),
+          valeur: absent ? null : (valeur === "" || valeur === null ? null : Number(valeur)),
+          absent: !!absent,
+        };
+
+        try {
+          let result;
+          if (existante && existante.id) {
+            result = await apiFetch(ENDPOINTS.noteById(existante.id), { method: "PUT", body: JSON.stringify(body) });
+          } else {
+            result = await apiFetch(ENDPOINTS.notes, { method: "POST", body: JSON.stringify(body) });
+          }
+          state.notesIndex[inscriptionId] = result;
+          const idxGlobal = state.notesToutes.findIndex(n => n.id === result.id);
+          if (idxGlobal >= 0) state.notesToutes[idxGlobal] = result; else state.notesToutes.push(result);
+
+          setSaveState(row, "ok");
+          row.classList.add("note-saved-flash");
+          setTimeout(() => row.classList.remove("note-saved-flash"), 700);
+
+          const appr = appreciationInfo(inscriptionId);
+          const badge = row.querySelector('[data-role="appreciation"]');
+          badge.className = `appreciation-badge ${appr.classe}`;
+          badge.textContent = appr.label;
+
+          renderStatistiques();
+        } catch (e) {
+          setSaveState(row, "error");
+          showToast(`Enregistrement impossible : ${e.message}`, "error");
+        }
+      }
+
+      /* ═══════════════════════════════════════
+         ÉVÉNEMENTS — GRILLE (délégation)
+      ═══════════════════════════════════════ */
+      document.getElementById("grilleNotesBody").addEventListener("change", (ev) => {
+        const input = ev.target.closest('[data-role="note-input"]');
+        if (!input) return;
+        const row = ev.target.closest("tr");
+        const inscriptionId = row.dataset.inscriptionId;
+        const valeur = input.value;
+
+        if (valeur !== "" && (Number(valeur) < 0 || Number(valeur) > 20)) {
+          showToast("La note doit être comprise entre 0 et 20.", "error");
+          input.value = "";
+          return;
+        }
+        sauvegarderNote(inscriptionId, { valeur, absent: false });
+      });
+
+      document.getElementById("grilleNotesBody").addEventListener("click", (ev) => {
+        const btn = ev.target.closest('[data-role="note-abs-toggle"]');
+        if (!btn) return;
+        const row = ev.target.closest("tr");
+        const inscriptionId = row.dataset.inscriptionId;
+        const input = row.querySelector('[data-role="note-input"]');
+        const nouvelEtat = !btn.classList.contains("is-absent");
+
+        btn.classList.toggle("is-absent", nouvelEtat);
+        input.disabled = nouvelEtat;
+        if (nouvelEtat) input.value = "";
+
+        sauvegarderNote(inscriptionId, { valeur: null, absent: nouvelEtat });
+      });
+
+      document.getElementById("filterRecherche").addEventListener("input", () => renderGrid());
+
+      /* ═══════════════════════════════════════
+         ORCHESTRATION DES FILTRES
+      ═══════════════════════════════════════ */
+      async function chargerGrilleComplete() {
+        if (!state.classeActiveId || !state.matiereClasseActiveId || !state.sequenceActiveId) {
+          renderGridEmpty("Sélectionnez une classe, une matière et une séquence pour afficher la grille de saisie.");
+          return;
+        }
+        document.getElementById("grilleNotesBody").innerHTML =
+          `<tr><td colspan="5" class="grid-loading"><i class="fa-solid fa-spinner fa-spin"></i> Chargement…</td></tr>`;
+
+        await loadRosterSiNecessaire();
+        await loadNotes();
+
+        renderContexte();
+        renderStatistiques();
+        renderGrid();
+      }
+
+      document.getElementById("filterAnnee").addEventListener("change", async (ev) => {
+        state.anneeActiveId = ev.target.value || null;
+        await loadSequences();
+        await chargerGrilleComplete();
+      });
+
+      document.getElementById("filterClasse").addEventListener("change", async (ev) => {
+        state.classeActiveId = ev.target.value || null;
+        peupleMatieresSelect();
+        await chargerGrilleComplete();
+      });
+
+      document.getElementById("filterMatiere").addEventListener("change", async (ev) => {
+        state.matiereClasseActiveId = ev.target.value || null;
+        await chargerGrilleComplete();
+      });
+
+      document.getElementById("filterTrimestre").addEventListener("change", async (ev) => {
+        state.trimestreActiveId = ev.target.value || null;
+        peupleSequencesSelect();
+        await chargerGrilleComplete();
+      });
+
+      document.getElementById("filterSequence").addEventListener("change", async (ev) => {
+        state.sequenceActiveId = ev.target.value || null;
+        await chargerGrilleComplete();
+      });
+
+      document.getElementById("btnActualiser").addEventListener("click", async () => {
+        state.rosterKey = null; // force le rechargement du roster même sans changement de filtre
+        await chargerGrilleComplete();
+        showToast("Grille actualisée.");
+      });
+
+      /* ═══════════════════════════════════════
+         INIT
+      ═══════════════════════════════════════ */
+      async function init() {
+        const ok = await loadMonEspace();
+        if (!ok) return;
+        await loadSequences();
+        await chargerGrilleComplete();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+
+</body>
+</html>
