@@ -7,6 +7,7 @@ if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
 from flask import Flask, jsonify, render_template, redirect, request, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import config_by_name
 from extensions import db, migrate, ma, jwt, cors, limiter
@@ -64,6 +65,14 @@ def create_app(env=None):
         config_cls.validate()
 
     app.config.from_object(config_cls)
+
+    # Derrière nginx (un seul proxy de confiance) : request.remote_addr doit
+    # être l'IP réelle du client, sinon Flask-Limiter compte TOUTES les
+    # tentatives de login sous l'IP de nginx (5/min pour tout le monde).
+    # TRUSTED_PROXIES=0 désactive le correctif (accès direct sans proxy).
+    trusted_proxies = int(os.environ.get("TRUSTED_PROXIES", "0"))
+    if trusted_proxies:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxies, x_proto=trusted_proxies, x_host=trusted_proxies)
 
     # --- Initialisation des extensions ---
     db.init_app(app)

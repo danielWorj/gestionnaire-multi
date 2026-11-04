@@ -1,0 +1,71 @@
+# Production — smallapp.org
+#
+#   cp deploy.env.example .env   (puis remplir les secrets)
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Seul nginx est exposé (80/443). MySQL et l'API restent sur le réseau
+# Docker interne.
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: gestionnaire-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD manquant dans .env}
+      MYSQL_DATABASE: ${DB_NAME:-gestionnairedb}
+      MYSQL_USER: ${DB_USER:?DB_USER manquant dans .env}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD manquant dans .env}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: gestionnaire-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      FLASK_ENV: production
+      PORT: 5000
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:-gestionnairedb}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY manquant dans .env}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY manquant dans .env}
+      CORS_ORIGINS: https://smallapp.org
+      TRUSTED_PROXIES: 1
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_TIMEOUT: 120
+    volumes:
+      # Logos et bulletins PDF : survivent aux rebuilds
+      - server-storage:/app/storage
+
+  nginx:
+    build:
+      context: ./web
+      dockerfile: Dockerfile.prod
+    container_name: gestionnaire-nginx
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./infra/nginx/smallapp.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./infra/ssl:/etc/nginx/ssl:ro
+
+volumes:
+  mysql-data:
+  server-storage:

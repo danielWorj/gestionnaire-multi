@@ -1,1 +1,31 @@
+# --- Secrets & accès (ne JAMAIS commiter) ---
+.env
+.env.*
+!.env.example
+access*.txt
 mot_de_passe_demo.txt
+mots_de_passe_demo.txt
+deploy/
+
+# --- Certificats / clés ---
+*.pem
+*.key
+*.crt
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# --- Node / build front ---
+node_modules/
+dist/
+
+# --- Données générées à l'exécution ---
+server/storage/bulletins/
+
+# --- Divers ---
+ui.zip
+*.log
+.DS_Store

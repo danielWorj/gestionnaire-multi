@@ -1,0 +1,20 @@
+# Image de production du front : build Vite, puis fichiers statiques servis
+# par nginx, qui relaie aussi /api/ vers le conteneur server (même origine,
+# cf. src/lib/api.js : cookies JWT/CSRF sans CORS).
+
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+
+FROM nginx:1.27-alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+EXPOSE 80 443

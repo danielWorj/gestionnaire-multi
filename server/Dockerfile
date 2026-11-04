@@ -20,4 +20,8 @@ COPY . .
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "python -m flask --app app db upgrade && python -m flask --app app init-roles || true; exec gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${GUNICORN_WORKERS:-2} app:app"]
+# Migration ou init-roles en échec => le conteneur s'arrête (plutôt que de
+# servir l'API sur un schéma incomplet). init-roles est idempotent.
+# --timeout élevé : la génération des bulletins PDF (WeasyPrint) d'une classe
+# entière dépasse facilement les 30 s par défaut de gunicorn.
+CMD ["sh", "-c", "python -m flask --app app db upgrade && python -m flask --app app init-roles && exec gunicorn --bind 0.0.0.0:${PORT:-5000} --workers ${GUNICORN_WORKERS:-2} --timeout ${GUNICORN_TIMEOUT:-120} --access-logfile - app:app"]
