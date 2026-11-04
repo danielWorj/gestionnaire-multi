@@ -1,0 +1,182 @@
+/* Styles des pages « Notes » (censeur/notes.html et enseignant/notes.html),
+   variables --ta-* remplacées par les couleurs Sneat. Le relevé imprimé
+   est scopé sous .notes-print. */
+
+.contexte-bandeau {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px;
+  background: #e7e7ff; border: 1px solid #696cff; border-radius: 0.5rem;
+  padding: 10px 16px; margin-bottom: 16px; font-size: 12.5px; color: #5f61e6;
+}
+.contexte-bandeau .item { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.contexte-bandeau .sep { width: 1px; height: 16px; background: #696cff; opacity: .3; }
+
+.kpi-card { background: #fff; border: 1px solid #d9dee3; border-radius: 0.5rem; padding: 14px 16px; height: 100%; }
+.kpi-card .kpi-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #697a8d; margin-bottom: 6px; }
+.kpi-card .kpi-value { font-size: 22px; font-weight: 800; color: #566a7f; line-height: 1; }
+.kpi-card .kpi-sub { font-size: 11px; color: #a1acb8; margin-top: 4px; }
+.kpi-card.kpi-primary .kpi-value { color: #696cff; }
+.kpi-card.kpi-info .kpi-value { color: #03c3ec; }
+.kpi-card.kpi-warning .kpi-value { color: #ffab00; }
+.kpi-card.kpi-success .kpi-value { color: #71dd37; }
+
+.stats-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+.stats-table th, .stats-table td { padding: 9px 12px; border-bottom: 1px solid #eceef1; text-align: center; }
+.stats-table thead th { background: #f5f5f9; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #697a8d; border-bottom: 1px solid #d9dee3; }
+.stats-table tbody td.libelle-col { text-align: left; font-weight: 600; color: #566a7f; }
+.stats-table td.valeur-forte { color: #71dd37; font-weight: 700; }
+.stats-table td.valeur-faible, .stats-table td.valeur-insuffisante { color: #ff3e1d; font-weight: 700; }
+.stats-table td.valeur-insuffisante::after { content: " *"; }
+.stats-note-insuffisant { font-size: 10.5px; color: #ff3e1d; padding: 8px 12px 10px; }
+
+.eval-grid-wrap { overflow-x: auto; }
+.eval-table { width: 100%; min-width: 560px; border-collapse: separate; border-spacing: 0; }
+.eval-table thead th {
+  background: #f5f5f9; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+  color: #697a8d; padding: 10px 8px; border-bottom: 1px solid #d9dee3; text-align: center; white-space: nowrap;
+}
+.eval-table thead th.eleve-col { width: 260px; text-align: left; padding-left: 14px; }
+.eval-table tbody td { border: 1px solid #eceef1; padding: 7px; vertical-align: middle; text-align: center; }
+.eval-table tbody td.eleve-col { text-align: left; padding-left: 14px; background: #fff; }
+.eval-table tbody tr:hover td.eleve-col { background: #f5f5f9; }
+
+.eleve-identite { display: flex; align-items: center; gap: 8px; }
+.eleve-avatar { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 10.5px; font-weight: 700; background: #e7e7ff; color: #5f61e6; }
+.eleve-avatar.sexe-F, .sexe-badge.sexe-F { background: #fce7f3; color: #9d174d; }
+.eleve-avatar.sexe-M, .sexe-badge.sexe-M { background: #dbeafe; color: #1e40af; }
+.eleve-nom { font-weight: 600; font-size: 12.5px; color: #566a7f; line-height: 1.2; }
+.eleve-matricule { font-size: 10px; color: #a1acb8; }
+.sexe-badge { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 10px; font-weight: 700; }
+
+.note-readonly { font-size: 14px; font-weight: 700; color: #566a7f; }
+.note-readonly.note-faible, .note-input.note-faible { color: #ff3e1d; }
+.note-readonly.note-forte, .note-input.note-forte { color: #71dd37; }
+.note-readonly.note-vide { color: #a1acb8; font-weight: 500; }
+
+.note-cell { display: flex; align-items: center; justify-content: center; gap: 6px; position: relative; min-width: 100px; }
+.note-input { width: 56px; text-align: center; border: 1px solid #d9dee3; border-radius: 0.375rem; padding: 5px 2px; font-size: 13px; font-weight: 700; color: #566a7f; }
+.note-input:focus, .discipline-input:focus, .discipline-obs:focus { outline: none; border-color: #696cff; box-shadow: 0 0 0 2px #e7e7ff; }
+.note-input:disabled { background: #f5f5f9; color: #a1acb8; }
+.note-abs-toggle { border: 1px solid #d9dee3; background: #fff; color: #a1acb8; font-size: 9px; font-weight: 700; border-radius: 0.375rem; padding: 5px 7px; cursor: pointer; transition: all .15s ease; }
+.note-abs-toggle:hover { border-color: #ff3e1d; color: #ff3e1d; }
+.note-abs-toggle.is-absent { background: #ffe0db; border-color: #ff3e1d; color: #ff3e1d; }
+
+.appreciation-badge { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.appreciation-badge.ok { background: #e8fadf; color: #71dd37; }
+.appreciation-badge.moyen { background: #fef3c7; color: #92400e; }
+.appreciation-badge.faible { background: #ffe0db; color: #ff3e1d; }
+.appreciation-badge.absent, .appreciation-badge.vide { background: #f5f5f9; color: #a1acb8; }
+
+.discipline-input { width: 56px; text-align: center; border: 1px solid #d9dee3; border-radius: 0.375rem; padding: 5px 2px; font-size: 12.5px; font-weight: 600; color: #566a7f; }
+.discipline-obs { width: 100%; min-width: 160px; border: 1px solid #d9dee3; border-radius: 0.375rem; padding: 5px 8px; font-size: 12px; }
+.save-state { width: 14px; text-align: center; font-size: 12px; color: #a1acb8; display: inline-block; }
+.save-state.saving { color: #ffab00; }
+.save-state.error { color: #ff3e1d; }
+.save-state.ok { color: #71dd37; }
+.row-saved-flash { animation: rowSaved .7s ease; }
+@keyframes rowSaved { 0% { background: #e8fadf; } 100% { background: transparent; } }
+
+@media (max-width: 575.98px) { .eval-table { min-width: 500px; } }
+
+/* ── Filtres (année, séquence en pastilles, recherche) ── */
+.notes-filtres .card-body { display: flex; flex-direction: column; gap: 0.875rem; }
+.notes-filtres-ligne { display: grid; grid-template-columns: 1fr; gap: 0.75rem; }
+@media (min-width: 576px) { .notes-filtres-ligne { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 992px) { .notes-filtres-ligne { grid-template-columns: 220px 220px minmax(0, 1fr); } }
+.notes-filtres .form-label { margin-bottom: 0.3rem; }
+.notes-filtres .form-select { min-height: 42px; }
+.notes-filtre-recherche .esp-recherche { flex: none; }
+@media (min-width: 992px) { .notes-filtre-recherche { grid-column: 3; justify-self: end; width: 100%; max-width: 320px; } }
+.notes-filtre-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: #8592a3; margin-bottom: 0.4rem; }
+
+/* ── Liste de saisie / consultation (mobile d'abord, une ligne par élève) ── */
+.saisie-entete {
+  position: sticky; top: 0.5rem; z-index: 5;
+  display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; padding: 0.75rem 0.875rem;
+  background: #fff; border-radius: 8px; box-shadow: 0 4px 14px rgba(67, 89, 113, 0.12);
+}
+.saisie-entete-actions { display: flex; gap: 0.4rem; flex: 0 0 auto; }
+.saisie-entete-actions .btn-icon { width: 42px; height: 42px; }
+
+.saisie-liste { background: #fff; border-radius: 8px; box-shadow: 0 2px 6px rgba(67, 89, 113, 0.08); overflow: hidden; }
+.saisie-ligne {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 0.625rem;
+  padding: 0.625rem 0.75rem; border-bottom: 1px solid #eceef1;
+}
+.saisie-ligne:last-child { border-bottom: 0; }
+.saisie-ligne.est-absent { background: #fffaf9; }
+.saisie-tete { background: #f5f5f9; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: #697a8d; padding-top: 0.5rem; padding-bottom: 0.5rem; }
+.saisie-ligne-simple { grid-template-columns: 26px minmax(0, 1fr) auto; min-height: 56px; }
+.saisie-num { font-size: 0.78rem; color: #a1acb8; text-align: center; }
+.saisie-eleve { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0.3rem; }
+.saisie-eleve .eleve-identite { min-width: 0; max-width: 100%; }
+.saisie-eleve .eleve-nom { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saisie-eleve .eleve-avatar { width: 34px; height: 34px; font-size: 0.75rem; }
+.saisie-appr { font-size: 0.68rem; padding: 2px 8px; margin-left: 42px; }
+.saisie-appr.vide { display: none; }
+@media (min-width: 768px) {
+  .saisie-eleve { flex-direction: row; align-items: center; justify-content: space-between; }
+  .saisie-appr { margin-left: 0; }
+}
+.saisie-note { display: flex; align-items: center; gap: 0.4rem; }
+.saisie-input { width: 72px; height: 46px; font-size: 1.1rem; border-radius: 10px; border-width: 1.5px; }
+.saisie-abs { height: 46px; min-width: 46px; font-size: 0.7rem; border-radius: 10px; }
+.saisie-note .save-state { width: 16px; font-size: 0.95rem; }
+.save-state.pending { color: #ffab00; }
+.saisie-vide { padding: 2.5rem 1rem; text-align: center; color: #8592a3; }
+.saisie-attente { border-radius: 8px; }
+
+.affectation-ligne { grid-template-columns: 44px minmax(0, 1fr) auto; min-height: 60px; }
+.affectation-ligne .badge { justify-self: center; }
+
+/* Lecture seule (censeur) */
+.note-lecture { min-width: 64px; text-align: center; font-size: 1.05rem; font-weight: 700; color: #566a7f; }
+.note-lecture.note-faible { color: #ff3e1d; }
+.note-lecture.note-forte { color: #4caf12; }
+.note-lecture.note-vide { color: #a1acb8; font-weight: 500; }
+
+/* ── Discipline : une carte par élève sur mobile, une ligne sur grand écran ── */
+.discipline-ligne {
+  display: grid; gap: 0.625rem; padding: 0.75rem; border-bottom: 1px solid #eceef1;
+  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  grid-template-areas: "num eleve etat" "champs champs champs" "obs obs obs";
+}
+.discipline-ligne:last-child { border-bottom: 0; }
+.discipline-ligne .saisie-num { grid-area: num; }
+.discipline-ligne .saisie-eleve { grid-area: eleve; }
+.discipline-ligne .save-state { grid-area: etat; }
+.discipline-champs { grid-area: champs; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+.discipline-champ label { display: block; font-size: 0.66rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: #8592a3; text-align: center; margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.discipline-champ .discipline-input { width: 100%; height: 44px; font-size: 1rem; border-radius: 10px; }
+.discipline-ligne .discipline-obs { grid-area: obs; min-width: 0; height: 44px; border-radius: 10px; font-size: 0.9rem; }
+@media (min-width: 992px) {
+  .discipline-ligne {
+    grid-template-columns: 26px minmax(200px, 1fr) 320px minmax(160px, 1fr) 18px;
+    grid-template-areas: "num eleve champs obs etat";
+    align-items: end;
+  }
+  .discipline-ligne .saisie-eleve { align-self: center; }
+  .discipline-ligne .save-state { align-self: center; }
+}
+
+/* ── Relevé imprimé ── */
+.notes-print { display: none; }
+@media print {
+  .notes-print { display: block !important; padding: 10px 4px; }
+  .notes-print .print-topbar { display: flex; justify-content: space-between; font-size: 11px; color: #555; margin-bottom: 18px; }
+  .notes-print .print-etablissement { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .notes-print .print-etab-logo { width: 56px; height: 56px; border: 1px solid #d0d0d0; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; overflow: hidden; }
+  .notes-print .print-etab-logo img { width: 100%; height: 100%; object-fit: contain; }
+  .notes-print .print-etab-nom { font-size: 17px; font-weight: 800; letter-spacing: .02em; margin: 0 0 2px; }
+  .notes-print .print-etab-sigle { font-size: 12px; color: #444; margin: 0 0 2px; }
+  .notes-print .print-etab-contact { font-size: 11.5px; color: #555; margin: 0; }
+  .notes-print .print-separator { border: none; border-top: 2px solid #1f2937; margin: 0 0 18px; opacity: 1; }
+  .notes-print .print-header h2 { margin: 0 0 4px; font-size: 18px; text-align: center; text-transform: uppercase; letter-spacing: .03em; }
+  .notes-print .print-header .print-sous-titre { text-align: center; font-size: 12px; color: #555; margin-bottom: 10px; }
+  .notes-print .print-header .print-meta { display: flex; flex-wrap: wrap; gap: 4px 22px; font-size: 11.5px; color: #333; margin-bottom: 16px; }
+  .notes-print h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; margin: 18px 0 8px; color: #333; }
+  .notes-print .print-stats-table, .notes-print .print-eleves-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .notes-print .print-stats-table th, .notes-print .print-stats-table td,
+  .notes-print .print-eleves-table th, .notes-print .print-eleves-table td { border: 1px solid #ccc; padding: 5px 8px; text-align: center; }
+  .notes-print td.valeur-insuffisante, .notes-print td.note-faible { color: #b91c1c; font-weight: 700; }
+  .notes-print td.note-forte { color: #15803d; font-weight: 700; }
+}

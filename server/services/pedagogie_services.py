@@ -361,7 +361,8 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
     telephone (optionnel), sexe (optionnel), classe_ids (optionnel, liste
     d'int)}. Retourne (résultat, status) — résultat contient le profil créé,
     le compte de connexion lié et le mot de passe temporaire en clair (une
-    seule fois, comme create_utilisateur)."""
+    seule fois, comme create_utilisateur ; None si un compte existant a été
+    réutilisé, cf. compte_existant)."""
     model_class, liaison_class, cle_profil = _ROLE_MODELS[role_libelle]
     data = dict(data or {})
 
@@ -382,10 +383,12 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
     if model_class.query.filter_by(email=email).first():
         return {"erreur": f"Un {role_libelle.lower()} avec cet email existe déjà"}, 409
 
-    # Unicité du compte de connexion — même contrainte que pour tout
-    # Utilisateur (etablissement_id, email), cf. authentification_models.py.
-    if Utilisateur.query.filter_by(email=email, etablissement_id=etablissement_id).first():
-        return {"erreur": "Un compte de connexion avec cet email existe déjà dans cet établissement"}, 409
+    # Multi-rôles : si cette personne a déjà un compte de connexion dans
+    # l'établissement (ex : un Enseignant que l'on nomme aussi Censeur), on
+    # le réutilise en lui ajoutant le rôle, au lieu d'en créer un second.
+    compte_existant = Utilisateur.query.filter_by(email=email, etablissement_id=etablissement_id).first()
+    if compte_existant and model_class.query.filter_by(utilisateur_id=compte_existant.id).first():
+        return {"erreur": f"Ce compte est déjà relié à un profil {role_libelle.lower()}"}, 409
 
     # Validation des classes initiales à assigner (optionnelles).
     classe_ids = data.get('classe_ids') or []
@@ -407,21 +410,28 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
             libelles = ", ".join(str(l.classe_id) for l in deja_prises)
             return {"erreur": f"Classe(s) déjà assignée(s) à un autre censeur : {libelles}"}, 409
 
-    mot_de_passe = generate_temp_password()
+    if compte_existant:
+        # Le mot de passe du compte reste inchangé : rien à communiquer.
+        mot_de_passe = None
+        utilisateur = compte_existant
+        if role not in utilisateur.roles:
+            utilisateur.roles.append(role)
+    else:
+        mot_de_passe = generate_temp_password()
 
-    utilisateur = Utilisateur(
-        # Utilisateur ne porte qu'un champ 'nom' (pas de prenom séparé,
-        # contrairement à Censeur/Surveillant/Enseignant) : on y concatène
-        # prénom + nom pour un affichage correct côté /api/auth/me.
-        nom=f"{data['prenom']} {data['nom']}".strip(),
-        email=email,
-        role_id=role.id,
-        etablissement_id=etablissement_id,
-        actif=True,
-        doit_changer_mdp=True,
-        mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY,
-    )
-    utilisateur.set_password(mot_de_passe)
+        utilisateur = Utilisateur(
+            # Utilisateur ne porte qu'un champ 'nom' (pas de prenom séparé,
+            # contrairement à Censeur/Surveillant/Enseignant) : on y concatène
+            # prénom + nom pour un affichage correct côté /api/auth/me.
+            nom=f"{data['prenom']} {data['nom']}".strip(),
+            email=email,
+            roles=[role],
+            etablissement_id=etablissement_id,
+            actif=True,
+            doit_changer_mdp=True,
+            mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY,
+        )
+        utilisateur.set_password(mot_de_passe)
 
     profil = model_class(
         etablissement_id=etablissement_id,
@@ -458,6 +468,7 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
     # pas réversible, ce mot de passe en clair ne sera plus jamais
     # récupérable ensuite.
     result['mot_de_passe_temporaire'] = mot_de_passe
+    result['compte_existant'] = compte_existant is not None
     result['classe_ids'] = [c.id for c in classes]
     return result, 201
 

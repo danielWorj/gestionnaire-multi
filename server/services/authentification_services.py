@@ -33,15 +33,38 @@ def _token_lifetimes():
     )
 
 
-def _build_claims(utilisateur):
+def resoudre_role_actif(utilisateur, role_demande=None):
+    """Rôle actif à porter dans le JWT : role_demande s'il fait (toujours)
+    partie des rôles du compte ; à défaut, le rôle unique d'un compte
+    mono-rôle ; sinon None (compte multi-rôles qui n'a pas encore choisi son
+    espace via POST /api/auth/choisir-role — toutes les routes métier lui
+    répondent alors 403, puisqu'aucune n'autorise le rôle None)."""
+    libelles = utilisateur.libelles_roles()
+    if role_demande in libelles:
+        return role_demande
+    if len(libelles) == 1:
+        return libelles[0]
+    return None
+
+
+def _build_claims(utilisateur, role_actif=None):
     """Construit les claims additionnelles (role, etablissement_id) du JWT d'un Utilisateur.
     L'identity reste le seul user_id (obligatoire en string avec flask-jwt-extended),
     role/etablissement_id passent en additional_claims pour être lisibles
-    directement via get_jwt() côté API. 'type' permet de distinguer un token
-    Utilisateur d'un token SuperAdmin (identités numériques potentiellement identiques)."""
+    directement via get_jwt() côté API. 'type_compte' permet de distinguer un token
+    Utilisateur d'un token SuperAdmin (identités numériques potentiellement identiques).
+    NE PAS l'appeler 'type' : ce nom est réservé par flask-jwt-extended
+    ('access'/'refresh') ; l'écraser rendait tout /refresh impossible.
+
+    'role' est le RÔLE ACTIF (cf. resoudre_role_actif) : c'est lui que toutes
+    les routes métier contrôlent, inchangées. 'roles' liste tous les rôles du
+    compte, à titre informatif (choix d'espace côté front) — l'autorisation
+    revérifie le rôle actif EN DIRECT à chaque requête
+    (authentification_api.enforce_role_actif)."""
     claims = {
-        'type': 'utilisateur',
-        'role': utilisateur.role.libelle,
+        'type_compte': 'utilisateur',
+        'role': resoudre_role_actif(utilisateur, role_actif),
+        'roles': utilisateur.libelles_roles(),
         'etablissement_id': utilisateur.etablissement_id,
         'doit_changer_mdp': utilisateur.doit_changer_mdp
     }
@@ -77,9 +100,56 @@ def _build_claims(utilisateur):
     return claims
 
 
+def _emettre_tokens(utilisateur, role_actif=None):
+    """Génère access + refresh token (rôle actif inclus) et stocke le hash du
+    refresh token : tout refresh token émis précédemment devient inutilisable
+    (rotation). Ne committe pas."""
+    claims = _build_claims(utilisateur, role_actif)
+    access_expires, refresh_expires = _token_lifetimes()
+
+    access_token = create_access_token(
+        identity=str(utilisateur.id),
+        additional_claims=claims,
+        expires_delta=access_expires
+    )
+    refresh_token_str = create_refresh_token(
+        identity=str(utilisateur.id),
+        additional_claims=claims,
+        expires_delta=refresh_expires
+    )
+
+    # Ne stocker que le hash du refresh token en base (jamais le token en clair)
+    utilisateur.set_refresh_token(refresh_token_str, datetime.utcnow() + refresh_expires)
+    return access_token, refresh_token_str, claims['role']
+
+
+def _resoudre_roles(role_ids):
+    """Valide une liste d'ids de rôles. Retourne (liste de Role, None) ou
+    (None, (erreur, status))."""
+    if not isinstance(role_ids, list) or not role_ids:
+        return None, ({"erreur": "Au moins un rôle est requis"}, 400)
+    roles = []
+    for role_id in dict.fromkeys(role_ids):
+        role = Role.query.get(role_id)
+        if not role:
+            return None, ({"erreur": "Rôle invalide"}, 400)
+        roles.append(role)
+    return roles, None
+
+
+def role_ids_de(data):
+    """Rôles demandés dans un payload de création : 'role_ids' (liste), ou
+    'role_id' (un seul rôle, forme historique encore envoyée par le front)."""
+    if 'role_ids' in data:
+        return data['role_ids']
+    if data.get('role_id') is not None:
+        return [data['role_id']]
+    return []
+
+
 def _build_superadmin_claims(superadmin):
     return {
-        'type': 'superadmin',
+        'type_compte': 'superadmin',
         'role': 'SuperAdmin'
     }
 
@@ -91,7 +161,12 @@ def _build_superadmin_claims(superadmin):
 def create_utilisateur(data):
     """
     Crée un nouvel utilisateur (personnel/parent rattaché à un établissement).
-    data: {nom, email, role_id, etablissement_id, password (optionnel)}
+    data: {nom, email, role_ids (ou role_id), etablissement_id}
+    Si un compte existe déjà avec cet email dans l'établissement, les rôles
+    demandés lui sont AJOUTÉS (multi-rôles : ex. un Censeur que l'on crée
+    ensuite comme Enseignant garde un seul compte de connexion) : réponse 200
+    avec 'compte_existant': True et sans mot de passe temporaire, le mot de
+    passe du compte restant inchangé.
     NB : etablissement_id est désormais obligatoire pour tout Utilisateur, y compris
     ceux ayant le rôle 'Admin' (rôle d'établissement). Le compte d'administration
     globale hors établissement se crée via create_superadmin().
@@ -113,19 +188,25 @@ def create_utilisateur(data):
         if not etablissement:
             return {"erreur": "Établissement invalide"}, 400
 
-        # Vérifier si l'email existe déjà pour cet établissement
+        roles, erreur = _resoudre_roles(role_ids_de(data))
+        if erreur:
+            return erreur
+
+        # Un compte existe déjà pour cet email dans cet établissement : on lui
+        # ajoute les rôles demandés plutôt que d'en créer un second.
         existing = Utilisateur.query.filter_by(
             email=data['email'],
             etablissement_id=data['etablissement_id']
         ).first()
 
         if existing:
-            return {"erreur": "Un utilisateur avec cet email existe déjà dans cet établissement"}, 409
-
-        # Vérifier que le rôle existe
-        role = Role.query.get(data['role_id'])
-        if not role:
-            return {"erreur": "Rôle invalide"}, 400
+            for role in roles:
+                if role not in existing.roles:
+                    existing.roles.append(role)
+            db.session.commit()
+            result = existing.to_dict()
+            result['compte_existant'] = True
+            return result, 200
 
         # Mot de passe temporaire : jamais fourni par l'appelant (même admin),
         # toujours généré ici. C'est la seule façon d'obtenir un compte
@@ -137,7 +218,7 @@ def create_utilisateur(data):
         utilisateur = Utilisateur(
             nom=data['nom'],
             email=data['email'],
-            role_id=data['role_id'],
+            roles=roles,
             etablissement_id=data['etablissement_id'],
             actif=True,
             doit_changer_mdp=doit_changer_mdp,
@@ -150,6 +231,7 @@ def create_utilisateur(data):
         db.session.commit()
 
         result = utilisateur.to_dict()
+        result['compte_existant'] = False
         # Communiqué UNE SEULE FOIS ici : le hash bcrypt n'est pas réversible,
         # donc ce mot de passe en clair ne sera plus jamais récupérable ensuite.
         result['mot_de_passe_temporaire'] = mot_de_passe_genere
@@ -195,24 +277,10 @@ def login(email, password, etablissement_id=None):
         }, 403
 
     # Générer les tokens : identity = user_id (string, requis par flask-jwt-extended),
-    # role/etablissement_id passent en additional_claims
-    claims = _build_claims(utilisateur)
-    access_expires, refresh_expires = _token_lifetimes()
-
-    access_token = create_access_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=access_expires
-    )
-
-    refresh_token_str = create_refresh_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=refresh_expires
-    )
-
-    # Ne stocker que le hash du refresh token en base (jamais le token en clair)
-    utilisateur.set_refresh_token(refresh_token_str, datetime.utcnow() + refresh_expires)
+    # role/etablissement_id passent en additional_claims. Un compte multi-rôles
+    # se connecte SANS rôle actif : le front lui fait choisir son espace
+    # (POST /choisir-role) avant toute autre action.
+    access_token, refresh_token_str, role_actif = _emettre_tokens(utilisateur)
     utilisateur.dernier_login = datetime.utcnow()
 
     db.session.commit()
@@ -220,12 +288,41 @@ def login(email, password, etablissement_id=None):
     return {
         'access_token': access_token,
         'refresh_token': refresh_token_str,
-        'utilisateur': utilisateur.to_dict()
+        'utilisateur': utilisateur.to_dict(),
+        'role_actif': role_actif
     }, 200
 
 
-def refresh_token(user_id, presented_refresh_token):
+def choisir_role(user_id, role_libelle):
+    """Bascule la session sur l'un des rôles du compte (choix d'espace après
+    le login, ou "Changer d'espace" en cours de session) : réémet access +
+    refresh token avec ce rôle actif. L'appelant (couche API) révoque
+    l'access token précédent."""
+    utilisateur = Utilisateur.query.get(user_id)
+
+    if not utilisateur or not utilisateur.actif:
+        return {"erreur": "Utilisateur non trouvé"}, 404
+
+    if not role_libelle or not utilisateur.a_role(role_libelle):
+        return {"erreur": "Ce rôle ne fait pas partie de vos rôles"}, 403
+
+    access_token, refresh_token_str, role_actif = _emettre_tokens(utilisateur, role_libelle)
+    db.session.commit()
+
+    return {
+        'access_token': access_token,
+        'refresh_token': refresh_token_str,
+        'role_actif': role_actif
+    }, 200
+
+
+def refresh_token(user_id, presented_refresh_token, role_actif=None):
     """
+    `role_actif` : rôle actif porté par le refresh token présenté, conservé
+    dans les nouveaux tokens tant qu'il fait toujours partie des rôles du
+    compte (sinon retombe à None pour un compte multi-rôles, cf.
+    resoudre_role_actif).
+
     Génère un nouveau access token ET un nouveau refresh token (ROTATION) à
     partir d'un refresh token valide.
 
@@ -256,22 +353,8 @@ def refresh_token(user_id, presented_refresh_token):
     if utilisateur.refresh_token_expire_le < datetime.utcnow():
         return {"erreur": "Refresh token expiré"}, 401
 
-    claims = _build_claims(utilisateur)
-    access_expires, refresh_expires = _token_lifetimes()
-
-    new_access_token = create_access_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=access_expires
-    )
-    new_refresh_token = create_refresh_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=refresh_expires
-    )
-
     # Rotation : l'ancien refresh token devient immédiatement inutilisable.
-    utilisateur.set_refresh_token(new_refresh_token, datetime.utcnow() + refresh_expires)
+    new_access_token, new_refresh_token, _ = _emettre_tokens(utilisateur, role_actif)
     db.session.commit()
 
     return {'access_token': new_access_token, 'refresh_token': new_refresh_token}, 200
@@ -310,7 +393,7 @@ def get_all_utilisateurs(etablissement_id=None, role=None):
         query = query.filter_by(etablissement_id=etablissement_id)
 
     if role:
-        query = query.join(Role).filter(Role.libelle == role)
+        query = query.filter(Utilisateur.roles.any(Role.libelle == role))
 
     return [u.to_dict() for u in query.all()]
 
@@ -351,11 +434,14 @@ def update_utilisateur(user_id, data):
 
         utilisateur.email = data['email']
 
-    if 'role_id' in data:
-        role = Role.query.get(data['role_id'])
-        if not role:
-            return {"erreur": "Rôle invalide"}, 400
-        utilisateur.role_id = data['role_id']
+    # 'role_ids' REMPLACE l'ensemble des rôles du compte. Si le rôle actif
+    # d'une session en cours est retiré, enforce_role_actif la renvoie au
+    # choix d'espace dès sa requête suivante.
+    if 'role_ids' in data:
+        roles, erreur = _resoudre_roles(data['role_ids'])
+        if erreur:
+            return erreur
+        utilisateur.roles = roles
 
     if 'actif' in data:
         utilisateur.actif = data['actif']

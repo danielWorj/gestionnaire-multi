@@ -28,7 +28,7 @@ class Etablissement(db.Model):
                 'bp', 'telephone', 'region', 'logo']}
         # URL prête à l'emploi pour un <img src="..."> côté frontend, construite
         # à partir du nom de fichier stocké — jamais exposée telle quelle en base.
-        data['logo_url'] = f"/api/etablissements/logos/{self.logo}" if self.logo else None
+        data['logo_url'] = f"/api/etablissements/storage/logos/{self.logo}" if self.logo else None
         return data
 
 

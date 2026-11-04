@@ -1,4 +1,5 @@
-from datetime import date
+import secrets
+from datetime import date, datetime
 
 from flask import current_app
 from sqlalchemy.exc import IntegrityError
@@ -39,6 +40,12 @@ from services.structure_services import (
 MODES_PAIEMENT_VALIDES = ('ESPECES', 'MOBILE_MONEY', 'VIREMENT', 'CHEQUE')
 STATUTS_PAIEMENT_VALIDES = ('VALIDE', 'ANNULE', 'REJETE', 'REMBOURSE')
 
+# Longueurs des colonnes Paiement.numero_recu / reference_transaction
+# (cf. paiements_models.py) : vérifiées ici pour renvoyer un 400 explicite
+# plutôt qu'une DataError MySQL ("Data too long") transformée en 500.
+NUMERO_RECU_MAX = 20
+REFERENCE_TRANSACTION_MAX = 50
+
 
 def get_etablissement_id_of_tranche(tranche):
     """Retourne l'etablissement_id 'propriétaire' d'une TrancheClasse,
@@ -66,6 +73,39 @@ def _validate_montant_positif(data, champ):
     if valeur <= 0:
         return f"{champ} doit être strictement positif"
     return None
+
+
+def _parse_date_limite(data):
+    """Convertit data['date_limite'] (chaîne 'AAAA-MM-JJ' envoyée par le
+    front) en objet date — la colonne est un db.Date, que certains drivers
+    (SQLite) refusent sous forme de chaîne. '' est traité comme None (pas
+    d'échéance). Retourne un message d'erreur ou None."""
+    if 'date_limite' not in data:
+        return None
+    valeur = data['date_limite']
+    if valeur in (None, ''):
+        data['date_limite'] = None
+        return None
+    if isinstance(valeur, date):
+        return None
+    try:
+        data['date_limite'] = datetime.strptime(str(valeur)[:10], '%Y-%m-%d').date()
+    except ValueError:
+        return "date_limite invalide (format attendu : AAAA-MM-JJ)"
+    return None
+
+
+def _total_verse_tranche(tranche_id, inscription_id=None):
+    """Somme des LignePaiement de paiements VALIDE sur une tranche, pour une
+    inscription donnée (ou toutes si inscription_id est None)."""
+    query = (
+        db.session.query(db.func.coalesce(db.func.sum(LignePaiement.montant_verse), 0))
+        .join(Paiement, LignePaiement.paiement_id == Paiement.id)
+        .filter(LignePaiement.tranche_classe_id == tranche_id, Paiement.statut == 'VALIDE')
+    )
+    if inscription_id is not None:
+        query = query.filter(Paiement.inscription_id == inscription_id)
+    return float(query.scalar())
 
 
 # ===========================================================================
@@ -148,6 +188,10 @@ def create_tranche_scoped(data, etablissement_id):
     if error:
         return {"erreur": error}, 400
 
+    error = _parse_date_limite(data)
+    if error:
+        return {"erreur": error}, 400
+
     return create_entity(TrancheClasse, data)
 
 
@@ -171,6 +215,33 @@ def update_tranche_scoped(entity, data, etablissement_id):
     error = _validate_montant_positif(data, 'montant_attendu')
     if error:
         return {"erreur": error}, 400
+
+    error = _parse_date_limite(data)
+    if error:
+        return {"erreur": error}, 400
+
+    # Une tranche déjà réglée (au moins une LignePaiement rattachée) ne peut
+    # plus changer de classe ni d'année : ses lignes existantes deviendraient
+    # incohérentes avec l'inscription de leur paiement (cf. docstring de
+    # LignePaiement). Son montant ne peut pas non plus descendre sous ce
+    # qu'un élève a déjà versé dessus (reste_du négatif).
+    if entity.reglements:
+        for champ in ('classe_id', 'annee_scolaire_id'):
+            if data.get(champ) not in (None, '') and int(data[champ]) != getattr(entity, champ):
+                return {"erreur": "Des paiements sont déjà rattachés à cette tranche : "
+                                  "sa classe et son année scolaire ne sont plus modifiables"}, 400
+        if data.get('montant_attendu') not in (None, ''):
+            verse_par_inscription = (
+                db.session.query(db.func.sum(LignePaiement.montant_verse))
+                .join(Paiement, LignePaiement.paiement_id == Paiement.id)
+                .filter(LignePaiement.tranche_classe_id == entity.id, Paiement.statut == 'VALIDE')
+                .group_by(Paiement.inscription_id)
+                .all()
+            )
+            max_verse = max((float(v) for (v,) in verse_par_inscription), default=0.0)
+            if float(data['montant_attendu']) < max_verse:
+                return {"erreur": "Le montant attendu ne peut pas être inférieur à ce qu'un élève "
+                                  f"a déjà versé sur cette tranche ({max_verse:.0f})"}, 400
 
     return update_entity(entity, data)
 
@@ -334,6 +405,10 @@ def _validate_lignes_paiement(lignes_data, inscription, montant_total):
 
         if tranche_id in (None, ''):
             return {}, "tranche_classe_id requis pour chaque ligne"
+        try:
+            tranche_id = int(tranche_id)
+        except (TypeError, ValueError):
+            return {}, "tranche_classe_id invalide"
         if tranche_id in tranche_ids_vus:
             return {}, "Une même tranche ne peut apparaître deux fois dans les lignes d'un paiement"
         tranche_ids_vus.add(tranche_id)
@@ -352,6 +427,17 @@ def _validate_lignes_paiement(lignes_data, inscription, montant_total):
             return {}, "montant_verse invalide pour une ligne"
         if montant <= 0:
             return {}, "montant_verse doit être strictement positif pour chaque ligne"
+
+        # Pas de trop-perçu : une ligne ne peut dépasser le reste dû de
+        # l'élève sur cette tranche (paiements VALIDE déjà enregistrés
+        # déduits), sinon reste_du/solde deviendraient négatifs.
+        reste_du = round(float(tranche.montant_attendu) - _total_verse_tranche(tranche.id, inscription.id), 2)
+        if round(montant, 2) > reste_du:
+            if reste_du <= 0:
+                return {}, f"La tranche « {tranche.libelle} » est déjà soldée pour cet élève"
+            return {}, (
+                f"Le montant versé sur « {tranche.libelle} » ({montant:.0f}) dépasse le reste dû ({reste_du:.0f})"
+            )
 
         tranches_par_id[tranche_id] = tranche
         somme += montant
@@ -397,6 +483,16 @@ def create_paiement_scoped(data, etablissement_id):
      montant_verse}, ...]}."""
     data = dict(data or {})
 
+    # numero_recu facultatif : généré ici s'il n'est pas saisi (unique
+    # globalement, cf. docstring de Paiement).
+    data['numero_recu'] = str(data.get('numero_recu') or '').strip() or _generer_numero_recu()
+    if len(data['numero_recu']) > NUMERO_RECU_MAX:
+        return {"erreur": f"numero_recu trop long ({NUMERO_RECU_MAX} caractères maximum)"}, 400
+
+    data['reference_transaction'] = _nettoyer_reference(data.get('reference_transaction'))
+    if data['reference_transaction'] and len(data['reference_transaction']) > REFERENCE_TRANSACTION_MAX:
+        return {"erreur": f"reference_transaction trop longue ({REFERENCE_TRANSACTION_MAX} caractères maximum)"}, 400
+
     for champ in ('inscription_id', 'parent_id', 'encaisse_par_id', 'numero_recu',
                   'montant_total', 'mode_paiement'):
         if data.get(champ) in (None, ''):
@@ -435,7 +531,7 @@ def create_paiement_scoped(data, etablissement_id):
         for ligne in lignes_data:
             db.session.add(LignePaiement(
                 paiement_id=paiement.id,
-                tranche_classe_id=ligne['tranche_classe_id'],
+                tranche_classe_id=int(ligne['tranche_classe_id']),
                 montant_verse=ligne['montant_verse'],
             ))
 
@@ -448,6 +544,23 @@ def create_paiement_scoped(data, etablissement_id):
     except Exception:
         db.session.rollback()
         return {"erreur": "Erreur lors de la création du paiement"}, 500
+
+
+def _generer_numero_recu():
+    """REC-AAMMJJ-XXXXXX (17 caractères, < NUMERO_RECU_MAX), suffixe
+    aléatoire hexadécimal ; on vérifie l'absence de collision avant de le
+    renvoyer (uq sur numero_recu)."""
+    for _ in range(10):
+        numero = f"REC-{date.today():%y%m%d}-{secrets.token_hex(3).upper()}"
+        if not Paiement.query.filter_by(numero_recu=numero).first():
+            return numero
+    return f"REC-{secrets.token_hex(8).upper()}"
+
+
+def _nettoyer_reference(valeur):
+    if valeur is None:
+        return None
+    return str(valeur).strip() or None
 
 
 def update_paiement_scoped(entity, data, etablissement_id):
@@ -473,7 +586,10 @@ def update_paiement_scoped(entity, data, etablissement_id):
         champs_autorises['mode_paiement'] = data['mode_paiement']
 
     if 'reference_transaction' in data:
-        champs_autorises['reference_transaction'] = data['reference_transaction']
+        reference = _nettoyer_reference(data['reference_transaction'])
+        if reference and len(reference) > REFERENCE_TRANSACTION_MAX:
+            return {"erreur": f"reference_transaction trop longue ({REFERENCE_TRANSACTION_MAX} caractères maximum)"}, 400
+        champs_autorises['reference_transaction'] = reference
 
     if not champs_autorises:
         return {"erreur": "Aucun champ modifiable fourni (seuls mode_paiement et reference_transaction le sont)"}, 400
@@ -494,9 +610,14 @@ def annuler_paiement_scoped(entity, motif_annulation, etablissement_id):
 
     if entity.statut == 'ANNULE':
         return {"erreur": "Ce paiement est déjà annulé"}, 400
+    if entity.statut != 'VALIDE':
+        return {"erreur": "Seul un paiement VALIDE peut être annulé"}, 400
 
+    motif_annulation = str(motif_annulation or '').strip()
     if not motif_annulation:
         return {"erreur": "motif_annulation requis"}, 400
+    if len(motif_annulation) > 255:
+        return {"erreur": "motif_annulation trop long (255 caractères maximum)"}, 400
 
     return update_entity(entity, {"statut": "ANNULE", "motif_annulation": motif_annulation})
 
@@ -571,18 +692,8 @@ def get_etat_paiements_inscription(inscription_id, etablissement_id):
     total_verse_paiements = 0.0
 
     for tranche in tranches:
-        total_ligne = (
-            db.session.query(db.func.coalesce(db.func.sum(LignePaiement.montant_verse), 0))
-            .join(Paiement, LignePaiement.paiement_id == Paiement.id)
-            .filter(
-                LignePaiement.tranche_classe_id == tranche.id,
-                Paiement.inscription_id == inscription_id,
-                Paiement.statut == 'VALIDE',
-            )
-            .scalar()
-        )
         montant_attendu = float(tranche.montant_attendu)
-        montant_verse = float(total_ligne)
+        montant_verse = _total_verse_tranche(tranche.id, inscription_id)
         reste_du = round(montant_attendu - montant_verse, 2)
         en_retard = bool(tranche.date_limite and aujourdhui > tranche.date_limite and reste_du > 0)
 

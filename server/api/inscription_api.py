@@ -36,8 +36,14 @@ from services.pedagogie_services import resolve_classe_ids_restriction
 def make_inscription_scoped_blueprint(name, model, url_prefix,
                                        roles_autorises=("Admin", "SuperAdmin", "Secretaire"),
                                        read_only_roles=(),
-                                       classe_scoped=False):
-    """read_only_roles : rôles supplémentaires qui n'ont accès qu'en LECTURE
+                                       classe_scoped=False,
+                                       lecture_etablissement_roles=("Comptable",)):
+    """lecture_etablissement_roles : rôles n'ayant accès qu'en LECTURE (GET),
+    sur TOUT l'établissement (aucune restriction par classe, contrairement à
+    read_only_roles). Le Comptable en a besoin pour la page Paiements
+    (choix de l'élève payeur, parent, inscriptions actives de chaque classe).
+
+    read_only_roles : rôles supplémentaires qui n'ont accès qu'en LECTURE
     (GET) — jamais en création/modification/suppression. Utilisé UNIQUEMENT
     par inscription_bp ci-dessous (Censeur, Surveillant) : ces rôles peuvent
     consulter la liste des élèves inscrits dans les classes qui leur ont été
@@ -64,7 +70,7 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         role = get_jwt().get("role")
         if role in roles_autorises:
             return
-        if role in read_only_roles and request.method == "GET":
+        if (role in read_only_roles or role in lecture_etablissement_roles) and request.method == "GET":
             return
         return jsonify({"erreur": "Accès non autorisé"}), 403
 
@@ -88,7 +94,7 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
             return None
         claims = get_jwt()
         role = claims.get("role")
-        if role not in read_only_roles:
+        if role not in read_only_roles or role in lecture_etablissement_roles:
             return None
         return resolve_classe_ids_restriction(role, int(get_jwt_identity()))
 

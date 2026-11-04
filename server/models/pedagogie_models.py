@@ -17,6 +17,10 @@ class GroupeMatiere(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     libelle = db.Column(db.String(150), nullable=False)
+    # Rang d'affichage du groupe sur les bulletins (croissant : 1 =
+    # Enseignements littéraires, 2 = scientifiques, ...) ; à égalité, tri par
+    # libellé.
+    ordre = db.Column(db.Integer, nullable=False, default=0, server_default='0')
 
     __table_args__ = (
         # Deux groupes de même libellé sont possibles dans deux établissements
@@ -28,7 +32,8 @@ class GroupeMatiere(db.Model):
     matieres = db.relationship('Matiere', backref='groupe', lazy=True)
 
     def to_dict(self):
-        return {"id": self.id, "etablissement_id": self.etablissement_id, "libelle": self.libelle}
+        return {"id": self.id, "etablissement_id": self.etablissement_id, "libelle": self.libelle,
+                "ordre": self.ordre}
 
 
 class Matiere(db.Model):

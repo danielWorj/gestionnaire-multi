@@ -6,13 +6,14 @@ CURRENT_DIR = Path(__file__).resolve().parent
 if str(CURRENT_DIR) not in sys.path:
     sys.path.insert(0, str(CURRENT_DIR))
 
-from flask import Flask, jsonify, render_template, redirect, url_for
+from flask import Flask, jsonify, render_template, redirect, request, url_for
 
 from config import config_by_name
 from extensions import db, migrate, ma, jwt, cors, limiter
 from api.structure_api import (
     cycle_bp, etablissement_bp, classe_bp,
-    annee_scolaire_bp, trimestre_bp, sequence_bp
+    annee_scolaire_bp, trimestre_bp, sequence_bp,
+    etablissement_logo_bp,
 )
 from api.pedagogie_api import (
     groupe_matiere_bp, matiere_bp, departement_bp, grade_bp, enseignant_bp,
@@ -39,7 +40,8 @@ from api.paiements_api import tranche_classe_bp, paiement_bp
 # enseignant_espace_bp, mais scopé par classes assignées. Alimente
 # templates/censeur/notes.html et templates/censeur/bulletin.html.
 from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
-from api.authentification_api import authentification_bp, superadmin_bp, enforce_password_change
+from api.bulletin_api import bulletin_bp
+from api.authentification_api import authentification_bp, superadmin_bp, enforce_password_change, enforce_role_actif
 
 def create_app(env=None):
     """Application factory : construit et configure l'app Flask."""
@@ -79,10 +81,60 @@ def create_app(env=None):
         supports_credentials=True,
     )
 
+    # Doit rester le PREMIER before_request : les preflight CORS (OPTIONS) ne
+    # portent jamais de JWT et flask-jwt-extended ne pose aucun contexte pour
+    # elles. Sans ce court-circuit, les before_request des blueprints
+    # (get_jwt() dans structure_api, pedagogie_api, ...) levaient une
+    # RuntimeError -> réponse 500 sans en-tête Access-Control-Allow-Origin,
+    # et le navigateur bloquait toute écriture cross-origin.
+    @app.before_request
+    def answer_cors_preflight():
+        if request.method == 'OPTIONS':
+            return app.make_default_options_response()
+        return None
+
+    @app.before_request
+    def enforce_api_security():
+        if not request.path.startswith('/api/'):
+            return None
+
+        if request.method not in {'POST', 'PUT', 'PATCH'}:
+            return None
+
+        if request.content_length in (None, 0):
+            return None
+
+        content_type = request.mimetype or ''
+        if content_type not in {'application/json', 'multipart/form-data'}:
+            return jsonify({"erreur": "Format de données invalide pour cette API."}), 400
+
+        return None
+
+    @app.after_request
+    def add_security_headers(response):
+        response.headers.setdefault('X-Frame-Options', 'DENY')
+        response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+        response.headers.setdefault('Referrer-Policy', 'no-referrer')
+        if request.path.startswith('/api/'):
+            # CSP stricte réservée aux réponses JSON : appliquée aux pages HTML
+            # (login.html, etc.), default-src 'none' bloquait leurs CSS/JS.
+            response.headers.setdefault('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; form-action 'self';")
+            response.headers.setdefault('Cache-Control', 'no-store')
+        return response
+
+    @app.cli.command("init-roles")
+    def init_roles_command():
+        """Crée les rôles par défaut (Admin, Censeur, Enseignant, ...).
+        Sans eux, aucune création d'Utilisateur n'est possible ("Rôle invalide")."""
+        from models.authentification_models import Role
+        Role.init_roles()
+        print("Rôles initialisés.")
 
     # --- Enregistrement des blueprints ---
     app.register_blueprint(cycle_bp)
     app.register_blueprint(etablissement_bp)
+    # Logos servis publiquement (balises <img>, sans en-tête d'authentification).
+    app.register_blueprint(etablissement_logo_bp)
     app.register_blueprint(classe_bp)
     app.register_blueprint(annee_scolaire_bp)
     app.register_blueprint(trimestre_bp)
@@ -134,6 +186,8 @@ def create_app(env=None):
     # trimestres/séquences et listes d'élèves — périmètre déduit de
     # resolve_classe_ids_restriction (cf. api/evaluation_api.py).
     app.register_blueprint(censeur_espace_bp)
+    # Bulletins séquentiels / trimestriels / annuels (aperçu HTML + PDF).
+    app.register_blueprint(bulletin_bp)
     app.register_blueprint(authentification_bp)
     app.register_blueprint(superadmin_bp)
 
@@ -143,6 +197,10 @@ def create_app(env=None):
     # /refresh restent accessibles (cf. ENDPOINTS_MDP_TEMPORAIRE_AUTORISES dans
     # api/authentification_api.py).
     app.before_request(enforce_password_change)
+    # Rôle actif (multi-rôles) revérifié en direct à chaque requête : un rôle
+    # retiré ou un compte désactivé coupe l'accès sans attendre l'expiration
+    # du token (cf. enforce_role_actif dans api/authentification_api.py).
+    app.before_request(enforce_role_actif)
 
     # --- Pages HTML (front) ---
     @app.route("/")

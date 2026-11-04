@@ -1,0 +1,100 @@
+/* ── Liste déroulante personnalisée (components/Select.jsx) ──────────────── */
+
+.sel { position: relative; min-width: 0; }
+
+/* Le <select> natif reste présent (valeur, validation) mais invisible. */
+.sel-natif {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  opacity: 0; pointer-events: none; border: 0; padding: 0;
+}
+
+.sel-trigger {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.sel-trigger:disabled { cursor: not-allowed; }
+.sel-trigger-ouvert:not(.border-0) {
+  border-color: #696cff;
+  box-shadow: 0 0 0 0.2rem rgba(105, 108, 255, 0.12);
+}
+.sel-valeur { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-placeholder { color: #a1acb8; }
+
+/* Panneau des options, rendu dans <body> pour échapper aux overflow des
+   tableaux et modales. */
+.sel-panneau {
+  position: fixed; z-index: 2100; display: flex; flex-direction: column;
+  min-height: 0; overflow: hidden;
+  background: #fff; border: 1px solid #e7e9ee; border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(67, 89, 113, 0.18), 0 2px 6px rgba(67, 89, 113, 0.08);
+  animation: sel-apparition 0.14s ease-out;
+  transform-origin: top center;
+}
+.sel-panneau-haut { transform-origin: bottom center; }
+@keyframes sel-apparition {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.sel-panneau-haut { animation-name: sel-apparition-haut; }
+@keyframes sel-apparition-haut {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.sel-recherche {
+  position: relative; flex: 0 0 auto; padding: 0.5rem;
+  border-bottom: 1px solid #eef0f3; background: #fafbfc;
+}
+.sel-recherche > .bx-search {
+  position: absolute; left: 1.15rem; top: 50%; transform: translateY(-50%);
+  color: #a1acb8; font-size: 1rem; pointer-events: none;
+}
+.sel-recherche input {
+  width: 100%; height: 34px; padding: 0 2rem 0 2.1rem;
+  border: 1px solid #e1e4ea; border-radius: 6px; background: #fff;
+  font-size: 0.85rem; color: #384551; outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.sel-recherche input::placeholder { color: #a1acb8; }
+.sel-recherche input:focus { border-color: #696cff; box-shadow: 0 0 0 0.15rem rgba(105, 108, 255, 0.12); }
+.sel-effacer {
+  position: absolute; right: 0.95rem; top: 50%; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px;
+  background: #eceef1; color: #8592a3; font-size: 0.95rem; cursor: pointer;
+}
+.sel-effacer:hover { background: #e1e4ea; color: #384551; }
+
+.sel-liste {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; margin: 0; padding: 0.3rem; list-style: none;
+  overscroll-behavior: contain;
+}
+.sel-liste::-webkit-scrollbar { width: 6px; }
+.sel-liste::-webkit-scrollbar-thumb { background: #d9dee3; border-radius: 3px; }
+
+.sel-groupe {
+  padding: 0.55rem 0.65rem 0.25rem; font-size: 0.68rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.05em; color: #a1acb8;
+}
+
+.sel-option {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.45rem 0.65rem; border-radius: 6px; cursor: pointer;
+  font-size: 0.875rem; color: #566a7f; line-height: 1.35;
+}
+.sel-option-groupee { padding-left: 1rem; }
+.sel-option-texte { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-option-active { background: rgba(105, 108, 255, 0.08); color: #384551; }
+.sel-option-choisie { color: #696cff; font-weight: 600; }
+.sel-option-choisie.sel-option-active { background: rgba(105, 108, 255, 0.12); }
+.sel-option .bx-check { flex: 0 0 auto; font-size: 1.1rem; color: #696cff; }
+.sel-option-desactivee { color: #c2c9d1; cursor: not-allowed; }
+
+.sel-vide {
+  display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  padding: 1.1rem 0.5rem; color: #a1acb8; font-size: 0.82rem;
+}
+.sel-vide .bx { font-size: 1.4rem; opacity: 0.7; }
+
+/* Validation Bootstrap : le message suit désormais le conteneur .sel. */
+.sel:has(.is-invalid) ~ .invalid-feedback { display: block; }

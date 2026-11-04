@@ -43,10 +43,12 @@ def make_admin_crud_blueprint(name, model, url_prefix):
         # supprimer, ni consulter un AUTRE établissement que le sien : la
         # restriction à son propre etablissement_id est appliquée plus bas, dans
         # get_all()/get_one() (le before_request ne fait que laisser passer le verbe).
+        # Le Comptable y a aussi accès en lecture : l'en-tête (nom, logo,
+        # adresse) des rapports financiers imprimés vient de cette fiche.
         claims = get_jwt()
         if claims.get("role") == "SuperAdmin":
             return
-        if claims.get("role") in ("Admin", "Censeur", "Surveillant") and request.method == "GET":
+        if claims.get("role") in ("Admin", "Censeur", "Surveillant", "Comptable") and request.method == "GET":
             return
         return jsonify({"erreur": "Accès réservé au SuperAdmin"}), 403
 
@@ -118,8 +120,15 @@ def make_admin_crud_blueprint(name, model, url_prefix):
 def make_scoped_crud_blueprint(name, model, url_prefix,
                                 roles_autorises=("Admin", "SuperAdmin", "Censeur", "Surveillant"),
                                 create_roles_autorises=None,
-                                classe_scoped_self=False):
-    """create_roles_autorises : si fourni, restreint SPÉCIFIQUEMENT le verbe
+                                classe_scoped_self=False,
+                                lecture_etablissement_roles=()):
+    """lecture_etablissement_roles : rôles supplémentaires n'ayant accès
+    qu'en LECTURE (GET), sur TOUT l'établissement (aucune restriction par
+    classe). Utilisé pour le Comptable (cycle_bp, classe_bp,
+    annee_scolaire_bp) : la page Paiements a besoin de ces référentiels pour
+    afficher l'échéancier et la situation des élèves.
+
+    create_roles_autorises : si fourni, restreint SPÉCIFIQUEMENT le verbe
     POST à ce sous-ensemble de rôles (roles_autorises reste utilisé pour
     GET/PUT/DELETE). Utilisé par classe_bp ci-dessous : un Censeur/Surveillant
     peut consulter/modifier les classes qui lui sont assignées, mais ne peut
@@ -149,7 +158,10 @@ def make_scoped_crud_blueprint(name, model, url_prefix,
         # classes assignées pour Classe (cf. classe_scoped_self), et au verbe
         # POST près pour classe_bp (cf. create_roles_autorises et create()
         # ci-dessous).
-        if get_jwt().get("role") not in roles_autorises:
+        role = get_jwt().get("role")
+        if role in lecture_etablissement_roles and request.method == "GET":
+            return
+        if role not in roles_autorises:
             return jsonify({"erreur": "Accès non autorisé"}), 403
 
     def _current_etablissement_id():
@@ -167,6 +179,8 @@ def make_scoped_crud_blueprint(name, model, url_prefix,
         if not classe_scoped_self:
             return None
         claims = get_jwt()
+        if claims.get("role") in lecture_etablissement_roles:
+            return None
         # user_id (identité du compte) vient de get_jwt_identity(), TOUJOURS
         # à jour — contrairement à claims.get("profil_id"), qui n'était
         # calculé qu'une fois au login/refresh et pouvait donc rester périmé
@@ -245,7 +259,10 @@ def get_logo(filename):
 
 etablissement_bp = make_admin_crud_blueprint('etablissement', Etablissement, '/api/etablissements')
 
-cycle_bp = make_scoped_crud_blueprint('cycle', Cycle, '/api/cycles')
+# lecture_etablissement_roles=("Comptable",) : référentiels lus par la page
+# Paiements (cf. make_scoped_crud_blueprint).
+cycle_bp = make_scoped_crud_blueprint('cycle', Cycle, '/api/cycles',
+                                      lecture_etablissement_roles=("Comptable",))
 # classe_scoped_self=True : un Censeur/Surveillant ne voit/modifie que les
 # classes qui lui ont été assignées (cf. CenseurClasse/SurveillantClasse) ;
 # create_roles_autorises restreint la CRÉATION d'une classe à Admin/SuperAdmin
@@ -256,7 +273,9 @@ classe_bp = make_scoped_crud_blueprint(
     'classe', Classe, '/api/classes',
     create_roles_autorises=("Admin", "SuperAdmin"),
     classe_scoped_self=True,
+    lecture_etablissement_roles=("Comptable",),
 )
-annee_scolaire_bp = make_scoped_crud_blueprint('annee_scolaire', AnneeScolaire, '/api/annees-scolaires')
+annee_scolaire_bp = make_scoped_crud_blueprint('annee_scolaire', AnneeScolaire, '/api/annees-scolaires',
+                                               lecture_etablissement_roles=("Comptable",))
 trimestre_bp = make_scoped_crud_blueprint('trimestre', Trimestre, '/api/trimestres')
 sequence_bp = make_scoped_crud_blueprint('sequence', Sequence, '/api/sequences')

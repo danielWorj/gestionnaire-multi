@@ -1,0 +1,58 @@
+MOTS DE PASSE TEMPORAIRES — DONNÉES DE DÉMONSTRATION
+Généré le 02/11/2026 à 02:09
+Valables 48h (jusqu'au 04/11/2026 à 02:09) ; changement de mot de passe demandé à la première connexion.
+Passé ce délai : un Admin peut régénérer un mot de passe temporaire depuis l'application.
+
+
+==========================================================================================
+LMA
+==========================================================================================
+RÔLE          EMAIL                                  MOT DE PASSE  NOM
+------------------------------------------------------------------------------------------
+Enseignant    kevin.ngobiyong@lma.example.com        asNKhoSs3J    Kevin NGO BIYONG
+Enseignant    clarisse.abega@lma.example.com         gZbhNJGJ5w    Clarisse ABEGA
+Enseignant    gael.youmbi@lma.example.com            oeE4NYUO4n    Gaël YOUMBI
+Enseignant    sandrine.ndongo@lma.example.com        9EbtYF7Les    Sandrine NDONGO
+Enseignant    fatimatou.kamga@lma.example.com        HP2tYIWq5y    Fatimatou KAMGA
+Enseignant    danielle.hamadou@lma.example.com       iIrNOWK8EX    Danielle HAMADOU
+Enseignant    christelle.hamadou@lma.example.com     0pew9bAvDR    Christelle HAMADOU
+Enseignant    diane.wamba@lma.example.com            6Iop5D22kH    Diane WAMBA
+Enseignant    carine.mvondo@lma.example.com          b9ODJRmddH    Carine MVONDO
+Enseignant    stephanie.tchoupo@lma.example.com      hUaydTYnAN    Stéphanie TCHOUPO
+Enseignant    franck.mbida@lma.example.com           LcciY1DupU    Franck MBIDA
+Enseignant    yannick.njoya@lma.example.com          xGj2VT8Ydz    Yannick NJOYA
+Enseignant    edwige.tchinda@lma.example.com         XWjeV9jbFC    Edwige TCHINDA
+Enseignant    junior.simo@lma.example.com            bRQbsStpT3    Junior SIMO
+Enseignant    samuel.biya@lma.example.com            kEHYP9prv3    Samuel BIYA
+Proviseur     landry.feudjio@lma.example.com         I2A75K0BXR    Landry FEUDJIO
+Comptable     vanessa.tamo@lma.example.com           sdHex3GdGk    Vanessa TAMO
+Secretaire    emmanuel.ndongo@lma.example.com        sVNG8oPY7W    Emmanuel NDONGO
+Censeur       grace.mvondo@lma.example.com           2TeVQX8yIQ/123456789G    Grâce MVONDO
+Surveillant   herve.messi@lma.example.com            og85H9HR2c    Hervé MESSI
+Surveillant   esther.ekotto@lma.example.com          1zLRAvZfBY    Esther EKOTTO
+
+==========================================================================================
+Collège Bilingue Les Pionniers
+==========================================================================================
+RÔLE          EMAIL                                  MOT DE PASSE  NOM
+------------------------------------------------------------------------------------------
+Enseignant    aicha.fouda@pionniers.example.com      8c0MPew7t4    Aïcha FOUDA
+Enseignant    edwige.tamo@pionniers.example.com      iIK8vStHUm    Edwige TAMO
+Enseignant    nadege.meka@pionniers.example.com      EEv0BS8JRJ    Nadège MEKA
+Enseignant    junior.bello@pionniers.example.com     nMdU5Re6jV    Junior BELLO
+Enseignant    fatimatou.abega@pionniers.example.com  7FXXnOuCY0    Fatimatou ABEGA
+Enseignant    carine.messi@pionniers.example.com     7pyDIy6rh1    Carine MESSI
+Enseignant    landry.tagne@pionniers.example.com     t0Q3Yepjkj    Landry TAGNE
+Enseignant    ulrich.manga@pionniers.example.com     pobIPIWDWi    Ulrich MANGA
+Enseignant    pierre.ella@pionniers.example.com      2yNJSgYi7f    Pierre ELLA
+Enseignant    thierry.nguema@pionniers.example.com   gmASnrEr8V    Thierry NGUEMA
+Enseignant    gael.abanda@pionniers.example.com      luhcoh9tgf    Gaël ABANDA
+Enseignant    ornella.mvondo@pionniers.example.com   3XoruNOMxI    Ornella MVONDO
+Admin         joelle.messi@pionniers.example.com     B2fcbCAbGy/ 123456789J    Joëlle MESSI
+Proviseur     stephanie.meka@pionniers.example.com   vtsTRF3M1d    Stéphanie MEKA
+Comptable     daniel.ella@pionniers.example.com      2imtJxbJCh    Daniel ELLA
+Secretaire    joelle.mbarga@pionniers.example.com    jkRqAASklY    Joëlle MBARGA
+Censeur       boris.ndjock@pionniers.example.com     uDrlpFnoSn    Boris NDJOCK
+Censeur       jean.hamadou@pionniers.example.com     Rb3izuS6n4    Jean HAMADOU
+Surveillant   serge.kamga@pionniers.example.com      vRENv2R9r5    Serge KAMGA
+Surveillant   willy.ebogo@pionniers.example.com      RlePFMykL3    Willy EBOGO

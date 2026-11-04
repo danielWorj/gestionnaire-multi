@@ -14,6 +14,9 @@ marshmallow-sqlalchemy==0.29.0
 # --- Authentification JWT (module Authentification) ---
 Flask-JWT-Extended==4.6.0
 
+# --- Hachage des mots de passe (models/authentification_models.py) ---
+bcrypt==4.2.0
+
 # --- CORS (necessaire si le frontend appelle l'API depuis un autre domaine/port) ---
 Flask-CORS==4.0.0
 
@@ -28,6 +31,10 @@ python-dotenv==1.0.0
 
 # --- Driver base de donnees (MySQL / MariaDB) ---
 PyMySQL==1.1.0
+# requis par PyMySQL pour l'authentification caching_sha2_password de MySQL 8
+cryptography==43.0.1
 
 # --- Generation des bulletins PDF (module Evaluation, note N2) ---
 WeasyPrint==62.3
+# pydyf >= 0.11 casse WeasyPrint 62 (AttributeError: transform)
+pydyf==0.10.0

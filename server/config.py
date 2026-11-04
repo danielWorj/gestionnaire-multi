@@ -53,7 +53,10 @@ class Config:
     JWT_ACCESS_CSRF_HEADER_NAME = "X-CSRF-TOKEN"
     JWT_REFRESH_CSRF_HEADER_NAME = "X-CSRF-TOKEN"
     JWT_ACCESS_COOKIE_PATH = "/api/"
-    JWT_REFRESH_COOKIE_PATH = "/api/auth/refresh"
+    # "/api/auth/" et non "/api/auth/refresh" : le cookie doit aussi parvenir
+    # à /api/auth/superadmin/refresh (sinon le refresh SuperAdmin échoue
+    # toujours avec "Missing cookie").
+    JWT_REFRESH_COOKIE_PATH = "/api/auth/"
     JWT_COOKIE_DOMAIN = os.environ.get("JWT_COOKIE_DOMAIN") or None
     JWT_BLOCKLIST_ENABLED = True
     JWT_BLOCKLIST_TOKEN_CHECKS = ["access", "refresh"]

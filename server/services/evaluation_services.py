@@ -136,9 +136,20 @@ def _validate_valeur(data):
     return None
 
 
-def get_all_notes_scoped(etablissement_id, classe_ids_restriction=None, matiere_classe_ids_restriction=None):
-    return [n.to_dict() for n in
-            _note_query(etablissement_id, classe_ids_restriction, matiere_classe_ids_restriction).all()]
+def get_all_notes_scoped(etablissement_id, classe_ids_restriction=None, matiere_classe_ids_restriction=None,
+                         filtres=None):
+    """filtres (optionnels, appliqués EN PLUS du périmètre) : {matiere_classe_id,
+    classe_id, sequence_id} — évite de télécharger toutes les notes visibles
+    quand la page n'en affiche qu'une classe ou une matière (réseau mobile)."""
+    query = _note_query(etablissement_id, classe_ids_restriction, matiere_classe_ids_restriction)
+    filtres = filtres or {}
+    if filtres.get('matiere_classe_id'):
+        query = query.filter(Note.matiere_classe_id == filtres['matiere_classe_id'])
+    if filtres.get('classe_id'):
+        query = query.filter(MatiereClasse.classe_id == filtres['classe_id'])
+    if filtres.get('sequence_id'):
+        query = query.filter(Note.sequence_id == filtres['sequence_id'])
+    return [n.to_dict() for n in query.all()]
 
 
 def get_note_scoped(note_id, etablissement_id, classe_ids_restriction=None, matiere_classe_ids_restriction=None):
@@ -281,8 +292,15 @@ def _validate_compteurs_discipline(data):
     return None
 
 
-def get_all_disciplines_scoped(etablissement_id, classe_ids_restriction=None):
-    return [d.to_dict() for d in _discipline_query(etablissement_id, classe_ids_restriction).all()]
+def get_all_disciplines_scoped(etablissement_id, classe_ids_restriction=None, filtres=None):
+    """filtres (optionnels) : {classe_id, sequence_id}, cf. get_all_notes_scoped."""
+    query = _discipline_query(etablissement_id, classe_ids_restriction)
+    filtres = filtres or {}
+    if filtres.get('classe_id'):
+        query = query.filter(Inscription.classe_id == filtres['classe_id'])
+    if filtres.get('sequence_id'):
+        query = query.filter(Discipline.sequence_id == filtres['sequence_id'])
+    return [d.to_dict() for d in query.all()]
 
 
 def get_discipline_scoped(discipline_id, etablissement_id, classe_ids_restriction=None):

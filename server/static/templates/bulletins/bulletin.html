@@ -1,0 +1,221 @@
+{#- Bulletin de notes (séquentiel / trimestriel / annuel).
+    Gabarit unique pour l'aperçu HTML (page Bulletins) et le PDF
+    (WeasyPrint), cf. api/bulletin_api.py. Données : bulletin_services.construire_bulletins. -#}
+{%- macro note(v) -%}
+  {%- if v is none -%}---{%- elif v == 'ABS' -%}Abs{%- else -%}{{ '%05.2f' | format(v) }}{%- endif -%}
+{%- endmacro -%}
+{%- macro rang(r, sexe) -%}
+  {%- if r is none -%}---{%- elif r == 1 -%}{{ '1ère' if sexe == 'F' else '1er' }}{%- else -%}{{ r }}ème{%- endif -%}
+{%- endmacro -%}
+{%- set etab = data.etablissement -%}
+{%- set bp = etab.bp_numero -%}
+{%- set seqs = data.sequences -%}
+{%- set multi = seqs | length > 1 -%}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bulletins — {{ data.classe.label }} — {{ data.periode.libelle }}</title>
+<style>
+  @page { size: A4 portrait; margin: 8mm 9mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; font-size: 8.4pt; color: #111; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  @media screen {
+    body { background: #e9ebee; padding: 14px 0; }
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto 14px; padding: 8mm 9mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  }
+  table { border-collapse: collapse; width: 100%; }
+  .entete td { vertical-align: top; text-align: center; font-size: 7.4pt; line-height: 1.35; }
+  .entete .etab { font-weight: 700; font-size: 8.6pt; text-transform: uppercase; }
+  .entete .devise { font-style: italic; font-size: 6.8pt; }
+  .entete .logo img { max-height: 21mm; max-width: 26mm; }
+  h1 { text-align: center; font-size: 13pt; margin: 2mm 0 2.5mm; letter-spacing: .03em; }
+  .identite td { padding: 0.6mm 1.5mm; font-size: 8.2pt; }
+  .identite .lbl { color: #444; width: 17mm; }
+  .identite .nom { font-weight: 700; font-size: 9.6pt; }
+  .notes { margin-top: 2mm; }
+  .notes th, .notes td { border: 0.6pt solid #333; padding: 0.7mm 1mm; }
+  .notes th { background: #e6e6e6; font-size: 7.2pt; }
+  .notes td { text-align: center; white-space: nowrap; }
+  .notes td.mat { text-align: left; white-space: normal; }
+  .notes td.mat .ens { color: #444; font-size: 7pt; }
+  .notes tr.sous-total td { background: #f1f1f1; font-weight: 700; }
+  .notes tr.sous-total td.groupe { text-align: left; font-style: italic; }
+  .notes tr.total td { background: #dcdcdc; font-weight: 700; font-size: 9pt; }
+  .notes td.nc { font-style: italic; color: #555; }
+  .bloc-titre { text-align: center; font-weight: 700; background: #e6e6e6; }
+  .recap { margin-top: 2.5mm; }
+  .recap th, .recap td { border: 0.6pt solid #333; padding: 0.8mm 1mm; text-align: center; font-size: 7.6pt; }
+  .recap th { background: #f1f1f1; }
+  .recap td.lbl { text-align: left; }
+  .recap .gros { font-weight: 700; font-size: 9.4pt; }
+  .bas { margin-top: 2.5mm; }
+  .bas > tbody > tr > td { vertical-align: top; padding: 0; }
+  .decision { border: 0.6pt solid #333; height: 100%; padding: 1.5mm 2mm; }
+  .decision .titre { text-align: center; font-weight: 700; margin-bottom: 1.5mm; }
+  .decision .ligne { border-bottom: 0.5pt dotted #777; height: 5.5mm; font-size: 7.6pt; }
+  .decision .fait { margin-top: 3mm; text-align: right; }
+  .decision .sig { margin-top: 1mm; text-align: right; font-weight: 700; padding-bottom: 14mm; }
+  .legende { margin-top: 1.5mm; font-size: 6.8pt; color: #333; }
+</style>
+</head>
+<body>
+{%- for b in data.bulletins %}
+{%- set e = b.eleve %}
+<div class="page">
+  <table class="entete">
+    <tr>
+      <td style="width:40%">
+        <div>RÉPUBLIQUE DU CAMEROUN</div>
+        <div class="devise">Paix - Travail - Patrie</div>
+        <div class="etab">{{ etab.nom }}</div>
+        <div>{% if bp %}B.P. {{ bp }}{% endif %}{% if etab.adresse %} {{ etab.adresse }}{% endif %}{% if etab.telephone %} — Tél. : {{ etab.telephone }}{% endif %}</div>
+      </td>
+      <td class="logo" style="width:20%">{% if logo_src %}<img src="{{ logo_src }}" alt="">{% endif %}</td>
+      <td style="width:40%">
+        <div>REPUBLIC OF CAMEROON</div>
+        <div class="devise">Peace - Work - Fatherland</div>
+        <div class="etab">{{ etab.nom_bilingue or etab.nom }}</div>
+        <div>{% if bp %}P.O. Box {{ bp }}{% endif %}{% if etab.adresse %} {{ etab.adresse }}{% endif %}{% if etab.telephone %} — Tel. : {{ etab.telephone }}{% endif %}</div>
+        <div class="devise">Année scolaire / School year {{ data.annee.libelle }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <h1>{{ data.periode.titre }}</h1>
+
+  <table class="identite">
+    <tr>
+      <td class="lbl">Nom</td><td class="nom" colspan="3">{{ e.nom }} {{ e.prenom }}</td>
+      <td class="lbl">Matricule</td><td><strong>{{ e.matricule }}</strong></td>
+    </tr>
+    <tr>
+      <td class="lbl">Né(e) le</td><td>{{ e.date_naissance or '' }}</td><td class="lbl">à</td><td>{{ e.lieu_naissance or '' }}</td>
+      <td class="lbl">Sexe</td><td>{{ e.sexe }}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Classe</td><td colspan="3"><strong>{{ data.classe.label }}</strong></td>
+      <td class="lbl">Statut</td><td>{{ e.statut }}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Titulaire</td><td colspan="3">{{ data.titulaire or '' }}</td>
+      <td class="lbl">Effectif</td><td>{{ data.effectif }}</td>
+    </tr>
+  </table>
+
+  <table class="notes">
+    <thead>
+      <tr>
+        <th style="text-align:left">Matières / Enseignants</th>
+        {%- for s in seqs %}<th>{{ s.court }}</th>{% endfor %}
+        {%- if multi %}<th>{{ 'Moy. An' if data.periode.type == 'annuel' else 'Moy. Trim' }}</th>{% endif %}
+        <th>Coef.</th><th>Moy×Coef</th><th>Rang</th><th>Appréciation / Signature</th>
+      </tr>
+    </thead>
+    <tbody>
+    {%- for g in b.groupes %}
+      {%- for l in g.lignes %}
+      <tr>
+        <td class="mat">{{ l.matiere }}{% if l.enseignant %} : <span class="ens">{{ l.enseignant }}</span>{% endif %}</td>
+        {%- for v in l.notes %}<td>{{ note(v) }}</td>{% endfor %}
+        {%- if l.classe %}
+          {%- if multi %}<td><strong>{{ note(l.moyenne) }}</strong></td>{% endif %}
+          <td>{{ l.coefficient }}</td>
+          <td><strong>{{ '%05.2f' | format(l.points) }}</strong></td>
+          <td>{{ rang(l.rang, e.sexe) }}</td>
+          <td>{{ l.appreciation }}</td>
+        {%- else %}
+          {%- if multi %}<td>---</td>{% endif %}
+          <td>---</td><td>---</td>
+          <td class="nc" colspan="2">Non classé(e)</td>
+        {%- endif %}
+      </tr>
+      {%- endfor %}
+      <tr class="sous-total">
+        <td class="groupe" colspan="{{ (seqs | length) + (2 if multi else 1) }}">{{ g.libelle }}</td>
+        <td>{{ g.total_coef }}</td>
+        <td>{{ '%.2f' | format(g.total_points) }}</td>
+        <td colspan="2">Moy/20 : {{ note(g.moyenne) }}</td>
+      </tr>
+    {%- endfor %}
+      <tr class="total">
+        <td class="groupe" colspan="{{ (seqs | length) + (2 if multi else 1) }}" style="text-align:left">TOTAL</td>
+        <td>{{ b.total_coef }}</td>
+        <td>{{ '%.2f' | format(b.total_points) }}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="recap">
+    <tr><td class="bloc-titre" colspan="{{ (seqs | length) + (2 if multi else 1) }}">RÉCAPITULATIF TRAVAIL</td><th>Mention</th><th colspan="2">Sanction</th></tr>
+    <tr>
+      <th></th>
+      {%- for s in seqs %}<th>{{ s.court }}</th>{% endfor %}
+      {%- if multi %}<th>{{ data.periode.libelle }}</th>{% endif %}
+      <td rowspan="3" class="gros">{{ b.mention or 'Non classé(e)' }}</td>
+      <td rowspan="3" colspan="2">{{ b.sanction or '' }}</td>
+    </tr>
+    <tr>
+      <td class="lbl">Moyenne</td>
+      {%- for r in b.sequences %}<td{% if not multi %} class="gros"{% endif %}>{{ note(r.moyenne) }}</td>{% endfor %}
+      {%- if multi %}<td class="gros">{{ note(b.moyenne) }}</td>{% endif %}
+    </tr>
+    <tr>
+      <td class="lbl">Rang</td>
+      {%- for r in b.sequences %}<td{% if not multi %} class="gros"{% endif %}>{{ '---' if r.rang is none else (r.rang if multi else r.rang ~ '/' ~ data.effectif) }}</td>{% endfor %}
+      {%- if multi %}<td class="gros">{{ b.rang ~ '/' ~ data.effectif if b.rang is not none else '---' }}</td>{% endif %}
+    </tr>
+  </table>
+  {%- set st = data.statistiques %}
+  <table class="recap" style="margin-top:0">
+    <tr>
+      <th>Moy. générale de la classe /20</th><th>% réussite</th><th>Moyenne min</th><th>Moyenne max</th>
+      <th>Nbre Moy ≥ 10</th><th>Nbre Moy ≥ 12</th><th>Nbre Moy &lt; 10</th>
+    </tr>
+    <tr>
+      <td>{{ note(st.moyenne_classe) }}</td>
+      <td>{{ '%.2f' | format(st.taux_reussite) if st.taux_reussite is not none else '---' }}</td>
+      <td>{{ note(st.moyenne_min) }}</td><td>{{ note(st.moyenne_max) }}</td>
+      <td>{{ st.nb_sup_10 }}</td><td>{{ st.nb_sup_12 }}</td><td>{{ st.nb_inf_10 }}</td>
+    </tr>
+  </table>
+
+  <table class="bas">
+    <tr>
+      <td style="width:52%; padding-right:2mm">
+        <table class="recap" style="margin-top:0">
+          <tr><td class="bloc-titre" colspan="{{ (seqs | length) + (2 if multi else 1) }}">RÉCAPITULATIF DISCIPLINE</td></tr>
+          <tr>
+            <th></th>
+            {%- for s in seqs %}<th>{{ s.court }}</th>{% endfor %}
+            {%- if multi %}<th>{{ data.periode.libelle }}</th>{% endif %}
+          </tr>
+          {%- for d in b.discipline %}
+          <tr>
+            <td class="lbl">{{ d.libelle }}</td>
+            {%- for v in d.valeurs %}<td>{{ v if v is not none else '' }}</td>{% endfor %}
+            {%- if multi %}<td><strong>{{ d.total }}</strong></td>{% endif %}
+          </tr>
+          {%- endfor %}
+        </table>
+      </td>
+      <td style="width:48%">
+        <div class="decision">
+          <div class="titre">OBSERVATIONS ET DÉCISION</div>
+          {%- for o in b.observations[:3] %}<div class="ligne">{{ o }}</div>{% endfor %}
+          {%- for _ in range(3 - (b.observations[:3] | length)) %}<div class="ligne"></div>{% endfor %}
+          <div class="fait">Fait à {{ etab.adresse or etab.region or '................' }}, le {{ date_edition }}</div>
+          <div class="sig">Le Principal</div>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <div class="legende">{{ data.legende }}</div>
+</div>
+{%- endfor %}
+</body>
+</html>

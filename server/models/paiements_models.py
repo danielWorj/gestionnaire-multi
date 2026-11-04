@@ -132,7 +132,9 @@ class Paiement(db.Model):
              ['id', 'inscription_id', 'parent_id', 'encaisse_par_id', 'numero_recu',
               'mode_paiement', 'reference_transaction', 'statut', 'motif_annulation']}
         d['montant_total'] = float(self.montant_total) if self.montant_total is not None else None
-        d['date_paiement'] = self.date_paiement.isoformat() if self.date_paiement else None
+        # date_paiement est stockée en UTC naïf (datetime.utcnow) : le 'Z'
+        # évite que le navigateur l'interprète comme une heure locale.
+        d['date_paiement'] = self.date_paiement.isoformat() + 'Z' if self.date_paiement else None
         if with_lignes:
             d['lignes'] = [l.to_dict() for l in self.lignes]
         return d

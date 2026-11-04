@@ -35,11 +35,15 @@ app = create_app()
 # ----------------------------------------------------------------------------
 
 from extensions import db
-from models.authentification_models import SuperAdmin
+from models.authentification_models import SuperAdmin, Role
 
 
 def main():
     with app.app_context():
+        # 0. Rôles d'établissement (Admin, Enseignant, ...) : indispensables
+        # pour que le SuperAdmin puisse ensuite créer des utilisateurs.
+        Role.init_roles()
+
         # 1. Infos du superadmin
         nom = input("Nom du superadmin : ").strip()
         email = input("Email du superadmin : ").strip()

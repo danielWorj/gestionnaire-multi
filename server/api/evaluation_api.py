@@ -1,6 +1,7 @@
 from flask import Blueprint, request, jsonify
+from datetime import date
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from services.evaluation_services import (
     get_all_notes_scoped, get_note_scoped, create_note_scoped, update_note_scoped, delete_note_scoped,
@@ -30,6 +31,10 @@ from models.inscription_models import Inscription, Eleve
 # Censeur/Surveillant), d'où ce point d'entrée dédié, pré-filtré et
 # pré-enrichi côté serveur, sur le même modèle que enseignant_mon_espace.
 from models.emploi_du_temps_models import CreneauHoraire, Horaire
+# Note : comptage agrégé des notes saisies (avancement affiché sur les cartes
+# de classes des espaces Enseignant et Censeur, cf. _notes_saisies_par_mc).
+from models.evaluation_models import Note
+from extensions import db
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +128,9 @@ def note_get_all():
     etab_id = _resolve_etablissement_id_note()
     if etab_id is None:
         return jsonify({"erreur": "etablissement_id requis"}), 400
+    filtres = {cle: request.args.get(cle, type=int) for cle in ('matiere_classe_id', 'classe_id', 'sequence_id')}
     return jsonify(get_all_notes_scoped(
-        etab_id, _current_classe_restriction_note(), _current_matiere_classe_restriction()
+        etab_id, _current_classe_restriction_note(), _current_matiere_classe_restriction(), filtres
     )), 200
 
 
@@ -225,7 +231,8 @@ def discipline_get_all():
     etab_id = _resolve_etablissement_id_discipline()
     if etab_id is None:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    return jsonify(get_all_disciplines_scoped(etab_id, _current_classe_restriction_discipline())), 200
+    filtres = {cle: request.args.get(cle, type=int) for cle in ('classe_id', 'sequence_id')}
+    return jsonify(get_all_disciplines_scoped(etab_id, _current_classe_restriction_discipline(), filtres)), 200
 
 
 @discipline_bp.route('/', methods=['POST'])
@@ -359,6 +366,61 @@ def _est_active(annee):
                               "is_active", defaut=False))
 
 
+def _sequence_courante(annee):
+    """Séquence « en cours » de l'année (celle dont les dates encadrent
+    aujourd'hui ; à défaut la dernière commencée ; à défaut la première), ou
+    None si l'année n'a encore aucune séquence. Sert de référence à
+    l'avancement de la saisie des notes affiché sur les cartes de classes."""
+    if annee is None:
+        return None
+    sequences = (
+        Sequence.query
+        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
+        .filter(Trimestre.annee_scolaire_id == annee.id)
+        .order_by(Trimestre.id, Sequence.id)
+        .all()
+    )
+    if not sequences:
+        return None
+    aujourdhui = date.today()
+    for sequence in sequences:
+        if sequence.date_debut and sequence.date_fin and sequence.date_debut <= aujourdhui <= sequence.date_fin:
+            return sequence
+    commencees = [s for s in sequences if s.date_debut and s.date_debut <= aujourdhui]
+    return commencees[-1] if commencees else sequences[0]
+
+
+def _sequence_json(sequence):
+    if sequence is None:
+        return None
+    return {
+        "id": sequence.id,
+        "libelle": _libelle(sequence, f"Séquence #{sequence.id}"),
+        "trimestre_id": sequence.trimestre_id,
+        "trimestre_libelle": _libelle(sequence.trimestre, None) if sequence.trimestre else None,
+    }
+
+
+def _notes_saisies_par_mc(mc_ids, sequence, annee):
+    """{matiere_classe_id: nombre de notes saisies} pour la séquence et
+    l'année données, en une seule requête agrégée. Une note compte comme
+    saisie dès qu'elle porte une valeur ou que l'élève est marqué absent."""
+    if not mc_ids or sequence is None or annee is None:
+        return {}
+    return dict(
+        db.session.query(Note.matiere_classe_id, func.count(Note.id))
+        .join(Inscription, Inscription.id == Note.inscription_id)
+        .filter(
+            Note.matiere_classe_id.in_(mc_ids),
+            Note.sequence_id == sequence.id,
+            Inscription.annee_scolaire_id == annee.id,
+            or_(Note.valeur.isnot(None), Note.absent.is_(True)),
+        )
+        .group_by(Note.matiere_classe_id)
+        .all()
+    )
+
+
 def _etablissement_id_enseignant():
     return get_jwt().get("etablissement_id")
 
@@ -396,9 +458,13 @@ ERREUR_PROFIL_NON_RELIE = {
 
 # ---------------------------------------------------------------------------
 # GET /api/enseignant/mon-espace
-# -> {matieres_classe: [{id, classe_id, classe_label, effectif, matiere_id,
-#                        matiere_libelle, coefficient}],
-#     annees_scolaires: [{id, libelle, active}]}
+# -> {matieres_classe: [{id, classe_id, classe_label, cycle_libelle, effectif,
+#                        matiere_id, matiere_libelle, coefficient,
+#                        notes_saisies}],
+#     annees_scolaires: [{id, libelle, active}],
+#     sequence_courante: {id, libelle, trimestre_id, trimestre_libelle} | null}
+# notes_saisies : avancement de la saisie sur la séquence courante de
+# l'année active (cf. _sequence_courante), à comparer à effectif.
 # ---------------------------------------------------------------------------
 
 @enseignant_espace_bp.route('/mon-espace', methods=['GET'])
@@ -439,15 +505,24 @@ def enseignant_mon_espace():
             requete = requete.filter(Inscription.annee_scolaire_id == annee_active.id)
         effectifs = dict(requete.group_by(Inscription.classe_id).all())
 
+    sequence = _sequence_courante(annee_active)
+    notes_saisies = _notes_saisies_par_mc([lien.id for lien in liens], sequence, annee_active)
+
+    def _cycle_libelle(classe_id):
+        classe = classes.get(classe_id)
+        return classe.cycle.libelle if classe and classe.cycle else None
+
     matieres_classe = [
         {
             "id": lien.id,
             "classe_id": lien.classe_id,
             "classe_label": _classe_label(classes.get(lien.classe_id)),
+            "cycle_libelle": _cycle_libelle(lien.classe_id),
             "effectif": effectifs.get(lien.classe_id, 0),
             "matiere_id": lien.matiere_id,
             "matiere_libelle": _libelle(matieres.get(lien.matiere_id), f"Matière #{lien.matiere_id}"),
             "coefficient": _premier_attr(lien, "coefficient", defaut=1),
+            "notes_saisies": notes_saisies.get(lien.id, 0),
         }
         for lien in liens
     ]
@@ -463,6 +538,7 @@ def enseignant_mon_espace():
             }
             for annee in annees
         ],
+        "sequence_courante": _sequence_json(sequence),
     }), 200
 
 
@@ -699,10 +775,15 @@ def _mes_classe_ids_censeur():
 
 # ---------------------------------------------------------------------------
 # GET /api/censeur/mon-espace
-# -> {classes: [{id, label, effectif}],
+# -> {classes: [{id, label, cycle_libelle, effectif, matieres_total,
+#                matieres_completes, notes_saisies, notes_attendues}],
 #     matieres_classe: [{id, classe_id, matiere_id, matiere_libelle,
-#                        coefficient, enseignant_id, enseignant_nom}],
-#     annees_scolaires: [{id, libelle, active}]}
+#                        coefficient, enseignant_id, enseignant_nom,
+#                        notes_saisies}],
+#     annees_scolaires: [{id, libelle, active}],
+#     sequence_courante: {id, libelle, trimestre_id, trimestre_libelle} | null}
+# Avancement (séquence courante de l'année active) : une matière est
+# « complète » quand toutes les notes de l'effectif sont saisies.
 # ---------------------------------------------------------------------------
 
 @censeur_espace_bp.route('/mon-espace', methods=['GET'])
@@ -728,8 +809,11 @@ def censeur_mon_espace():
     # Aucune classe assignée : on renvoie des listes vides plutôt que
     # d'ouvrir tout l'établissement par défaut (même philosophie prudente
     # que resolve_classe_ids_restriction).
+    sequence = _sequence_courante(annee_active)
+
     if not classe_ids:
-        return jsonify({"classes": [], "matieres_classe": [], "annees_scolaires": annees_json}), 200
+        return jsonify({"classes": [], "matieres_classe": [], "annees_scolaires": annees_json,
+                        "sequence_courante": _sequence_json(sequence)}), 200
 
     classes = (
         Classe.query
@@ -766,6 +850,8 @@ def censeur_mon_espace():
             return None
         return f"{enseignant.nom} {enseignant.prenom}".strip()
 
+    notes_saisies = _notes_saisies_par_mc([lien.id for lien in liens], sequence, annee_active)
+
     matieres_classe = [
         {
             "id": lien.id,
@@ -775,18 +861,31 @@ def censeur_mon_espace():
             "coefficient": _premier_attr(lien, "coefficient", defaut=1),
             "enseignant_id": getattr(lien, "enseignant_id", None),
             "enseignant_nom": _enseignant_nom(getattr(lien, "enseignant_id", None)),
+            "notes_saisies": notes_saisies.get(lien.id, 0),
         }
         for lien in liens
     ]
     matieres_classe.sort(key=lambda mc: (mc["classe_id"], mc["matiere_libelle"]))
 
+    def _classe_json(classe):
+        effectif = effectifs.get(classe.id, 0)
+        mcs = [mc for mc in matieres_classe if mc["classe_id"] == classe.id]
+        return {
+            "id": classe.id,
+            "label": _classe_label(classe),
+            "cycle_libelle": classe.cycle.libelle if classe.cycle else None,
+            "effectif": effectif,
+            "matieres_total": len(mcs),
+            "matieres_completes": sum(1 for mc in mcs if effectif and mc["notes_saisies"] >= effectif),
+            "notes_saisies": sum(min(mc["notes_saisies"], effectif) for mc in mcs),
+            "notes_attendues": effectif * len(mcs),
+        }
+
     return jsonify({
-        "classes": sorted(
-            [{"id": c.id, "label": _classe_label(c), "effectif": effectifs.get(c.id, 0)} for c in classes],
-            key=lambda c: c["label"] or "",
-        ),
+        "classes": sorted([_classe_json(c) for c in classes], key=lambda c: c["label"] or ""),
         "matieres_classe": matieres_classe,
         "annees_scolaires": annees_json,
+        "sequence_courante": _sequence_json(sequence),
     }), 200
 
 

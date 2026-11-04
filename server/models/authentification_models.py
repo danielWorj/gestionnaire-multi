@@ -126,14 +126,24 @@ class TokenBlocklist(db.Model):
         db.session.commit()
 
 
+# Association N-N Utilisateur <-> Role : un même compte peut cumuler plusieurs
+# rôles (ex : Censeur d'un niveau ET Enseignant de plusieurs classes, ou Admin
+# d'établissement qui enseigne aussi). Le rôle sous lequel l'utilisateur
+# travaille à un instant donné est le "rôle actif", porté par le claim 'role'
+# du JWT (cf. authentification_services._build_claims) et choisi après le
+# login via POST /api/auth/choisir-role.
+utilisateur_role = db.Table(
+    'utilisateur_role',
+    db.Column('utilisateur_id', db.Integer, db.ForeignKey('utilisateur.id', ondelete='CASCADE'), primary_key=True),
+    db.Column('role_id', db.Integer, db.ForeignKey('role.id'), primary_key=True),
+)
+
+
 class Role(db.Model):
     __tablename__ = 'role'
 
     id = db.Column(db.Integer, primary_key=True)
     libelle = db.Column(db.String(50), unique=True, nullable=False)
-
-    # Relation avec Utilisateur
-    utilisateurs = db.relationship('Utilisateur', backref='role', lazy=True)
 
     def to_dict(self):
         return {
@@ -180,8 +190,14 @@ class Utilisateur(db.Model, AuthentifiableMixin):
     email = db.Column(db.String(150), nullable=False)
     # Hash bcrypt : toujours 60 caractères, String(255) laisse de la marge
     mot_de_passe_hash = db.Column(db.String(255), nullable=False)
-    role_id = db.Column(db.Integer, db.ForeignKey('role.id'), nullable=False)
     actif = db.Column(db.Boolean, default=True)
+
+    # Rôles cumulés de ce compte (au moins un). Remplace l'ancienne colonne
+    # role_id (un seul rôle), cf. migration 'utilisateur_multi_roles'.
+    roles = db.relationship(
+        'Role', secondary=utilisateur_role, lazy='selectin',
+        order_by='Role.id', backref=db.backref('utilisateurs', lazy=True)
+    )
 
     # Authentification JWT
     # L'access token (courte durée) n'est jamais stocké en base : il est régénéré
@@ -214,8 +230,7 @@ class Utilisateur(db.Model, AuthentifiableMixin):
             'etablissement_id': self.etablissement_id,
             'nom': self.nom,
             'email': self.email,
-            'role_id': self.role_id,
-            'role': self.role.to_dict() if self.role else None,
+            'roles': [r.to_dict() for r in self.roles],
             'actif': self.actif,
             'dernier_login': self.dernier_login.isoformat() if self.dernier_login else None,
             'doit_changer_mdp': self.doit_changer_mdp,
@@ -224,6 +239,12 @@ class Utilisateur(db.Model, AuthentifiableMixin):
         if self.etablissement:
             data['etablissement_nom'] = self.etablissement.nom
         return data
+
+    def libelles_roles(self):
+        return [r.libelle for r in self.roles]
+
+    def a_role(self, libelle):
+        return libelle in self.libelles_roles()
 
     def mot_de_passe_expire(self):
         """True si le mot de passe temporaire a dépassé les 48h sans avoir été changé.

@@ -1,5 +1,5 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from services.paiements_services import (
     get_all_tranches_scoped, get_tranche_scoped, create_tranche_scoped,
@@ -167,13 +167,25 @@ def paiement_get_all():
 @paiement_bp.route('/', methods=['POST'])
 def paiement_create():
     """Crée l'en-tête ET les lignes en un seul appel. Body attendu :
-    {inscription_id, parent_id, encaisse_par_id, numero_recu, montant_total,
+    {inscription_id, parent_id, numero_recu?, montant_total,
      mode_paiement, reference_transaction?,
-     lignes: [{tranche_classe_id, montant_verse}, ...]}."""
+     lignes: [{tranche_classe_id, montant_verse}, ...]}.
+    numero_recu est généré s'il est absent ; encaisse_par_id est imposé
+    (compte connecté)."""
+    # L'agent encaisseur est TOUJOURS le compte connecté (identité JWT),
+    # jamais une valeur du payload : un reçu ne doit pas pouvoir être
+    # attribué à un autre agent. Le SuperAdmin (table super_admin, pas
+    # utilisateur) ne peut pas être encaisseur : encaisse_par_id référence
+    # utilisateur.id, son identifiant y désignerait un autre compte.
+    if get_jwt().get("role") == "SuperAdmin":
+        return jsonify({"erreur": "Le SuperAdmin ne peut pas encaisser de paiement : "
+                                  "connectez-vous avec un compte Comptable ou Admin de l'établissement"}), 403
     etab_id = _etablissement_id_pour_creation()
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    result, status = create_paiement_scoped(request.get_json(), etab_id)
+    data = dict(request.get_json(silent=True) or {})
+    data['encaisse_par_id'] = int(get_jwt_identity())
+    result, status = create_paiement_scoped(data, etab_id)
     return jsonify(result), status
 
 
