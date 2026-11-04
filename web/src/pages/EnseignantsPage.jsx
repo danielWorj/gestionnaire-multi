@@ -233,11 +233,11 @@ export default function EnseignantsPage() {
   };
 
   const reinitialiserPin = async (e) => {
-    const ok = await confirm(<>Générer un nouveau PIN temporaire pour <strong>{fullName(e)}</strong> ?<br /><small className="text-muted">Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion ({e.code_connexion}) ne change pas.</small></>);
+    const ok = await confirm(<>Générer un nouveau PIN pour <strong>{fullName(e)}</strong> ?<br /><small className="text-muted">Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion ({e.code_connexion}) ne change pas.</small></>);
     if (!ok) return;
     try {
       const r = await api.post(`/auth/utilisateurs/${e.utilisateur_id}/reset-password`);
-      setIdentifiants({ nom: fullName(e), code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN temporaire' });
+      setIdentifiants({ nom: fullName(e), code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN' });
     } catch (err) {
       toast(err.message || 'Impossible de réinitialiser le PIN.', 'error');
     }
@@ -615,7 +615,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
       {!data && (
         <div className="alert alert-info d-flex align-items-start gap-2 py-2 small">
           <i className="bx bx-info-circle mt-1" />
-          <div>Un compte de connexion sera automatiquement créé pour cet enseignant : son <strong>code de connexion</strong> et un <strong>PIN temporaire</strong> vous seront présentés juste après la création, sur une fiche à imprimer ou recopier pour l'enseignant.</div>
+          <div>Un compte de connexion sera automatiquement créé pour cet enseignant : son <strong>code de connexion</strong> et un <strong>PIN</strong> vous seront présentés juste après la création, sur une fiche à imprimer ou recopier pour l'enseignant.</div>
         </div>
       )}
       <div className="row g-3">

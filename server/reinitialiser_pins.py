@@ -1,5 +1,5 @@
 """
-Attribue un PIN temporaire aux comptes existants et produit les fiches
+Attribue un nouveau PIN aux comptes existants et produit les fiches
 d'accès (code de connexion + PIN) à distribuer.
 
 À lancer UNE FOIS après la migration « connexion par code + PIN »
@@ -10,17 +10,17 @@ Usage :
     python reinitialiser_pins.py                    # tous les établissements
     python reinitialiser_pins.py --etablissement 3  # un seul établissement
 
-Seuls les comptes ACTIFS sont traités. Chacun reçoit un PIN temporaire
-valable 48h, à changer à la première connexion ; sa session en cours est
-fermée. Les PIN en clair ne sont écrits que dans le fichier produit
+Seuls les comptes ACTIFS sont traités. Chacun reçoit un nouveau PIN
+définitif (modifiable ensuite depuis son espace) ; ses sessions en cours
+sont fermées. Les PIN en clair ne sont écrits que dans le fichier produit
 (storage/fiches_acces_<date>.txt, ignoré par git — storage/ est monté sur
-l'hôte en Docker) : à imprimer ou transmettre, puis à SUPPRIMER. Passé 48h, un admin régénère un
-PIN depuis l'application.
+l'hôte en Docker) : à imprimer ou transmettre, puis à SUPPRIMER. PIN
+oublié : un admin en régénère un depuis l'application.
 """
 
 import argparse
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -32,7 +32,7 @@ from app import create_app
 app = create_app()
 
 from extensions import db
-from models.authentification_models import Utilisateur, TEMP_PASSWORD_VALIDITY_HOURS
+from models.authentification_models import Utilisateur
 from models.structure_models import Etablissement
 from services.authentification_services import reset_temp_password
 
@@ -58,17 +58,15 @@ def main():
             sys.exit("Aucun compte actif à traiter.")
 
         print(f"{len(comptes)} compte(s) actif(s) dans {len(etablissements)} établissement(s) "
-              "vont recevoir un nouveau PIN temporaire (l'ancien cessera de fonctionner).")
+              "vont recevoir un nouveau PIN (l'ancien cessera de fonctionner).")
         if input("Continuer ? [o/N] ").strip().lower() != 'o':
             sys.exit("Abandon.")
 
         genere_le = datetime.now()
-        expire = genere_le + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
         lignes = [
-            "FICHES D'ACCÈS — CODES DE CONNEXION ET PIN TEMPORAIRES",
+            "FICHES D'ACCÈS — CODES DE CONNEXION ET PIN",
             f"Générées le {genere_le:%d/%m/%Y à %H:%M}",
-            f"PIN valables {TEMP_PASSWORD_VALIDITY_HOURS}h (jusqu'au {expire:%d/%m/%Y à %H:%M}), "
-            "à changer à la première connexion.",
+            "PIN définitifs, modifiables par chacun depuis son espace (« Changer mon code PIN »).",
             "À distribuer puis SUPPRIMER ce fichier.",
         ]
         erreurs = 0

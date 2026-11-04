@@ -565,7 +565,7 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
             <div className="col-12"><hr className="my-0" /></div>
             <div className="col-12">
               <h6 className="mb-1"><i className="bx bx-shield-quarter me-2 text-primary" />Compte administrateur de l'établissement</h6>
-              <p className="text-muted small mb-0">Optionnel : renseignez le nom pour créer immédiatement le compte Admin de cet établissement. Son code de connexion et un PIN temporaire seront générés et affichés une seule fois, sur une fiche à imprimer.</p>
+              <p className="text-muted small mb-0">Optionnel : renseignez le nom pour créer immédiatement le compte Admin de cet établissement. Son code de connexion et un PIN seront générés et affichés une seule fois, sur une fiche à imprimer.</p>
             </div>
             <div className="col-12">
               <label className="form-label" htmlFor="adminNom">Nom complet de l'admin</label>

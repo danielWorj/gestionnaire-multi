@@ -195,11 +195,9 @@ class Enseignant(db.Model):
 # Côté API, ils ne sont plus créés en deux temps séparés : POST
 # /api/censeurs/creer-avec-compte (ou /api/surveillants/creer-avec-compte)
 # crée le profil ET le compte de connexion (rôle 'Censeur'/'Surveillant')
-# EN UNE SEULE opération, avec mot de passe temporaire généré et
-# doit_changer_mdp=True — exactement le même mécanisme que pour tout autre
-# Utilisateur (cf. authentification_services.create_utilisateur), pour que
-# la personne soit forcée de changer son mot de passe à sa première
-# connexion, comme un Admin ou un Enseignant. Voir
+# EN UNE SEULE opération, avec un PIN généré — exactement le même mécanisme
+# que pour tout autre Utilisateur (cf. authentification_services.create_utilisateur) :
+# PIN définitif, modifiable par la personne depuis son espace. Voir
 # pedagogie_services._creer_profil_avec_compte. Le POST /<name>/ générique
 # (create_entity_scoped, sans compte) reste disponible pour un profil créé
 # seul, à relier plus tard via 'utilisateur_id' — cf. ci-dessous.

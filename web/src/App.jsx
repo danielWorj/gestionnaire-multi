@@ -59,8 +59,9 @@ function ProtectedRoute({ children, sansEspace = false }) {
     return <Navigate to="/login" replace />;
   }
 
-  // Mot de passe temporaire : le serveur refuse toute autre route (403)
-  // tant qu'il n'a pas été changé.
+  // Changement de PIN imposé (inactif aujourd'hui : les PIN générés sont
+  // définitifs) : le serveur refuse toute autre route (403) tant qu'il n'a
+  // pas été changé.
   if (user.doit_changer_mdp) {
     return <Navigate to="/change-password" replace />;
   }

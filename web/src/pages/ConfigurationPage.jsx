@@ -115,11 +115,11 @@ export default function ConfigurationPage() {
 
   const reinitialiserPin = async (r) => {
     const nomComplet = `${r.prenom} ${r.nom}`;
-    const ok = await confirm(`Générer un nouveau PIN temporaire pour ${nomComplet} ? Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion (${r.code_connexion}) ne change pas.`);
+    const ok = await confirm(`Générer un nouveau PIN pour ${nomComplet} ? Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion (${r.code_connexion}) ne change pas.`);
     if (!ok) return;
     try {
       const compte = await api.post(`/auth/utilisateurs/${r.utilisateur_id}/reset-password`);
-      setIdentifiants({ nom: nomComplet, code: compte.code_connexion, pin: compte.pin_temporaire, titre: 'Nouveau PIN temporaire' });
+      setIdentifiants({ nom: nomComplet, code: compte.code_connexion, pin: compte.pin_temporaire, titre: 'Nouveau PIN' });
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -321,7 +321,7 @@ export default function ConfigurationPage() {
           <div className="alert alert-info mb-3 small">
             <i className="bx bx-info-circle me-1" />
             Un Censeur/Surveillant n'accède (pédagogie, emploi du temps) qu'aux classes qui lui ont été assignées ici.
-            La création crée en même temps le compte de connexion : un code de connexion et un PIN temporaire sont générés et affichés une seule fois — la personne devra changer ce PIN dès sa première connexion.
+            La création crée en même temps le compte de connexion : un code de connexion et un PIN sont générés et affichés une seule fois. La personne pourra changer son PIN quand elle le souhaite depuis son espace.
             Une classe ne peut avoir qu'un seul Censeur (une classe déjà prise ne peut pas lui être réassignée tant qu'elle n'a pas été retirée d'abord), mais peut être suivie par plusieurs Surveillants.
             Un profil marqué <strong>Non relié</strong> (ex : créé avant l'existence du compte de connexion) peut être relié à tout moment via <i className="bx bx-lock-alt" />.
           </div>

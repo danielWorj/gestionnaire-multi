@@ -355,12 +355,12 @@ def create_utilisateur_endpoint():
     Body: {nom, role_ids (ou role_id), etablissement_id, email?, code_existant?}
     Si code_existant (ou à défaut l'email) désigne déjà un compte de
     l'établissement, les rôles lui sont ajoutés (200, 'compte_existant':
-    True, sans PIN temporaire).
+    True, sans nouveau PIN).
     Le code de connexion est attribué automatiquement et aucun PIN n'est
-    accepté dans le payload : un PIN temporaire est TOUJOURS généré côté
-    serveur et renvoyé une seule fois dans la réponse (clé
-    'pin_temporaire'). L'utilisateur devra le changer dès sa première
-    connexion, sous 48h.
+    accepté dans le payload : un PIN est TOUJOURS généré côté serveur et
+    renvoyé une seule fois dans la réponse (clé historique
+    'pin_temporaire'). Ce PIN est définitif ; l'utilisateur peut le changer
+    quand il le souhaite depuis son espace (/change-password).
     """
     claims = get_jwt()
 
@@ -498,8 +498,8 @@ def delete_utilisateur_endpoint(user_id):
 @jwt_required()
 def reset_password_endpoint(user_id):
     """
-    Régénère un PIN temporaire pour un utilisateur (PIN oublié, PIN
-    temporaire expiré, compte bloqué après trop d'échecs). Renvoie le
+    Régénère un PIN pour un utilisateur (PIN oublié, compte bloqué après
+    trop d'échecs). Renvoie le
     nouveau PIN en clair une seule fois ('pin_temporaire').
     """
     claims = get_jwt()
@@ -659,10 +659,12 @@ def change_password_superadmin_endpoint():
 
 
 # ============================================================================
-# MIDDLEWARE GLOBAL — mot de passe temporaire
+# MIDDLEWARE GLOBAL — changement de PIN imposé
 #
-# Tant qu'un Utilisateur a doit_changer_mdp=True (mot de passe temporaire non
-# encore changé), il ne doit pouvoir accéder à AUCUNE ressource de l'application
+# Les PIN générés sont définitifs (doit_changer_mdp reste à False) : ce
+# garde-fou est aujourd'hui inactif, conservé au cas où un changement de PIN
+# devrait un jour être imposé. Tant qu'un Utilisateur a doit_changer_mdp=True,
+# il ne doit pouvoir accéder à AUCUNE ressource de l'application
 # hormis le changement de mot de passe. Cette fonction doit être enregistrée au
 # niveau de l'application (pas seulement de ce blueprint) pour s'appliquer à
 # TOUTES les routes, y compris celles de structure_api.py et des autres modules :
@@ -717,7 +719,7 @@ def enforce_password_change():
         return None
 
     return jsonify({
-        "erreur": "PIN temporaire : vous devez le changer avant de continuer",
+        "erreur": "Vous devez changer votre PIN avant de continuer",
         "doit_changer_mdp": True
     }), 403
 

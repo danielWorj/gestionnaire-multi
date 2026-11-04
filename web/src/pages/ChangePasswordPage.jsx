@@ -42,7 +42,8 @@ function Rule({ ok, children }) {
   );
 }
 
-// Utilisateur d'établissement : change son code PIN (4 chiffres).
+// Utilisateur d'établissement : change son code PIN (4 chiffres), quand il
+// le souhaite, depuis son espace (menu du profil → « Changer mon code PIN »).
 // SuperAdmin : change son mot de passe.
 export default function ChangePasswordPage() {
   const navigate = useNavigate();
@@ -135,13 +136,13 @@ export default function ChangePasswordPage() {
     <AuthCard
       title={modePin ? 'Changer mon code PIN 🔒' : 'Changer le mot de passe 🔒'}
       subtitle={user.doit_changer_mdp
-        ? 'Votre PIN temporaire doit être remplacé par un PIN que vous seul connaissez.'
+        ? 'Votre PIN doit être remplacé par un PIN que vous seul connaissez.'
         : modePin ? 'Choisissez un nouveau code PIN de 4 chiffres.' : 'Choisissez un nouveau mot de passe pour sécuriser votre compte.'}
     >
       {user.doit_changer_mdp && (
         <div className="alert alert-warning d-flex align-items-center gap-2 py-2" role="alert">
           <i className="bx bx-error" />
-          <span>PIN temporaire — le changement est obligatoire avant de continuer.</span>
+          <span>Le changement de PIN est obligatoire avant de continuer.</span>
         </div>
       )}
 
@@ -161,7 +162,7 @@ export default function ChangePasswordPage() {
         {modePin ? (
           <>
             <div className="mb-3 form-password-toggle">
-              <label className="form-label" htmlFor="oldPassword">{user.doit_changer_mdp ? 'PIN temporaire (sur votre fiche)' : 'PIN actuel'}</label>
+              <label className="form-label" htmlFor="oldPassword">PIN actuel</label>
               <PinInput id="oldPassword" name="oldPassword" value={form.oldPassword} onValue={setPin('oldPassword')} autoFocus />
             </div>
 

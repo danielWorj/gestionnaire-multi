@@ -1,7 +1,6 @@
 from models.authentification_models import (
     Utilisateur, Role, SuperAdmin, TokenBlocklist, SessionConnexion, generate_temp_pin,
-    valider_force_mot_de_passe, valider_pin, normaliser_code, hash_token,
-    TEMP_PASSWORD_VALIDITY_HOURS
+    valider_force_mot_de_passe, valider_pin, normaliser_code, hash_token
 )
 from models.structure_models import Etablissement
 # Utilisé UNIQUEMENT par _build_claims ci-dessous, pour résoudre le claim
@@ -12,7 +11,7 @@ from models.pedagogie_models import Censeur, Surveillant
 from extensions import db
 from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
-from datetime import datetime, timedelta
+from datetime import datetime
 import math
 import bcrypt
 from sqlalchemy.exc import IntegrityError
@@ -21,10 +20,6 @@ from sqlalchemy.exc import IntegrityError
 # dur ici pour éviter toute divergence avec config.py (source unique de
 # vérité) : voir _token_lifetimes() ci-dessous, qui lit
 # current_app.config['JWT_ACCESS_TOKEN_EXPIRES'] / ['JWT_REFRESH_TOKEN_EXPIRES'].
-
-# Durée de validité d'un PIN temporaire (généré automatiquement à la
-# création d'un Utilisateur, ou lors d'une réinitialisation)
-TEMP_PASSWORD_VALIDITY = timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
 
 ERREUR_IDENTIFIANTS = "Code ou PIN incorrect"
 
@@ -295,12 +290,13 @@ def create_utilisateur(data):
            code_existant (facultatif)}
 
     Le compte reçoit automatiquement son code de connexion (unique sur la
-    plateforme, cf. Utilisateur.code_connexion) et un PIN temporaire de 4
-    chiffres, renvoyé UNE SEULE FOIS dans la réponse ('pin_temporaire').
-    Ni le SuperAdmin ni un Admin d'établissement ne peuvent imposer le PIN :
-    la personne le change dès sa première connexion (doit_changer_mdp=True),
-    et le PIN temporaire n'est valable que 48h (mdp_expire_le) — passé ce
-    délai, un admin doit le régénérer (cf. reset_temp_password).
+    plateforme, cf. Utilisateur.code_connexion) et un PIN de 4 chiffres,
+    renvoyé UNE SEULE FOIS dans la réponse (clé historique 'pin_temporaire').
+    Ni le SuperAdmin ni un Admin d'établissement ne peuvent choisir le PIN.
+    Ce PIN est définitif : il n'expire pas et son changement n'est pas
+    imposé ; la personne peut le changer quand elle veut depuis son espace
+    (change_password). En cas d'oubli, un admin le régénère
+    (reset_temp_password).
 
     Multi-rôles : si 'code_existant' désigne un compte de l'établissement (ou,
     à défaut, si l'email y a déjà un compte), les rôles demandés sont AJOUTÉS
@@ -343,8 +339,8 @@ def create_utilisateur(data):
         if not (data.get('nom') or '').strip():
             return {"erreur": "Le nom est requis"}, 400
 
-        # PIN temporaire : jamais fourni par l'appelant (même admin),
-        # toujours généré ici, quel que soit le rôle (y compris 'Admin').
+        # PIN : jamais fourni par l'appelant (même admin), toujours généré
+        # ici, quel que soit le rôle (y compris 'Admin').
         pin_genere = generate_temp_pin()
 
         utilisateur = Utilisateur(
@@ -353,8 +349,7 @@ def create_utilisateur(data):
             roles=roles,
             etablissement_id=data['etablissement_id'],
             actif=True,
-            doit_changer_mdp=True,
-            mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY
+            doit_changer_mdp=False
         )
 
         utilisateur.set_password(pin_genere)
@@ -411,13 +406,6 @@ def login(code, pin):
     if not utilisateur.actif:
         db.session.commit()
         return {"erreur": "Compte désactivé"}, 403
-
-    if utilisateur.mot_de_passe_expire():
-        db.session.commit()
-        return {
-            "erreur": "PIN temporaire expiré. Contactez votre administrateur "
-                      "pour obtenir un nouveau PIN."
-        }, 403
 
     # Générer les tokens : identity = user_id (string, requis par flask-jwt-extended),
     # role/etablissement_id passent en additional_claims. Un compte multi-rôles
@@ -612,7 +600,8 @@ def delete_utilisateur(user_id):
 
 def change_password(user_id, old_pin, new_pin, role_actif=None, sid=None):
     """
-    Change le PIN d'un utilisateur (4 chiffres, cf. valider_pin).
+    Change le PIN d'un utilisateur (4 chiffres, cf. valider_pin), depuis
+    son espace personnel (« Changer mon code PIN »), à tout moment.
     Émet de nouveaux tokens pour la session courante (même rôle actif) : le
     compte reste connecté sur cet appareil, les autres sessions sont fermées.
     """
@@ -636,7 +625,7 @@ def change_password(user_id, old_pin, new_pin, role_actif=None, sid=None):
     utilisateur.mdp_expire_le = None
     # Un changement de PIN invalide les autres sessions (ex : compte
     # compromis, PIN changé après un doute) ; seule celle-ci continue, avec
-    # des tokens réémis (doit_changer_mdp=False).
+    # des tokens réémis.
     SessionConnexion.fermer_toutes('utilisateur', utilisateur.id, sauf_sid=sid)
     access_token, refresh_token_str, role = _emettre_tokens(utilisateur, role_actif, sid)
 
@@ -655,10 +644,11 @@ def change_password(user_id, old_pin, new_pin, role_actif=None, sid=None):
 
 def reset_temp_password(user_id):
     """
-    Régénère un PIN temporaire pour un utilisateur (PIN oublié, PIN
-    temporaire expiré, ou compte bloqué après trop d'échecs : la
-    réinitialisation le débloque). Invalide au passage sa session en cours.
-    Le code de connexion, lui, ne change pas.
+    Régénère un PIN pour un utilisateur (PIN oublié, ou compte bloqué après
+    trop d'échecs : la réinitialisation le débloque). Comme à la création,
+    ce nouveau PIN est définitif (pas d'expiration, changement facultatif).
+    Invalide au passage ses sessions en cours. Le code de connexion, lui,
+    ne change pas.
     """
     utilisateur = Utilisateur.query.get(user_id)
 
@@ -667,8 +657,8 @@ def reset_temp_password(user_id):
 
     nouveau_pin = generate_temp_pin()
     utilisateur.set_password(nouveau_pin)
-    utilisateur.doit_changer_mdp = True
-    utilisateur.mdp_expire_le = datetime.utcnow() + TEMP_PASSWORD_VALIDITY
+    utilisateur.doit_changer_mdp = False
+    utilisateur.mdp_expire_le = None
     utilisateur.deverrouiller()
     SessionConnexion.fermer_toutes('utilisateur', utilisateur.id)
 

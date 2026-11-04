@@ -7,11 +7,6 @@ from datetime import datetime, timedelta
 from sqlalchemy import event, select
 from extensions import db
 
-# Durée de validité d'un mot de passe temporaire (généré à la création d'un
-# Utilisateur, ou lors d'une réinitialisation) avant qu'il ne soit plus utilisable.
-# S'applique aussi au PIN temporaire des Utilisateurs (cf. plus bas).
-TEMP_PASSWORD_VALIDITY_HOURS = 48
-
 PASSWORD_MIN_LENGTH = 8
 
 
@@ -91,8 +86,10 @@ def valider_pin(pin):
 
 
 def generate_temp_pin():
-    """PIN temporaire aléatoire (jamais un PIN faible), à communiquer à la
-    personne avec son code de connexion."""
+    """PIN aléatoire (jamais un PIN faible), généré à la création du compte ou
+    lors d'une réinitialisation, à communiquer à la personne avec son code de
+    connexion. Il est définitif : la personne peut le changer quand elle le
+    souhaite depuis son espace (« Changer mon code PIN »), sans y être obligée."""
     while True:
         pin = ''.join(secrets.choice(string.digits) for _ in range(PIN_LENGTH))
         if not pin_est_faible(pin):
@@ -338,12 +335,12 @@ class Utilisateur(db.Model, AuthentifiableMixin):
     # SessionConnexion, sous forme de hash.
     dernier_login = db.Column(db.DateTime, nullable=True)
 
-    # Mot de passe temporaire : forcé à True à la création (le SuperAdmin ou l'Admin
-    # d'établissement génère un mot de passe éphémère pour le nouvel utilisateur).
-    # Repasse à False dès que l'utilisateur choisit lui-même son mot de passe
-    # via /change-password. mdp_expire_le fixe la limite de 48h au-delà de laquelle
-    # ce mot de passe temporaire n'est plus utilisable pour se connecter.
-    doit_changer_mdp = db.Column(db.Boolean, default=True, nullable=False)
+    # Le PIN généré à la création (ou à une réinitialisation) est définitif :
+    # il n'expire pas et son changement n'est pas imposé (cf. migration
+    # a9d4e1b7c2f6). Ces deux colonnes restent donc à False / NULL ; elles
+    # sont conservées pour permettre, si besoin un jour, d'imposer un
+    # changement de PIN (enforce_password_change bloque alors tout le reste).
+    doit_changer_mdp = db.Column(db.Boolean, default=False, nullable=False)
     mdp_expire_le = db.Column(db.DateTime, nullable=True)
 
     # Contraintes uniques : (etablissement_id, email) — plusieurs emails NULL
@@ -379,15 +376,6 @@ class Utilisateur(db.Model, AuthentifiableMixin):
 
     def a_role(self, libelle):
         return libelle in self.libelles_roles()
-
-    def mot_de_passe_expire(self):
-        """True si le mot de passe temporaire a dépassé les 48h sans avoir été changé.
-        Un mot de passe définitif (doit_changer_mdp=False) n'expire jamais."""
-        return bool(
-            self.doit_changer_mdp
-            and self.mdp_expire_le
-            and datetime.utcnow() > self.mdp_expire_le
-        )
 
     def est_verrouille(self):
         return bool(self.verrouille_jusqua and datetime.utcnow() < self.verrouille_jusqua)

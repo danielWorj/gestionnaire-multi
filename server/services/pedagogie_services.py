@@ -1,5 +1,3 @@
-from datetime import datetime, timedelta
-
 from sqlalchemy.exc import IntegrityError
 
 from models.pedagogie_models import (
@@ -13,7 +11,7 @@ from models.structure_models import Classe, AnneeScolaire
 # pedagogie_models.py. Pas de cycle : authentification_models.py n'importe
 # rien de ce module ni de pedagogie_models.py.
 from models.authentification_models import (
-    Utilisateur, Role, generate_temp_pin, TEMP_PASSWORD_VALIDITY_HOURS
+    Utilisateur, Role, generate_temp_pin
 )
 from extensions import db
 # Pas de cycle : authentification_services n'importe pas ce module.
@@ -27,11 +25,6 @@ from services.authentification_services import nettoyer_email, trouver_compte_ex
 from services.structure_services import (
     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
 )
-
-# Même durée que pour tout Utilisateur (cf. authentification_models.py /
-# authentification_services.py) : un seul et même mécanisme de mot de passe
-# temporaire dans toute l'application.
-TEMP_PASSWORD_VALIDITY = timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
 
 
 # ---------------------------------------------------------------------------
@@ -370,11 +363,9 @@ def resolve_classe_ids_restriction(role, user_id):
 # /api/auth/utilisateurs, PUT /api/censeurs/<id> pour lier utilisateur_id)
 # par UNE SEULE opération transactionnelle : le profil "métier" (Censeur ou
 # Surveillant) et son compte de connexion (Utilisateur, rôle correspondant)
-# sont créés et reliés ensemble, avec mot de passe temporaire généré et
-# doit_changer_mdp=True — même mécanisme que pour tout autre Utilisateur
-# (cf. authentification_services.create_utilisateur), pour forcer le
-# changement de mot de passe à la première connexion, comme pour un Admin ou
-# un Enseignant.
+# sont créés et reliés ensemble, avec un PIN généré — même mécanisme que
+# pour tout autre Utilisateur (cf. authentification_services.create_utilisateur) :
+# PIN définitif, que la personne peut changer depuis son espace.
 #
 # Les classes à assigner d'emblée sont optionnelles (data['classe_ids']) :
 # le profil peut aussi être créé sans classe et complété plus tard via la
@@ -392,7 +383,7 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
     email (optionnel), code_existant (optionnel), telephone (optionnel),
     sexe (optionnel), classe_ids (optionnel, liste d'int)}. Retourne
     (résultat, status) — résultat contient le profil créé, le compte de
-    connexion lié (avec son code_connexion) et le PIN temporaire en clair
+    connexion lié (avec son code_connexion) et le PIN en clair
     (une seule fois, comme create_utilisateur ; None si un compte existant a
     été réutilisé, cf. compte_existant)."""
     model_class, liaison_class, cle_profil = _ROLE_MODELS[role_libelle]
@@ -465,8 +456,7 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
             roles=[role],
             etablissement_id=etablissement_id,
             actif=True,
-            doit_changer_mdp=True,
-            mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY,
+            doit_changer_mdp=False,
         )
         utilisateur.set_password(pin)
 

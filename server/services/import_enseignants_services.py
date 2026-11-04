@@ -10,20 +10,19 @@ Spécificités :
   grade_id) : retrouvés par libellé, créés s'ils n'existent pas, ou valeur
   par défaut choisie par l'utilisateur ;
 - la civilité (M., Mme, Mlle) donne le sexe ;
-- un compte de connexion (rôle Enseignant, code + PIN temporaire) peut être
+- un compte de connexion (rôle Enseignant, code + PIN) peut être
   créé pour chaque enseignant : les identifiants sont renvoyés UNE SEULE FOIS
   dans le bilan, comme pour une création individuelle.
 """
 
 import re
 from collections import Counter
-from datetime import datetime, timedelta
 
 from sqlalchemy import func
 
 from extensions import db
 from models.authentification_models import (
-    TEMP_PASSWORD_VALIDITY_HOURS, Role, Utilisateur, generate_temp_pin,
+    Role, Utilisateur, generate_temp_pin,
 )
 from models.pedagogie_models import Departement, Enseignant, Grade
 from services.import_commun import (
@@ -377,7 +376,6 @@ def _referentiel(modele, cache, libelle, etablissement_id, bilan, cle_bilan):
 def _enregistrer(etablissement_id, resultats, options, dep_par_cle, grade_par_cle, role_enseignant):
     bilan = Counter()
     identifiants = []
-    expiration = datetime.utcnow() + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
 
     for r in resultats:
         if r['statut'] in ('erreur', 'exclu'):
@@ -427,7 +425,7 @@ def _enregistrer(etablissement_id, resultats, options, dep_par_cle, grade_par_cl
             nom=f'{ens.prenom} {ens.nom}'.replace('- ', '').strip()[:100],
             email=None if ens.email and Utilisateur.query.filter_by(etablissement_id=etablissement_id, email=ens.email).first() else ens.email,
             roles=[role_enseignant], etablissement_id=etablissement_id, actif=True,
-            doit_changer_mdp=True, mdp_expire_le=expiration,
+            doit_changer_mdp=False,
         )
         compte.set_password(pin)
         db.session.add(compte)

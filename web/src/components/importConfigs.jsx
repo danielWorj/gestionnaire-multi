@@ -90,7 +90,7 @@ function OptionsEnseignants({ rep, options, setOpt, champsMappes }) {
         </Select>
         <label className="form-check mb-2">
           <input type="checkbox" className="form-check-input" checked={options.creer_comptes} onChange={setOpt('creer_comptes')} />
-          <span className="form-check-label">Créer leur compte de connexion (code + PIN temporaire)</span>
+          <span className="form-check-label">Créer leur compte de connexion (code + PIN)</span>
         </label>
         <label className="form-check mb-0">
           <input type="checkbox" className="form-check-input" checked={options.harmoniser_casse} onChange={setOpt('harmoniser_casse')} />
@@ -104,7 +104,7 @@ function OptionsEnseignants({ rep, options, setOpt, champsMappes }) {
 function BilanEnseignants({ bilan }) {
   const identifiants = bilan.identifiants || [];
   if (!identifiants.length) return null;
-  const exporter = () => downloadCsv('identifiants-enseignants.csv', [['Enseignant', 'Code de connexion', 'PIN temporaire'], ...identifiants.map((i) => [i.nom, i.code, i.pin])]);
+  const exporter = () => downloadCsv('identifiants-enseignants.csv', [['Enseignant', 'Code de connexion', 'PIN'], ...identifiants.map((i) => [i.nom, i.code, i.pin])]);
   return (
     <div className="border rounded p-3">
       <div className="d-flex flex-wrap align-items-center gap-2 mb-2">
@@ -114,12 +114,12 @@ function BilanEnseignants({ bilan }) {
       </div>
       <div className="alert alert-warning small py-2">
         <i className="bx bx-error me-1" />
-        Ces PIN ne seront plus jamais affichés après la fermeture de cette fenêtre. Imprimez ou téléchargez la liste, et remettez à chacun son code et son PIN (valable 48 h, à changer à la première connexion).
+        Ces PIN ne seront plus jamais affichés après la fermeture de cette fenêtre. Imprimez ou téléchargez la liste, et remettez à chacun son code et son PIN (chacun pourra ensuite changer son PIN depuis son espace).
       </div>
       <div className="print-area">
         <h5 className="d-none d-print-block mb-3">Identifiants de connexion des enseignants</h5>
         <table className="table table-sm small mb-0">
-          <thead><tr><th>Enseignant</th><th>Code de connexion</th><th>PIN temporaire</th></tr></thead>
+          <thead><tr><th>Enseignant</th><th>Code de connexion</th><th>PIN</th></tr></thead>
           <tbody>
             {identifiants.map((i) => (
               <tr key={i.code}><td>{i.nom}</td><td><code className="fs-6">{i.code}</code></td><td><code className="fs-6">{i.pin}</code></td></tr>

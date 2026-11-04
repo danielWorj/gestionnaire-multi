@@ -28,8 +28,6 @@ function formatDateHeure(iso) {
 function statutAdmin(a) {
   if (!a.actif) return { label: 'Désactivé', cls: 'bg-label-secondary' };
   if (a.verrouille) return { label: 'Bloqué (PIN faux)', cls: 'bg-label-danger' };
-  if (a.doit_changer_mdp && a.mdp_expire_le && new Date(a.mdp_expire_le) < new Date()) return { label: 'PIN temporaire expiré', cls: 'bg-label-danger' };
-  if (a.doit_changer_mdp) return { label: 'PIN à changer', cls: 'bg-label-warning' };
   return { label: 'Actif', cls: 'bg-label-success' };
 }
 
@@ -76,15 +74,15 @@ export default function AdministrateursModal({ etab, onClose }) {
   const dernierActif = (a) => a.actif && actifs.length === 1;
 
   const reinitialiser = async (a) => {
-    const ok = await confirm(<>Générer un nouveau PIN temporaire pour <strong>{a.nom}</strong> ?</>, {
+    const ok = await confirm(<>Générer un nouveau PIN pour <strong>{a.nom}</strong> ?</>, {
       title: 'Réinitialiser le PIN', icon: 'bx-key', danger: false, confirmLabel: 'Réinitialiser', confirmIcon: 'bx-refresh',
-      details: "Son PIN actuel cessera de fonctionner, son compte est débloqué et sa session en cours fermée. Son code de connexion ne change pas. Il choisira un nouveau PIN à la connexion (PIN temporaire valable 48h).",
+      details: "Son PIN actuel cessera de fonctionner, son compte est débloqué et sa session en cours fermée. Son code de connexion ne change pas. Il pourra ensuite changer ce PIN depuis son espace s'il le souhaite.",
     });
     if (!ok) return;
     setOccupe(a.id);
     try {
       const r = await apiRequest(`/auth/utilisateurs/${a.id}/reset-password`, { method: 'POST' });
-      setIdentifiants({ nom: r.nom, code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN temporaire' });
+      setIdentifiants({ nom: r.nom, code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN' });
       await apresChangement();
     } catch (e) {
       toast(e.message, 'error');

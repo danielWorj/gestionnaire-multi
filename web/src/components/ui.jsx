@@ -356,7 +356,7 @@ export async function copyText(text, label, toast) {
   }
 }
 
-// Modale « fiche d'accès » : code de connexion + PIN temporaire, affichés
+// Modale « fiche d'accès » : code de connexion + PIN, affichés
 // une seule fois. La fiche elle-même (.print-area) est imprimable pour être
 // remise en main propre.
 export function IdentifiantsModal({ nom, code, pin, onClose, destinataire = "l'utilisateur", titre = 'Compte de connexion créé' }) {
@@ -386,18 +386,18 @@ export function IdentifiantsModal({ nom, code, pin, onClose, destinataire = "l'u
         </div>
         {pin && (
           <div className="fiche-acces-ligne">
-            <span className="fiche-acces-etiquette">PIN temporaire</span>
+            <span className="fiche-acces-etiquette">PIN</span>
             <span className="fiche-acces-valeur">{pin}</span>
           </div>
         )}
         <ol className="fiche-acces-consignes">
           <li>Ouvrez l'application et saisissez votre <strong>code</strong> puis votre <strong>PIN</strong>.</li>
-          <li>Choisissez ensuite votre propre PIN de 4 chiffres (ce PIN temporaire n'est valable que 48h).</li>
+          <li>Vous pouvez changer ce PIN quand vous le souhaitez depuis votre espace : menu du profil → <strong>Changer mon code PIN</strong>.</li>
           <li>Ne communiquez jamais votre PIN : votre code seul ne suffit pas pour se connecter.</li>
         </ol>
       </div>
       <button type="button" className="btn btn-outline-primary btn-sm w-100 mt-3" onClick={() => copyText(`Code de connexion : ${code}${pin ? `
-PIN temporaire : ${pin}` : ''}`, 'Le code et le PIN', toast)}>
+PIN : ${pin}` : ''}`, 'Le code et le PIN', toast)}>
         <i className="bx bx-copy me-1" /> Copier le code et le PIN
       </button>
     </Modal>

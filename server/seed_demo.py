@@ -12,8 +12,8 @@ Usage :
   rempli de la même façon (avec son propre compte Admin).
 
 Chaque compte de connexion créé reçoit un code de connexion et un PIN
-temporaire (même mécanisme que authentification_services.create_utilisateur :
-valable 48h, changement obligatoire à la première connexion). Les codes et
+(même mécanisme que authentification_services.create_utilisateur : PIN
+définitif, modifiable depuis l'espace personnel). Les codes et
 PIN en clair sont écrits dans ~/Downloads/mots_de_passe_demo.txt et
 mot_de_passe_demo.txt à la racine du projet — c'est la seule trace des PIN,
 la base ne stocke que leurs hash bcrypt.
@@ -38,7 +38,7 @@ app = create_app()
 
 from extensions import db
 from models.authentification_models import (
-    Role, Utilisateur, generate_temp_pin, TEMP_PASSWORD_VALIDITY_HOURS,
+    Role, Utilisateur, generate_temp_pin,
 )
 from models.structure_models import Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence
 from models.pedagogie_models import (
@@ -120,8 +120,7 @@ def creer_compte(etab, nom, email, roles):
     u = Utilisateur(
         etablissement_id=etab.id, nom=nom, email=email, actif=True,
         roles=[Role.query.filter_by(libelle=r).one() for r in roles],
-        doit_changer_mdp=True,
-        mdp_expire_le=datetime.utcnow() + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS),
+        doit_changer_mdp=False,
     )
     u.set_password(pin)
     db.session.add(u)
@@ -714,13 +713,11 @@ def main():
 
 def ecrire_fichier(genere_le=None):
     genere_le = genere_le or datetime.now()
-    expire = genere_le + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
     lignes = [
-        'CODES DE CONNEXION ET PIN TEMPORAIRES — DONNÉES DE DÉMONSTRATION',
+        'CODES DE CONNEXION ET PIN — DONNÉES DE DÉMONSTRATION',
         f"Généré le {genere_le:%d/%m/%Y à %H:%M}",
-        f"PIN valables {TEMP_PASSWORD_VALIDITY_HOURS}h (jusqu'au {expire:%d/%m/%Y à %H:%M}) ; "
-        "changement de PIN demandé à la première connexion.",
-        "Passé ce délai : un Admin peut régénérer un PIN temporaire depuis l'application.",
+        "PIN définitifs : chacun peut changer le sien depuis son espace (« Changer mon code PIN »).",
+        "PIN oublié : un Admin peut en régénérer un depuis l'application.",
         "Comptes à plusieurs rôles (marqués *) : après connexion, choisir l'espace de travail.",
         '',
     ]
