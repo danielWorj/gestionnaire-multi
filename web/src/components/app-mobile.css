@@ -202,8 +202,11 @@ body.sheet-open { overflow: hidden; }
   .app-nav-basse > a:active .app-nav-icone,
   .app-nav-basse > button:active .app-nav-icone { transform: scale(0.92); }
 
-  /* Contenu : marges d'écran mobile, place pour la barre basse */
-  .app-shell .app-content {
+  /* Contenu : marges d'écran mobile, place pour la barre basse. « html » et
+     .container-p-y : il faut dépasser la règle Sneat
+     .container-p-y:not([class^=pb-]):not([class*=" pb-"]) (!important),
+     sinon le bas de page reste caché sous la barre basse. */
+  html .app-shell .app-content.container-p-y {
     padding: 1rem 1rem calc(var(--app-barre-basse) + var(--app-bas-sur) + 1.25rem) !important;
   }
 
@@ -220,7 +223,7 @@ body.sheet-open { overflow: hidden; }
 }
 
 @media (max-width: 1199.98px) and (min-width: 768px) {
-  .app-shell .app-content { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
+  html .app-shell .app-content.container-p-y { padding-left: 1.5rem !important; padding-right: 1.5rem !important; }
 }
 
 /* ══ Téléphone : briques communes ════════════════════════════════════════ */

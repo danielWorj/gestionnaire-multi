@@ -72,9 +72,14 @@
 .sel-liste::-webkit-scrollbar { width: 6px; }
 .sel-liste::-webkit-scrollbar-thumb { background: #d9dee3; border-radius: 3px; }
 
+/* Titre du champ (libellé placé juste avant la liste) : en gras, pour le
+   distinguer de la valeur choisie. */
+.form-label:has(+ .sel),
+label:has(+ .sel) { font-weight: 700; color: #384551; }
+
 .sel-groupe {
-  padding: 0.55rem 0.65rem 0.25rem; font-size: 0.68rem; font-weight: 700;
-  text-transform: uppercase; letter-spacing: 0.05em; color: #a1acb8;
+  padding: 0.55rem 0.65rem 0.25rem; font-size: 0.7rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: 0.05em; color: #384551;
 }
 
 .sel-option {

@@ -40,6 +40,21 @@ export default function Modal({
     };
   }, []);
 
+  // Fermeture par le fond : l'appui ET le relâchement doivent avoir lieu sur
+  // le fond lui-même. Un appui sur la barre de défilement (qui appartient au
+  // fond .modal) ou un glisser commencé dans la fenêtre ne ferme rien.
+  const appuiSurFond = useRef(false);
+  const surAppui = (event) => {
+    const fond = event.currentTarget;
+    appuiSurFond.current = event.target === fond
+      && event.clientX < fond.clientWidth
+      && event.clientY < fond.clientHeight;
+  };
+  const surClic = (event) => {
+    if (appuiSurFond.current && event.target === event.currentTarget) onClose();
+    appuiSurFond.current = false;
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
     onSubmit?.(event);
@@ -47,7 +62,7 @@ export default function Modal({
 
   return (
     <>
-      <div className="modal fade show d-block" tabIndex="-1" role="dialog" aria-modal="true" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <div className="modal fade show d-block" tabIndex="-1" role="dialog" aria-modal="true" onMouseDown={surAppui} onClick={surClic}>
         <div className={`modal-dialog modal-dialog-centered ${size}`} role="document">
           <form className="modal-content" onSubmit={handleSubmit} noValidate>
             <div className={`modal-header ${headerClassName}`}>
