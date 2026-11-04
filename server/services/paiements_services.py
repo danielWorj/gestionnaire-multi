@@ -633,18 +633,15 @@ def annuler_paiement_scoped(entity, motif_annulation, etablissement_id):
 # Le solde global n'est jamais stocké (cf. docstring de LignePaiement) : il
 # est recalculé à chaque appel à partir des seuls paiements VALIDE.
 #
-# SOLVABILITÉ — statut dérivé de l'échéancier (cf. calculer_solvabilite) :
-#   - SOLVABLE   : l'élève a payé au moins une tranche de l'échéancier de sa
-#                  classe pour cette année scolaire, ET aucune tranche
-#                  restante n'a d'échéance dépassée (en_retard) — que TOUTES
-#                  les tranches soient déjà réglées, ou qu'il en reste dont
-#                  la date_limite n'est simplement pas encore passée : dans
-#                  les deux cas l'élève est à jour, donc solvable.
-#   - INSOLVABLE :
-#       (3.1) aucune tranche payée du tout (montant_verse == 0 partout), OU
-#       (3.2) au moins une tranche est en_retard (date_limite dépassée ET
-#             reste_du > 0), qu'il s'agisse ou non de la même tranche que
-#             celles déjà payées.
+# SOLVABILITÉ — statut dérivé de l'échéancier (cf. calculer_solvabilite).
+# Une tranche est EXIGIBLE quand sa date_limite est passée, ou quand elle
+# n'a pas de date_limite (due dès l'inscription, ex. frais d'inscription).
+# Elle est en_retard quand elle est exigible ET reste_du > 0.
+#   - INSOLVABLE : au moins une tranche est en_retard — l'élève doit déjà
+#                  de l'argent à ce jour.
+#   - SOLVABLE   : aucune tranche en_retard — tout ce qui est exigible est
+#                  réglé. Un élève qui n'a encore rien versé alors qu'aucune
+#                  échéance n'est passée est donc SOLVABLE (dans les délais).
 #   Un élève sans échéancier défini pour sa classe/année (tranches vide)
 #   n'est ni solvable ni insolvable : solvabilite=None.
 # ---------------------------------------------------------------------------
@@ -657,15 +654,16 @@ def calculer_solvabilite(tranches_detail):
     if not tranches_detail:
         return None, "Aucun échéancier défini pour cette classe/année scolaire"
 
-    aucune_tranche_payee = all(t["montant_verse"] == 0 for t in tranches_detail)
-    if aucune_tranche_payee:
-        return "INSOLVABLE", "Aucune tranche payée dans cette classe pour cette année scolaire"
-
-    a_une_tranche_en_retard = any(t["en_retard"] for t in tranches_detail)
-    if a_une_tranche_en_retard:
-        return "INSOLVABLE", "Une ou plusieurs tranches sont en retard (échéance dépassée) avec solde restant"
+    if any(t["en_retard"] for t in tranches_detail):
+        return "INSOLVABLE", "Une ou plusieurs tranches exigibles (échéance dépassée ou sans échéance) restent impayées"
 
     return "SOLVABLE", None
+
+
+def tranche_exigible(date_limite, aujourdhui=None):
+    """Une tranche sans date limite est due dès l'inscription ; sinon elle
+    devient exigible le lendemain de sa date limite."""
+    return date_limite is None or (aujourdhui or date.today()) > date_limite
 
 
 def get_etat_paiements_inscription(inscription_id, etablissement_id):
@@ -695,7 +693,7 @@ def get_etat_paiements_inscription(inscription_id, etablissement_id):
         montant_attendu = float(tranche.montant_attendu)
         montant_verse = _total_verse_tranche(tranche.id, inscription_id)
         reste_du = round(montant_attendu - montant_verse, 2)
-        en_retard = bool(tranche.date_limite and aujourdhui > tranche.date_limite and reste_du > 0)
+        en_retard = reste_du > 0 and tranche_exigible(tranche.date_limite, aujourdhui)
 
         total_attendu += montant_attendu
         detail.append({

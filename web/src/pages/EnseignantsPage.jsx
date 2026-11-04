@@ -8,6 +8,8 @@ import {
   useConfirm, useSave, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
+import ImportModal from '../components/importConfigs';
+import { roleDe } from '../components/Layout';
 
 // Portage de server/static/templates/enseignant.html : enseignants,
 // départements, grades (pedagogie_api.py) + création du compte de connexion
@@ -44,6 +46,8 @@ export default function EnseignantsPage() {
   const [detail, setDetail] = useState(null);
   const [refModal, setRefModal] = useState(null); // { type: 'departement'|'grade', data }
   const [identifiants, setIdentifiants] = useState(null);
+  const [importOuvert, setImportOuvert] = useState(false);
+  const peutImporter = ['Admin', 'SuperAdmin'].includes(roleDe(user));
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -128,7 +132,7 @@ export default function EnseignantsPage() {
   const filtered = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
     return enseignants.filter((e) => {
-      if (search && !`${e.nom} ${e.prenom} ${e.email}`.toLowerCase().includes(search)) return false;
+      if (search && !`${e.nom} ${e.prenom} ${e.email || ''} ${e.code_connexion || ''}`.toLowerCase().includes(search)) return false;
       if (filters.departement && e.departement_id !== Number(filters.departement)) return false;
       if (filters.grade && e.grade_id !== Number(filters.grade)) return false;
       if (filters.sexe && e.sexe !== filters.sexe) return false;
@@ -192,7 +196,10 @@ export default function EnseignantsPage() {
   /* ── Compte de connexion ── */
   const etablissementId = user?.etablissement_id || activeEtablissementId;
 
-  const creerCompteConnexion = async (enseignantId, nom, prenom, email) => {
+  // codeExistant : code de connexion d'un compte déjà présent dans
+  // l'établissement (ex : l'Admin qui enseigne aussi) auquel ajouter le rôle
+  // Enseignant, au lieu de créer un second compte.
+  const creerCompteConnexion = async (enseignantId, nom, prenom, email, codeExistant) => {
     if (!enseignantRoleId) {
       toast("Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement (rôle « Enseignant » introuvable).", 'error');
       return;
@@ -203,7 +210,10 @@ export default function EnseignantsPage() {
     }
     let result;
     try {
-      result = await api.post('/auth/utilisateurs', { nom: `${prenom} ${nom}`.trim(), email, role_id: enseignantRoleId, etablissement_id: etablissementId });
+      result = await api.post('/auth/utilisateurs', {
+        nom: `${prenom} ${nom}`.trim(), email: email || null, code_existant: codeExistant || undefined,
+        role_id: enseignantRoleId, etablissement_id: etablissementId,
+      });
     } catch (err) {
       toast(`Enseignant créé, mais le compte de connexion n'a pas pu être créé automatiquement${err.message ? ` (${err.message})` : ''}. Vous pouvez le créer depuis la gestion des utilisateurs.`, 'error');
       return;
@@ -216,17 +226,28 @@ export default function EnseignantsPage() {
       }
     }
     if (result.compte_existant) {
-      toast('Rôle ajouté au compte existant : la personne garde son mot de passe actuel.');
+      toast(`Rôle Enseignant ajouté au compte existant (code ${result.code_connexion}) : la personne garde son code et son PIN.`);
       return;
     }
-    setIdentifiants({ email: result.email || email, motDePasse: result.mot_de_passe_temporaire });
+    setIdentifiants({ nom: `${prenom} ${nom}`.trim(), code: result.code_connexion, pin: result.pin_temporaire });
+  };
+
+  const reinitialiserPin = async (e) => {
+    const ok = await confirm(<>Générer un nouveau PIN temporaire pour <strong>{fullName(e)}</strong> ?<br /><small className="text-muted">Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion ({e.code_connexion}) ne change pas.</small></>);
+    if (!ok) return;
+    try {
+      const r = await api.post(`/auth/utilisateurs/${e.utilisateur_id}/reset-password`);
+      setIdentifiants({ nom: fullName(e), code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN temporaire' });
+    } catch (err) {
+      toast(err.message || 'Impossible de réinitialiser le PIN.', 'error');
+    }
   };
 
   // Enseignants créés avant le correctif de liaison Enseignant.utilisateur_id.
   const reparerLiaisonCompte = async (e) => {
     try {
-      const utilisateurs = await api.get('/auth/utilisateurs?role=Enseignant');
-      const match = (utilisateurs || []).find((u) => (u.email || '').toLowerCase() === (e.email || '').toLowerCase());
+      const utilisateurs = e.email ? await api.get('/auth/utilisateurs?role=Enseignant') : [];
+      const match = (utilisateurs || []).find((u) => u.email && u.email.toLowerCase() === e.email.toLowerCase());
       if (match) {
         await api.put(`/enseignants/${e.id}`, { utilisateur_id: match.id });
         toast('Compte de connexion existant relié avec succès.');
@@ -269,9 +290,9 @@ export default function EnseignantsPage() {
       return;
     }
     downloadCsv('enseignants.csv', [
-      ['Nom', 'Prénom', 'Email', 'Téléphone', 'Sexe', 'Département', 'Grade', 'Titulaire', 'Classes', 'Nb matières'],
+      ['Nom', 'Prénom', 'Code de connexion', 'Email', 'Téléphone', 'Sexe', 'Département', 'Grade', 'Titulaire', 'Classes', 'Nb matières'],
       ...enseignants.map((e) => [
-        e.nom, e.prenom, e.email, e.telephone,
+        e.nom, e.prenom, e.code_connexion, e.email, e.telephone,
         e.sexe === 'M' ? 'Masculin' : e.sexe === 'F' ? 'Féminin' : '',
         labels.departement(e.departement_id), labels.grade(e.grade_id),
         e.est_titulaire ? 'Oui' : 'Non',
@@ -289,6 +310,7 @@ export default function EnseignantsPage() {
       <PageHeader title="Enseignants" subtitle="Gérez le corps enseignant de votre établissement, leurs classes titularisées et leurs matières enseignées.">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={exportCsv}><i className="bx bx-export me-1" /> Exporter</button>
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
+        {peutImporter && <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>}
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Nouvel enseignant</button>
       </PageHeader>
 
@@ -325,7 +347,7 @@ export default function EnseignantsPage() {
             <div className="row g-3">
               <div className="col-md-6">
                 <div className="card h-100">
-                  <div className="card-header"><h6 className="mb-0"><i className="bx bx-male-female me-2 text-primary" />Répartition par sexe</h6></div>
+                  <div className="card-header"><h6 className="mb-0"><i className="bx bx-male-sign me-2 text-primary" />Répartition par sexe</h6></div>
                   <div className="card-body"><ChartCanvas config={charts.sexe} height={190} fallback="Répartition par sexe indisponible." /></div>
                 </div>
               </div>
@@ -352,7 +374,7 @@ export default function EnseignantsPage() {
           <div className="row g-2 align-items-end">
             <div className="col-md-3">
               <label className="form-label">Rechercher</label>
-              <input type="search" className="form-control form-control-sm" placeholder="Nom, prénom, email…" value={filters.search} onChange={setFilter('search')} />
+              <input type="search" className="form-control form-control-sm" placeholder="Nom, prénom, code, email…" value={filters.search} onChange={setFilter('search')} />
             </div>
             <div className="col-md-2">
               <label className="form-label">Département</label>
@@ -433,8 +455,8 @@ export default function EnseignantsPage() {
                           </div>
                         </td>
                         <td>
-                          <div className="small">{e.email}</div>
-                          <div className="text-muted small">{e.telephone || '—'}</div>
+                          {e.code_connexion && <div className="small">Code <span className="font-monospace fw-semibold">{e.code_connexion}</span></div>}
+                          <div className="text-muted small">{[e.telephone, e.email].filter(Boolean).join(' · ') || '—'}</div>
                         </td>
                         <td>{labels.departement(e.departement_id) || '—'}</td>
                         <td>{labels.grade(e.grade_id) || '—'}</td>
@@ -456,6 +478,7 @@ export default function EnseignantsPage() {
                             </button>
                           )}
                           <IconBtn icon="bx-show" title="Détails" onClick={() => setDetail(e)} />
+                          {e.utilisateur_id && <IconBtn icon="bx-key" title="Réinitialiser le PIN (PIN oublié ou compte bloqué)" onClick={() => reinitialiserPin(e)} />}
                           <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />
                           <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimerEnseignant(e)} />
                         </td>
@@ -511,12 +534,12 @@ export default function EnseignantsPage() {
           grades={[...grades].sort(byLibelle)}
           onClose={() => setFormModal(null)}
           onManageRef={(tab) => { setFormModal(null); setRefTab(tab); }}
-          onSaved={async (msg, created) => {
+          onSaved={async (msg, created, codeExistant) => {
             setFormModal(null);
             toast(msg);
             await loadAll();
             if (created && !formModal.data) {
-              await creerCompteConnexion(created.id, created.nom, created.prenom, created.email);
+              await creerCompteConnexion(created.id, created.nom, created.prenom, created.email, codeExistant);
               await loadAll();
             }
           }}
@@ -543,6 +566,7 @@ export default function EnseignantsPage() {
       )}
 
       {identifiants && <IdentifiantsModal {...identifiants} destinataire="l'enseignant" onClose={() => setIdentifiants(null)} />}
+      {importOuvert && <ImportModal module="enseignants" onClose={() => setImportOuvert(false)} onImported={loadAll} />}
       {confirmNode}
     </>
   );
@@ -557,20 +581,23 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
     sexe: data?.sexe || '',
     departement_id: data?.departement_id ? String(data.departement_id) : '',
     grade_id: data?.grade_id ? String(data.grade_id) : '',
+    codeExistant: '',
   });
   const [validated, setValidated] = useState(false);
-  const [save, saving] = useSave(onSaved);
+  const [save, saving] = useSave((msg, created) => onSaved(msg, created, form.codeExistant));
   const set = (name) => (e) => setForm((f) => ({ ...f, [name]: e.target.value }));
-  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
-  const bad = (name) => validated && (name === 'email' ? !emailOk : !String(form[name]).trim());
+  // Email facultatif : seulement vérifié s'il est renseigné.
+  const emailOk = !form.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  const codeOk = !form.codeExistant || form.codeExistant.length === 4;
+  const bad = (name) => validated && (name === 'email' ? !emailOk : name === 'codeExistant' ? !codeOk : !String(form[name]).trim());
   const cls = (base, name) => `${base} ${bad(name) ? 'is-invalid' : ''}`;
 
   const submit = () => {
-    if (['nom', 'prenom', 'sexe', 'departement_id', 'grade_id'].some((n) => !String(form[n]).trim()) || !emailOk) return setValidated(true);
+    if (['nom', 'prenom', 'sexe', 'departement_id', 'grade_id'].some((n) => !String(form[n]).trim()) || !emailOk || !codeOk) return setValidated(true);
     return save('/enseignants/', data?.id, {
       nom: form.nom.trim(),
       prenom: form.prenom.trim(),
-      email: form.email.trim(),
+      email: form.email.trim() || null,
       telephone: form.telephone.trim() || null,
       sexe: form.sexe,
       departement_id: parseInt(form.departement_id, 10),
@@ -588,7 +615,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
       {!data && (
         <div className="alert alert-info d-flex align-items-start gap-2 py-2 small">
           <i className="bx bx-info-circle mt-1" />
-          <div>Un compte de connexion sera automatiquement créé pour cet enseignant avec l'email renseigné ci-dessous. Un mot de passe temporaire vous sera présenté juste après la création, à copier et transmettre à l'enseignant.</div>
+          <div>Un compte de connexion sera automatiquement créé pour cet enseignant : son <strong>code de connexion</strong> et un <strong>PIN temporaire</strong> vous seront présentés juste après la création, sur une fiche à imprimer ou recopier pour l'enseignant.</div>
         </div>
       )}
       <div className="row g-3">
@@ -598,7 +625,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
         <Field className="col-md-6" label="Prénom" required invalid={bad('prenom') && 'Le prénom est requis.'}>
           <input type="text" className={cls('form-control', 'prenom')} placeholder="Ex : Marie" value={form.prenom} onChange={set('prenom')} />
         </Field>
-        <Field className="col-md-6" label="Email" required invalid={bad('email') && 'Un email valide est requis.'} hint="Unique pour tous les établissements (un enseignant = un seul compte, quel que soit le nombre d'établissements).">
+        <Field className="col-md-6" label="Email (facultatif)" invalid={bad('email') && 'Email invalide : corrigez-le ou laissez le champ vide.'} hint="Inutile pour se connecter (code + PIN).">
           <input type="email" className={cls('form-control', 'email')} placeholder="Ex : marie.fouda@ecole.cm" value={form.email} onChange={set('email')} />
         </Field>
         <Field className="col-md-6" label="Téléphone">
@@ -623,6 +650,18 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
             {grades.map((g) => <option key={g.id} value={g.id}>{g.libelle}</option>)}
           </Select>
         </Field>
+        {!data && (
+          <Field className="col-12" label="A déjà un compte dans l'établissement ? (facultatif)" invalid={bad('codeExistant') && 'Le code comporte 4 caractères.'} hint="Ex : l'administrateur ou le censeur qui enseigne aussi. Indiquez son code de connexion : il garde son code et son PIN, et reçoit en plus l'espace Enseignant.">
+            <input
+              type="text"
+              className={cls('form-control font-monospace text-uppercase', 'codeExistant')}
+              placeholder="Son code de connexion, ex : K7TB"
+              maxLength={4}
+              value={form.codeExistant}
+              onChange={(e) => setForm((f) => ({ ...f, codeExistant: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) }))}
+            />
+          </Field>
+        )}
       </div>
     </Modal>
   );
@@ -644,6 +683,7 @@ function DetailModal({ e, labels, classesTitu, matieres, onClose }) {
         {e.est_titulaire && <span className="badge bg-label-success ms-auto"><i className="bx bx-chalkboard me-1" />Titulaire</span>}
       </div>
       <div className="row g-3 mb-3">
+        <div className="col-md-4"><label className="form-label">Code de connexion</label><div className="font-monospace fw-semibold">{e.code_connexion || '—'}</div></div>
         <div className="col-md-4"><label className="form-label">Email</label><div>{e.email || '—'}</div></div>
         <div className="col-md-4"><label className="form-label">Téléphone</label><div>{e.telephone || '—'}</div></div>
         <div className="col-md-4"><label className="form-label">Sexe</label><div>{e.sexe === 'M' ? 'Masculin' : e.sexe === 'F' ? 'Féminin' : '—'}</div></div>

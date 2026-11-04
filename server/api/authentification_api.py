@@ -12,7 +12,9 @@ from services.authentification_services import (
     choisir_role, role_ids_de
 )
 from datetime import datetime
-from models.authentification_models import Role, TokenBlocklist, Utilisateur
+from flask_limiter.util import get_remote_address
+from models.authentification_models import Role, SuperAdmin, TokenBlocklist, Utilisateur, hash_token, normaliser_code
+from services.authentification_services import session_ouverte
 from extensions import db, jwt, limiter
 
 authentification_bp = Blueprint('authentification', __name__, url_prefix='/api/auth')
@@ -20,6 +22,20 @@ authentification_bp = Blueprint('authentification', __name__, url_prefix='/api/a
 
 def _est_superadmin(claims):
     return claims.get('type_compte') == 'superadmin'
+
+
+def _cle_code_et_ip():
+    """Clé de la limite des PIN faux : couple (code saisi, IP)."""
+    data = request.get_json(silent=True) or {}
+    code = normaliser_code(str(data.get('code') or '')) or '-'
+    return f"login:{code}:{get_remote_address()}"
+
+
+def _cle_session_refresh():
+    """Clé de la limite de /refresh : la session (cookie de refresh), et non
+    l'IP partagée par toute une école."""
+    cookie = request.cookies.get('refresh_token_cookie')
+    return f"refresh:{hash_token(cookie)}" if cookie else f"refresh-ip:{get_remote_address()}"
 
 
 def _contient_role_admin(role_ids):
@@ -87,24 +103,25 @@ def _cookies_response(payload, status, access_token=None, refresh_token_str=None
 # ============================================================================
 
 @authentification_bp.route('/login', methods=['POST'])
-@limiter.limit(lambda: current_app.config.get('RATELIMIT_LOGIN', '5 per minute'))
+@limiter.limit(lambda: current_app.config.get('RATELIMIT_LOGIN', '60 per minute'))
+# Seuls les PIN faux (401) sont décomptés : une IP qui enchaîne les essais
+# sur un code est arrêtée ici, avant d'avoir pu verrouiller le compte.
+@limiter.limit(lambda: current_app.config.get('RATELIMIT_LOGIN_ECHECS', '5 per 15 minutes'),
+               key_func=_cle_code_et_ip, deduct_when=lambda response: response.status_code == 401,
+               error_message="Trop de PIN incorrects depuis cet appareil : réessayez dans quelques minutes.")
 def login_user():
     """
-    Authentification d'un utilisateur
-    Body: {email, password, etablissement_id (optionnel)}
+    Authentification d'un utilisateur par code de connexion + PIN
+    Body: {code, pin}
     Les tokens générés sont posés en cookies httpOnly ; la réponse JSON ne
     contient que les infos utilisateur (non sensibles) pour l'affichage UI.
     """
     data = request.get_json(silent=True) or {}
 
-    if not data.get('email') or not data.get('password'):
-        return jsonify({"erreur": "Email et mot de passe requis"}), 400
+    if not data.get('code') or not data.get('pin'):
+        return jsonify({"erreur": "Code de connexion et PIN requis"}), 400
 
-    result, status = login(
-        data['email'],
-        data['password'],
-        data.get('etablissement_id')
-    )
+    result, status = login(str(data['code']), str(data['pin']))
 
     if status != 200:
         return jsonify(result), status
@@ -132,7 +149,7 @@ def choisir_role_endpoint():
         return jsonify({"erreur": "Accès non autorisé"}), 403
 
     data = request.get_json(silent=True) or {}
-    result, status = choisir_role(int(get_jwt_identity()), data.get('role'))
+    result, status = choisir_role(int(get_jwt_identity()), data.get('role'), claims.get('sid'))
 
     if status != 200:
         return jsonify(result), status
@@ -157,7 +174,7 @@ def choisir_role_endpoint():
 
 @authentification_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
-@limiter.limit(lambda: current_app.config.get('RATELIMIT_REFRESH', '30 per hour'))
+@limiter.limit(lambda: current_app.config.get('RATELIMIT_REFRESH', '20 per minute'), key_func=_cle_session_refresh)
 def refresh():
     """
     Rafraîchit le token d'accès. Le refresh token est lu depuis son cookie
@@ -172,9 +189,9 @@ def refresh():
     presented_refresh = request.cookies.get('refresh_token_cookie')
 
     if _est_superadmin(claims):
-        result, status = refresh_superadmin_token(identity, presented_refresh)
+        result, status = refresh_superadmin_token(identity, presented_refresh, claims.get('sid'))
     else:
-        result, status = refresh_token(identity, presented_refresh, claims.get('role'))
+        result, status = refresh_token(identity, presented_refresh, claims.get('role'), claims.get('sid'))
 
     if status != 200:
         return _cookies_response(result, status, clear=True)
@@ -209,9 +226,9 @@ def logout_user():
     if claims:
         identity = int(get_jwt_identity())
         if _est_superadmin(claims):
-            logout_superadmin(identity, claims.get('jti'), claims.get('exp'))
+            logout_superadmin(identity, claims.get('jti'), claims.get('exp'), claims.get('sid'))
         else:
-            logout(identity, claims.get('jti'), claims.get('exp'))
+            logout(identity, claims.get('jti'), claims.get('exp'), claims.get('sid'))
 
     return _cookies_response({"message": "Déconnexion réussie"}, 200, clear=True)
 
@@ -258,32 +275,43 @@ def get_current_user():
 @jwt_required()
 def change_password_endpoint():
     """
-    Change le mot de passe du compte connecté (Utilisateur ou SuperAdmin).
-    Body: {old_password, new_password}
-    Révoque la session courante (voir services.change_password) : les cookies
-    sont donc effacés et l'utilisateur doit se reconnecter.
+    Change le secret du compte connecté.
+    Utilisateur : son PIN, body {ancien_pin, nouveau_pin}.
+    SuperAdmin : son mot de passe, body {old_password, new_password}.
+    Révoque l'access token courant et les autres sessions. Utilisateur : de
+    nouveaux cookies sont posés, il reste connecté. SuperAdmin : cookies
+    effacés, reconnexion nécessaire.
     """
     claims = get_jwt()
     identity = int(get_jwt_identity())
 
     data = request.get_json(silent=True) or {}
 
-    if not data.get('old_password') or not data.get('new_password'):
-        return jsonify({"erreur": "Ancien et nouveau mot de passe requis"}), 400
-
     if _est_superadmin(claims):
+        if not data.get('old_password') or not data.get('new_password'):
+            return jsonify({"erreur": "Ancien et nouveau mot de passe requis"}), 400
         result, status = change_password_superadmin(
             identity, data['old_password'], data['new_password']
         )
     else:
+        if not data.get('ancien_pin') or not data.get('nouveau_pin'):
+            return jsonify({"erreur": "PIN actuel et nouveau PIN requis"}), 400
         result, status = change_password(
-            identity, data['old_password'], data['new_password']
+            identity, str(data['ancien_pin']), str(data['nouveau_pin']), claims.get('role'), claims.get('sid')
         )
 
     if status == 200:
         # L'access token courant reste sinon valide jusqu'à son expiration.
         TokenBlocklist.revoquer(claims.get('jti'), 'access', datetime.utcfromtimestamp(claims['exp']))
         db.session.commit()
+
+    if status == 200 and 'access_token' in result:
+        return _cookies_response(
+            {"message": result['message'], "role_actif": result['role_actif']},
+            status,
+            access_token=result['access_token'],
+            refresh_token_str=result['refresh_token'],
+        )
 
     return _cookies_response(result, status, clear=(status == 200))
 
@@ -324,13 +352,15 @@ def get_utilisateurs():
 def create_utilisateur_endpoint():
     """
     Crée un nouvel utilisateur
-    Body: {nom, email, role_ids (ou role_id), etablissement_id}
-    Si l'email a déjà un compte dans l'établissement, les rôles lui sont
-    ajoutés (200, 'compte_existant': True, sans mot de passe temporaire).
-    Aucun mot de passe n'est accepté dans le payload : un mot de passe
-    temporaire est TOUJOURS généré côté serveur et renvoyé une seule fois
-    dans la réponse (clé 'mot_de_passe_temporaire'). L'utilisateur devra le
-    changer dès sa première connexion, sous 48h.
+    Body: {nom, role_ids (ou role_id), etablissement_id, email?, code_existant?}
+    Si code_existant (ou à défaut l'email) désigne déjà un compte de
+    l'établissement, les rôles lui sont ajoutés (200, 'compte_existant':
+    True, sans PIN temporaire).
+    Le code de connexion est attribué automatiquement et aucun PIN n'est
+    accepté dans le payload : un PIN temporaire est TOUJOURS généré côté
+    serveur et renvoyé une seule fois dans la réponse (clé
+    'pin_temporaire'). L'utilisateur devra le changer dès sa première
+    connexion, sous 48h.
     """
     claims = get_jwt()
 
@@ -342,7 +372,7 @@ def create_utilisateur_endpoint():
     if not data:
         return jsonify({"erreur": "Données requises"}), 400
 
-    required_fields = ['nom', 'email', 'etablissement_id']
+    required_fields = ['nom', 'etablissement_id']
     for field in required_fields:
         if field not in data:
             return jsonify({"erreur": f"Champ '{field}' requis"}), 400
@@ -369,9 +399,15 @@ def create_utilisateur_endpoint():
 @jwt_required()
 def get_utilisateur(user_id):
     """
-    Récupère un utilisateur par son ID
+    Récupère un utilisateur par son ID : réservé au SuperAdmin, à l'Admin de
+    son établissement, ou au titulaire du compte lui-même (la fiche contient
+    le code de connexion, qui ne doit pas circuler parmi les autres comptes).
     """
     claims = get_jwt()
+
+    if not (_est_superadmin(claims) or claims.get('role') == 'Admin'
+            or int(get_jwt_identity()) == user_id):
+        return jsonify({"erreur": "Accès non autorisé"}), 403
 
     utilisateur = get_utilisateur_by_id(user_id)
 
@@ -391,9 +427,9 @@ def update_utilisateur_endpoint(user_id):
     Met à jour un utilisateur
     Body: {nom, email, role_ids, etablissement_id, actif}
     role_ids remplace l'ensemble des rôles du compte.
-    Le mot de passe ne se modifie jamais via cet endpoint : l'utilisateur
-    le change lui-même via /change-password, ou un admin le réinitialise
-    via /utilisateurs/<id>/reset-password (POST).
+    Ni le PIN ni le code de connexion ne se modifient via cet endpoint :
+    l'utilisateur change son PIN via /change-password, ou un admin le
+    réinitialise via /utilisateurs/<id>/reset-password (POST).
     """
     claims = get_jwt()
 
@@ -462,9 +498,9 @@ def delete_utilisateur_endpoint(user_id):
 @jwt_required()
 def reset_password_endpoint(user_id):
     """
-    Régénère un mot de passe temporaire pour un utilisateur (ex: son mot de
-    passe temporaire initial a expiré sans avoir été utilisé). Renvoie le
-    nouveau mot de passe en clair une seule fois.
+    Régénère un PIN temporaire pour un utilisateur (PIN oublié, PIN
+    temporaire expiré, compte bloqué après trop d'échecs). Renvoie le
+    nouveau PIN en clair une seule fois ('pin_temporaire').
     """
     claims = get_jwt()
 
@@ -479,7 +515,7 @@ def reset_password_endpoint(user_id):
         return jsonify({"erreur": "Accès non autorisé"}), 403
 
     if not _est_superadmin(claims) and utilisateur.a_role('Admin'):
-        return jsonify({"erreur": "Seul un SuperAdmin peut réinitialiser le mot de passe d'un administrateur"}), 403
+        return jsonify({"erreur": "Seul un SuperAdmin peut réinitialiser le PIN d'un administrateur"}), 403
 
     result, status = reset_temp_password(user_id)
 
@@ -509,7 +545,7 @@ superadmin_bp = Blueprint('superadmin_auth', __name__, url_prefix='/api/auth/sup
 
 
 @superadmin_bp.route('/login', methods=['POST'])
-@limiter.limit(lambda: current_app.config.get('RATELIMIT_LOGIN', '5 per minute'))
+@limiter.limit(lambda: current_app.config.get('RATELIMIT_LOGIN_SUPERADMIN', '5 per minute'))
 def login_superadmin_user():
     """
     Authentification d'un SuperAdmin
@@ -535,7 +571,7 @@ def login_superadmin_user():
 
 @superadmin_bp.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
-@limiter.limit(lambda: current_app.config.get('RATELIMIT_REFRESH', '30 per hour'))
+@limiter.limit(lambda: current_app.config.get('RATELIMIT_REFRESH', '20 per minute'), key_func=_cle_session_refresh)
 def refresh_superadmin():
     """
     Rafraîchit le token d'accès SuperAdmin (rotation, cf. /refresh utilisateur).
@@ -547,7 +583,7 @@ def refresh_superadmin():
     superadmin_id = int(get_jwt_identity())
     presented_refresh = request.cookies.get('refresh_token_cookie')
 
-    result, status = refresh_superadmin_token(superadmin_id, presented_refresh)
+    result, status = refresh_superadmin_token(superadmin_id, presented_refresh, claims.get('sid'))
 
     if status != 200:
         return _cookies_response(result, status, clear=True)
@@ -572,7 +608,7 @@ def logout_superadmin_user():
 
     superadmin_id = int(get_jwt_identity())
 
-    result, status = logout_superadmin(superadmin_id, claims.get('jti'), claims.get('exp'))
+    result, status = logout_superadmin(superadmin_id, claims.get('jti'), claims.get('exp'), claims.get('sid'))
 
     return _cookies_response(result, status, clear=True)
 
@@ -638,6 +674,10 @@ def change_password_superadmin_endpoint():
 # Endpoints accessibles même si l'utilisateur doit encore changer son mot de passe.
 # (nom de blueprint.nom de fonction, cf. request.endpoint)
 ENDPOINTS_MDP_TEMPORAIRE_AUTORISES = {
+    # Connexion : un cookie encore valide d'un AUTRE compte (poste partagé)
+    # ne doit jamais empêcher quelqu'un de se connecter.
+    'authentification.login_user',
+    'superadmin_auth.login_superadmin_user',
     'authentification.change_password_endpoint',
     'authentification.get_current_user',
     'authentification.logout_user',
@@ -677,7 +717,7 @@ def enforce_password_change():
         return None
 
     return jsonify({
-        "erreur": "Mot de passe temporaire : vous devez le changer avant de continuer",
+        "erreur": "PIN temporaire : vous devez le changer avant de continuer",
         "doit_changer_mdp": True
     }), 403
 
@@ -699,6 +739,8 @@ def enforce_password_change():
 # Restent accessibles avec un rôle actif retiré, pour que le front puisse
 # relire le compte puis faire choisir un autre espace.
 ENDPOINTS_ROLE_ACTIF_EXEMPTES = {
+    'authentification.login_user',
+    'superadmin_auth.login_superadmin_user',
     'authentification.get_current_user',
     'authentification.choisir_role_endpoint',
     'authentification.logout_user',
@@ -706,8 +748,19 @@ ENDPOINTS_ROLE_ACTIF_EXEMPTES = {
 }
 
 
+# Endpoints où une session fermée ne doit pas bloquer la requête.
+ENDPOINTS_SESSION_EXEMPTES = {
+    'authentification.login_user',
+    'superadmin_auth.login_superadmin_user',
+    'authentification.logout_user',
+    'superadmin_auth.logout_superadmin_user',
+    'authentification.refresh',
+    'superadmin_auth.refresh_superadmin',
+}
+
+
 def enforce_role_actif():
-    if request.method == 'OPTIONS' or request.endpoint in ENDPOINTS_ROLE_ACTIF_EXEMPTES:
+    if request.method == 'OPTIONS':
         return None
 
     try:
@@ -716,7 +769,34 @@ def enforce_role_actif():
         return None
 
     claims = get_jwt()
-    if not claims or claims.get('type_compte') != 'utilisateur':
+    if not claims:
+        return None
+
+    # Session fermée (déconnexion de cet appareil, PIN réinitialisé ou
+    # changé, compte désactivé) : l'access token est refusé tout de suite,
+    # sans attendre ses 15 minutes de validité. 401 -> le front tente
+    # /refresh, qui échoue, et renvoie à la connexion.
+    if (request.endpoint not in ENDPOINTS_SESSION_EXEMPTES
+            and claims.get('type_compte') in ('utilisateur', 'superadmin')
+            and not session_ouverte(claims['type_compte'], int(get_jwt_identity()), claims.get('sid'))):
+        return jsonify({"erreur": "Session révoquée", "code": "token_revoque"}), 401
+
+    if request.endpoint in ENDPOINTS_ROLE_ACTIF_EXEMPTES:
+        return None
+
+    # Les routes métier accordent l'accès transverse sur claims['role'] ==
+    # 'SuperAdmin'. Ce rôle n'est valable que porté par un token SuperAdmin
+    # d'un compte SuperAdmin existant et actif (vérifié en direct : un compte
+    # désactivé perd l'accès immédiatement, pas à l'expiration du token).
+    if claims.get('role') == 'SuperAdmin' or _est_superadmin(claims):
+        if (_est_superadmin(claims) and claims.get('role') == 'SuperAdmin'
+                and db.session.query(SuperAdmin.query.filter(
+                    SuperAdmin.id == int(get_jwt_identity()), SuperAdmin.actif.is_(True)
+                ).exists()).scalar()):
+            return None
+        return jsonify({"erreur": "Accès non autorisé"}), 403
+
+    if claims.get('type_compte') != 'utilisateur':
         return None
 
     filtres = [Utilisateur.id == int(get_jwt_identity()), Utilisateur.actif.is_(True)]

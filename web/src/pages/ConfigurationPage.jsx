@@ -3,10 +3,12 @@ import { api } from '../lib/api';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import {
-  copyText, Field, formatDate, FormFooter, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave,
+  Field, formatDate, FormFooter, IconBtn, IdentifiantsModal, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave,
   useToast,
 } from '../components/ui';
 import Select from '../components/Select';
+import ImportModal from '../components/importConfigs';
+import { roleDe } from '../components/Layout';
 
 // Portage de server/static/templates/configuration.html : années scolaires,
 // trimestres, séquences, cycles, classes (structure_api.py) et
@@ -15,7 +17,9 @@ import Select from '../components/Select';
 export default function ConfigurationPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
-  const { activeEtablissementId } = useAuth();
+  const { user, activeEtablissementId } = useAuth();
+  const peutImporter = ['Admin', 'SuperAdmin'].includes(roleDe(user));
+  const [importOuvert, setImportOuvert] = useState(false);
 
   const [tab, setTab] = useState('annees');
   const [data, setData] = useState({ annees: [], trimestres: [], sequences: [], cycles: [], classes: [], censeurs: [], surveillants: [], censeursClasses: [], surveillantsClasses: [], roles: [] });
@@ -24,7 +28,7 @@ export default function ConfigurationPage() {
   const [trimestreSel, setTrimestreSel] = useState(null); // { id, libelle } — séquences affichées
   const [filterCycle, setFilterCycle] = useState('');
   const [modal, setModal] = useState(null); // { kind, data }
-  const [mdpTemp, setMdpTemp] = useState(null); // { nom, valeur }
+  const [identifiants, setIdentifiants] = useState(null); // { nom, code, pin, titre? }
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -63,16 +67,10 @@ export default function ConfigurationPage() {
     }
   };
 
-  // Une seule année active : on désactive les autres avant d'activer celle-ci.
-  const desactiverAutres = async (id) => {
-    for (const o of annees.filter((a) => a.active && a.id !== id)) {
-      await api.put(`/annees-scolaires/${o.id}`, { libelle: o.libelle, active: false });
-    }
-  };
-
+  // Une seule année active : le serveur désactive les autres dans la même
+  // transaction (cf. structure_services._desactiver_autres_annees).
   const activerAnnee = async (a) => {
     try {
-      await desactiverAutres(a.id);
       await api.put(`/annees-scolaires/${a.id}`, { libelle: a.libelle, active: true });
       toast('Année activée.');
       await loadAll();
@@ -101,15 +99,27 @@ export default function ConfigurationPage() {
     }
     const nomComplet = `${r.prenom} ${r.nom}`;
     try {
-      const compte = await api.post('/auth/utilisateurs', { nom: nomComplet, email: r.email, role_id: role.id, etablissement_id: r.etablissement_id });
+      const compte = await api.post('/auth/utilisateurs', { nom: nomComplet, email: r.email || null, role_id: role.id, etablissement_id: r.etablissement_id });
       await api.put(`/${r._type === 'censeur' ? 'censeurs' : 'surveillants'}/${r.id}`, { utilisateur_id: compte.id });
       if (compte.compte_existant) {
-        toast(`Compte existant relié. ${'Rôle ajouté au compte existant : la personne garde son mot de passe actuel.'}`);
+        toast(`Compte existant relié (code ${compte.code_connexion}) : la personne garde son code et son PIN.`);
       } else {
-        setMdpTemp({ nom: nomComplet, valeur: compte.mot_de_passe_temporaire });
+        setIdentifiants({ nom: nomComplet, code: compte.code_connexion, pin: compte.pin_temporaire });
         toast('Compte de connexion créé et relié.');
       }
       await loadAll();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+
+  const reinitialiserPin = async (r) => {
+    const nomComplet = `${r.prenom} ${r.nom}`;
+    const ok = await confirm(`Générer un nouveau PIN temporaire pour ${nomComplet} ? Son PIN actuel cessera de fonctionner et son compte sera débloqué. Son code de connexion (${r.code_connexion}) ne change pas.`);
+    if (!ok) return;
+    try {
+      const compte = await api.post(`/auth/utilisateurs/${r.utilisateur_id}/reset-password`);
+      setIdentifiants({ nom: nomComplet, code: compte.code_connexion, pin: compte.pin_temporaire, titre: 'Nouveau PIN temporaire' });
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -148,6 +158,7 @@ export default function ConfigurationPage() {
     <>
       <PageHeader title="Configuration" subtitle="Paramétrez les années scolaires, trimestres, séquences, cycles et classes de votre établissement.">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
+        {peutImporter && <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer des classes</button>}
       </PageHeader>
 
       <div className="row g-3 mb-4">
@@ -310,13 +321,13 @@ export default function ConfigurationPage() {
           <div className="alert alert-info mb-3 small">
             <i className="bx bx-info-circle me-1" />
             Un Censeur/Surveillant n'accède (pédagogie, emploi du temps) qu'aux classes qui lui ont été assignées ici.
-            La création crée en même temps le compte de connexion : un mot de passe temporaire est généré et affiché une seule fois — la personne devra le changer dès sa première connexion.
+            La création crée en même temps le compte de connexion : un code de connexion et un PIN temporaire sont générés et affichés une seule fois — la personne devra changer ce PIN dès sa première connexion.
             Une classe ne peut avoir qu'un seul Censeur (une classe déjà prise ne peut pas lui être réassignée tant qu'elle n'a pas été retirée d'abord), mais peut être suivie par plusieurs Surveillants.
             Un profil marqué <strong>Non relié</strong> (ex : créé avant l'existence du compte de connexion) peut être relié à tout moment via <i className="bx bx-lock-alt" />.
           </div>
           <TableCard title="Responsables" icon="bx-shield-quarter" count={responsables.length} actions={addBtn('Nouveau responsable', openCreationResponsable)}>
             <table className="table table-hover mb-0">
-              <thead><tr><th>Nom</th><th>Profil</th><th>Email</th><th>Compte de connexion</th><th>Classes assignées</th><th className="text-end">Actions</th></tr></thead>
+              <thead><tr><th>Nom</th><th>Profil</th><th>Code / email</th><th>Compte de connexion</th><th>Classes assignées</th><th className="text-end">Actions</th></tr></thead>
               <TBody colSpan={6} loading={loading} rows={responsables.length} empty="Aucun responsable (Censeur ou Surveillant) pour cet établissement.">
                 {responsables.map((r) => {
                   const liaisons = liaisonsDe(r);
@@ -326,7 +337,11 @@ export default function ConfigurationPage() {
                       <td>{r._type === 'censeur'
                         ? <span className="badge bg-label-primary"><i className="bx bx-shield-quarter me-1" />Censeur</span>
                         : <span className="badge bg-label-secondary"><i className="bx bx-show me-1" />Surveillant</span>}</td>
-                      <td>{r.email}</td>
+                      <td>
+                        {r.code_connexion && <div className="font-monospace fw-semibold">{r.code_connexion}</div>}
+                        {r.email && <small className="text-muted">{r.email}</small>}
+                        {!r.code_connexion && !r.email && '—'}
+                      </td>
                       <td>{r.utilisateur_id
                         ? <span className="badge bg-label-success"><i className="bx bx-link" /> Relié</span>
                         : <span className="badge bg-label-warning" title="Ce profil n'est relié à aucun compte de connexion : les classes assignées ci-dessous ne seront pas encore effectives pour cette personne."><i className="bx bx-error" /> Non relié</span>}</td>
@@ -337,6 +352,7 @@ export default function ConfigurationPage() {
                       </td>
                       <td className="text-end text-nowrap">
                         <IconBtn icon="bx-chalkboard" title="Gérer les classes" onClick={() => openAssignation(r)} />
+                        {r.utilisateur_id && <IconBtn icon="bx-key" title="Réinitialiser le PIN (PIN oublié ou compte bloqué)" onClick={() => reinitialiserPin(r)} />}
                         {!r.utilisateur_id && <IconBtn icon="bx-lock-alt" title="Créer le compte de connexion" onClick={() => creerCompteResponsable(r)} />}
                       </td>
                     </tr>
@@ -349,7 +365,7 @@ export default function ConfigurationPage() {
       )}
 
       {modal?.kind === 'annee' && (
-        <AnneeModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} desactiverAutres={desactiverAutres} />
+        <AnneeModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} />
       )}
       {modal?.kind === 'trimestre' && (
         <PeriodeModal
@@ -387,10 +403,16 @@ export default function ConfigurationPage() {
           classeLabel={classeLabelCourt}
           classesPrisesCenseur={new Set(censeursClasses.map((cc) => cc.classe_id))}
           onClose={() => setModal(null)}
-          onCreated={async (nom, valeur, msg) => { setModal(null); if (valeur) setMdpTemp({ nom, valeur }); toast(msg); await loadAll(); }}
+          onCreated={async (nom, result, msg) => {
+            setModal(null);
+            if (result.pin_temporaire) setIdentifiants({ nom, code: result.code_connexion, pin: result.pin_temporaire });
+            toast(msg);
+            await loadAll();
+          }}
         />
       )}
-      {mdpTemp && <MdpTempModal nom={mdpTemp.nom} valeur={mdpTemp.valeur} onClose={() => setMdpTemp(null)} />}
+      {identifiants && <IdentifiantsModal {...identifiants} destinataire="cette personne" onClose={() => setIdentifiants(null)} />}
+      {importOuvert && <ImportModal module="classes" onClose={() => setImportOuvert(false)} onImported={loadAll} />}
       {confirmNode}
     </>
   );
@@ -405,7 +427,7 @@ function LibelleInput({ value, onChange, validated, placeholder, message = 'Le l
   );
 }
 
-function AnneeModal({ data, onClose, onSaved, desactiverAutres }) {
+function AnneeModal({ data, onClose, onSaved }) {
   const [libelle, setLibelle] = useState(data?.libelle || '');
   const [active, setActive] = useState(Boolean(data?.active));
   const [validated, setValidated] = useState(false);
@@ -416,7 +438,6 @@ function AnneeModal({ data, onClose, onSaved, desactiverAutres }) {
     if (!libelle.trim()) return setValidated(true);
     setSaving(true);
     try {
-      if (active) await desactiverAutres(data?.id);
       const payload = { libelle: libelle.trim(), active };
       if (data) await api.put(`/annees-scolaires/${data.id}`, payload);
       else await api.post('/annees-scolaires/', payload);
@@ -552,7 +573,7 @@ function AssignationModal({ responsable: r, liaisons, classes, classeLabel, onCl
 
 function ResponsableModal({ classes, classeLabel, classesPrisesCenseur, onClose, onCreated }) {
   const toast = useToast();
-  const [form, setForm] = useState({ type: 'censeur', prenom: '', nom: '', email: '', telephone: '' });
+  const [form, setForm] = useState({ type: 'censeur', prenom: '', nom: '', email: '', telephone: '', codeExistant: '' });
   const [cochees, setCochees] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const set = (name) => (e) => setForm((f) => ({ ...f, [name]: e.target.value }));
@@ -566,14 +587,19 @@ function ResponsableModal({ classes, classeLabel, classesPrisesCenseur, onClose,
   });
 
   const submit = async () => {
-    if (!form.prenom.trim() || !form.nom.trim() || !form.email.trim()) {
-      toast('Le prénom, le nom et l’email sont requis.', 'error');
+    if (!form.prenom.trim() || !form.nom.trim()) {
+      toast('Le prénom et le nom sont requis.', 'error');
+      return;
+    }
+    if (form.codeExistant && form.codeExistant.length !== 4) {
+      toast('Le code de connexion comporte 4 caractères.', 'error');
       return;
     }
     const payload = {
       prenom: form.prenom.trim(),
       nom: form.nom.trim(),
-      email: form.email.trim(),
+      email: form.email.trim() || null,
+      code_existant: form.codeExistant || undefined,
       telephone: form.telephone.trim() || null,
       classe_ids: [...cochees].filter((id) => !prises.has(id)),
     };
@@ -581,7 +607,7 @@ function ResponsableModal({ classes, classeLabel, classesPrisesCenseur, onClose,
     try {
       const result = await api.post(form.type === 'censeur' ? '/censeurs/creer-avec-compte' : '/surveillants/creer-avec-compte', payload);
       const libelle = `${form.type === 'censeur' ? 'Censeur' : 'Surveillant'} créé.`;
-      await onCreated(`${payload.prenom} ${payload.nom}`, result.mot_de_passe_temporaire, result.compte_existant ? `${libelle} Rôle ajouté au compte existant : la personne garde son mot de passe actuel.` : libelle);
+      await onCreated(`${payload.prenom} ${payload.nom}`, result, result.compte_existant ? `${libelle} Rôle ajouté au compte existant : la personne garde son code et son PIN.` : libelle);
     } catch (err) {
       toast(err.message, 'error');
       setSaving(false);
@@ -601,8 +627,20 @@ function ResponsableModal({ classes, classeLabel, classesPrisesCenseur, onClose,
       <div className="row g-3">
         <div className="col-md-6"><label className="form-label">Prénom</label><input type="text" className="form-control" value={form.prenom} onChange={set('prenom')} required /></div>
         <div className="col-md-6"><label className="form-label">Nom</label><input type="text" className="form-control" value={form.nom} onChange={set('nom')} required /></div>
-        <div className="col-md-6"><label className="form-label">Email</label><input type="email" className="form-control" value={form.email} onChange={set('email')} required /></div>
+        <div className="col-md-6"><label className="form-label">Email <span className="text-muted small">(facultatif)</span></label><input type="email" className="form-control" value={form.email} onChange={set('email')} /></div>
         <div className="col-md-6"><label className="form-label">Téléphone</label><input type="text" className="form-control" value={form.telephone} onChange={set('telephone')} /></div>
+        <div className="col-12">
+          <label className="form-label">A déjà un compte dans l'établissement ? <span className="text-muted small">(facultatif)</span></label>
+          <input
+            type="text"
+            className="form-control font-monospace text-uppercase"
+            placeholder="Son code de connexion, ex : K7TB"
+            maxLength={4}
+            value={form.codeExistant}
+            onChange={(e) => setForm((f) => ({ ...f, codeExistant: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) }))}
+          />
+          <p className="text-muted mb-0 mt-1 small">Ex : un enseignant nommé censeur. Il garde son code et son PIN, et reçoit en plus ce nouvel espace.</p>
+        </div>
       </div>
       <label className="form-label mt-3 mb-1">Classes à assigner <span className="text-muted small">(optionnel, modifiable plus tard)</span></label>
       <div className="border rounded p-2" style={{ maxHeight: 220, overflowY: 'auto' }}>
@@ -617,24 +655,6 @@ function ResponsableModal({ classes, classeLabel, classesPrisesCenseur, onClose,
             </div>
           );
         })}
-      </div>
-    </Modal>
-  );
-}
-
-function MdpTempModal({ nom, valeur, onClose }) {
-  const toast = useToast();
-  return (
-    <Modal
-      size="modal-sm"
-      title={<span className="text-success"><i className="bx bx-check-circle me-2" />Compte créé</span>}
-      onClose={onClose}
-      footer={<button type="button" className="btn btn-primary btn-sm" onClick={onClose}>J'ai noté, fermer</button>}
-    >
-      <p className="mb-2 small">Communiquez ce mot de passe temporaire à <strong>{nom}</strong>. Il devra le changer dès sa première connexion (valable 48h). Il ne sera plus jamais affiché après fermeture de cette fenêtre.</p>
-      <div className="input-group">
-        <input type="text" className="form-control text-center fw-bold" style={{ letterSpacing: 1 }} value={valeur} readOnly />
-        <button type="button" className="btn btn-outline-secondary" title="Copier" onClick={() => copyText(valeur, 'Mot de passe', toast)}><i className="bx bx-copy" /></button>
       </div>
     </Modal>
   );

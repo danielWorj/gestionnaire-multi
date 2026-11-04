@@ -82,7 +82,7 @@ def creneau_create():
     etab_id = _resolve_etablissement_id()
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    result, status = create_creneau_scoped(request.get_json(), etab_id)
+    result, status = create_creneau_scoped(request.get_json(silent=True) or {}, etab_id)
     return jsonify(result), status
 
 
@@ -101,7 +101,7 @@ def creneau_update(id):
     entity = get_creneau_scoped(id, etab_id) if etab_id else None
     if not entity:
         return jsonify({"erreur": "Créneau horaire non trouvé"}), 404
-    result, status = update_creneau_scoped(entity, request.get_json(), etab_id)
+    result, status = update_creneau_scoped(entity, request.get_json(silent=True) or {}, etab_id)
     return jsonify(result), status
 
 
@@ -156,7 +156,7 @@ def horaire_create():
     etab_id = _resolve_etablissement_id()
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    result, status = create_entity_scoped(request.get_json(), etab_id, _current_classe_restriction())
+    result, status = create_entity_scoped(request.get_json(silent=True) or {}, etab_id, _current_classe_restriction())
     return jsonify(result), status
 
 
@@ -175,7 +175,8 @@ def horaire_update(id):
     entity = get_entity_scoped(id, etab_id, _current_classe_restriction()) if etab_id else None
     if not entity:
         return jsonify({"erreur": "Horaire non trouvé"}), 404
-    result, status = update_entity_scoped(entity, request.get_json(), etab_id, _current_classe_restriction())
+    result, status = update_entity_scoped(entity, request.get_json(silent=True) or {}, etab_id,
+                                          _current_classe_restriction())
     return jsonify(result), status
 
 

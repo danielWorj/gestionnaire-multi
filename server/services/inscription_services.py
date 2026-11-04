@@ -1,4 +1,4 @@
-from models.inscription_models import Parent, Eleve, Inscription
+from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
 from models.structure_models import Classe, AnneeScolaire
 from extensions import db
 
@@ -87,6 +87,26 @@ def _validate_foreign_keys_scoped(model_class, data, etablissement_id):
             if not annee or annee.etablissement_id != etablissement_id:
                 return "Année scolaire invalide pour cet établissement"
 
+    if model_class is Inscription and data.get('statut') not in (None, '') \
+            and data['statut'] not in STATUTS_INSCRIPTION:
+        return f"Statut d'inscription invalide (attendu : {', '.join(STATUTS_INSCRIPTION)})"
+
+    return None
+
+
+def _valider_inscription_unique(eleve_id, annee_scolaire_id, inscription_id=None):
+    """Un élève n'a qu'une inscription par année scolaire, toutes classes
+    confondues : la contrainte uq_inscription (élève, classe, année)
+    laissait inscrire le même élève dans deux classes la même année, ce qui
+    dédoublait ses notes, son rang et son échéancier de paiement. Retourne
+    un message d'erreur ou None."""
+    query = Inscription.query.filter(Inscription.eleve_id == eleve_id,
+                                     Inscription.annee_scolaire_id == annee_scolaire_id)
+    if inscription_id is not None:
+        query = query.filter(Inscription.id != inscription_id)
+    if query.first():
+        return ("Cet élève est déjà inscrit pour cette année scolaire : modifiez son "
+                "inscription existante pour changer de classe")
     return None
 
 
@@ -142,9 +162,13 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
         # inscription_api.py, read_only_roles) : cette branche ne devrait en
         # pratique jamais être atteinte en création, mais on la garde par
         # cohérence défensive avec les autres modules *_services.py.
-        classe_id = data.get('classe_id')
-        if classe_id is None or int(classe_id) not in classe_ids_restriction:
+        if str(data.get('classe_id')) not in {str(c) for c in classe_ids_restriction}:
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+
+    if model_class is Inscription:
+        error = _valider_inscription_unique(data['eleve_id'], data['annee_scolaire_id'])
+        if error:
+            return {"erreur": error}, 409
 
     return create_entity(model_class, data)
 
@@ -162,12 +186,19 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
         # plus la classe CIBLE, si le payload cherche à déplacer
         # l'inscription vers une autre classe hors périmètre.
         nouveau_classe_id = data.get('classe_id', entity.classe_id)
-        if int(nouveau_classe_id) not in classe_ids_restriction:
+        if str(nouveau_classe_id) not in {str(c) for c in classe_ids_restriction}:
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     error = _validate_foreign_keys_scoped(type(entity), data, etablissement_id)
     if error:
         return {"erreur": error}, 400
+
+    if isinstance(entity, Inscription) and ('eleve_id' in data or 'annee_scolaire_id' in data):
+        error = _valider_inscription_unique(data.get('eleve_id', entity.eleve_id),
+                                            data.get('annee_scolaire_id', entity.annee_scolaire_id),
+                                            entity.id)
+        if error:
+            return {"erreur": error}, 409
 
     return update_entity(entity, data)
 

@@ -1,11 +1,12 @@
 import os
 import re
+import secrets
 import unicodedata
 from werkzeug.utils import secure_filename
 from flask import current_app
 
 from models.structure_models import (
-    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence
+    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes
 )
 from extensions import db
 from sqlalchemy.exc import IntegrityError
@@ -53,15 +54,13 @@ def delete_logo_file(filename):
             pass
 
 
-def save_logo_file(file_storage, nom_etablissement, ancien_logo=None):
+def save_logo_file(file_storage, nom_etablissement):
     """Enregistre le fichier logo uploadé (werkzeug FileStorage) dans
-    storage/logos/, en le renommant d'après le nom de l'établissement
-    (slug + extension d'origine). Retourne le nom de fichier à stocker
-    tel quel dans le champ `logo` de l'établissement.
-
-    Si un ancien logo existait sous un nom différent (ex: extension
-    différente lors d'un remplacement), il est supprimé pour ne pas
-    laisser de fichier orphelin sur le disque."""
+    storage/logos/ sous un nom UNIQUE (slug du nom + suffixe aléatoire +
+    extension d'origine) : deux établissements de même nom ne peuvent plus
+    écraser (ni supprimer) le logo l'un de l'autre. Retourne le nom de
+    fichier à stocker dans le champ `logo` de l'établissement ; l'appelant
+    supprime l'ancien logo une fois la base à jour."""
     if not file_storage or not getattr(file_storage, 'filename', None):
         return None
 
@@ -73,10 +72,7 @@ def save_logo_file(file_storage, nom_etablissement, ancien_logo=None):
         )
 
     ext = original_name.rsplit('.', 1)[1].lower()
-    filename = f"{_slugify(nom_etablissement)}.{ext}"
-
-    if ancien_logo and ancien_logo != filename:
-        delete_logo_file(ancien_logo)
+    filename = f"{_slugify(nom_etablissement)[:60]}-{secrets.token_hex(4)}.{ext}"
 
     file_storage.save(os.path.join(LOGOS_DIR, filename))
     return filename
@@ -89,12 +85,28 @@ def save_logo_file(file_storage, nom_etablissement, ancien_logo=None):
 def _filter_valid_columns(model_class, data, exclude=('id',)):
     """Ne garde que les clés correspondant à de vraies colonnes du modèle,
     en excluant systématiquement la clé primaire (jamais modifiable par payload)."""
-    valid_keys = {c.name for c in model_class.__table__.columns} - set(exclude)
-    return {k: v for k, v in data.items() if k in valid_keys}
+    colonnes = model_class.__table__.columns
+    valid_keys = {c.name for c in colonnes} - set(exclude)
+    clean = {k: v for k, v in data.items() if k in valid_keys}
+    # Email facultatif (Enseignant, Censeur, Surveillant) laissé vide : NULL
+    # et non '', sinon la contrainte UNIQUE refuserait un second email vide.
+    if 'email' in clean and 'email' in colonnes and colonnes['email'].nullable             and not (clean['email'] or '').strip():
+        clean['email'] = None
+    return clean
 
 
 # Modèles qui portent directement une colonne etablissement_id
 DIRECT_SCOPE_MODELS = (Cycle, Classe, AnneeScolaire)
+
+# Champs obligatoires à la création : message clair (400) plutôt qu'une
+# IntegrityError renvoyée comme « violation d'unicité » (409).
+CHAMPS_REQUIS = {
+    Cycle: ('libelle',),
+    Classe: ('cycle_id',),
+    AnneeScolaire: ('libelle',),
+    Trimestre: ('annee_scolaire_id', 'libelle'),
+    Sequence: ('trimestre_id', 'libelle'),
+}
 
 
 def get_etablissement_id_of(entity):
@@ -240,35 +252,36 @@ def delete_entity(entity):
 def create_etablissement(data, logo_file=None):
     data = dict(data or {})
     data.pop('logo', None)
+    data.pop('code', None)  # attribué automatiquement (cf. Etablissement.code)
     try:
         if logo_file and getattr(logo_file, 'filename', None):
             data['logo'] = save_logo_file(logo_file, data.get('nom', ''))
-        return create_entity(Etablissement, data)
     except ValueError as e:
         return {"erreur": str(e)}, 400
+    result, status = create_entity(Etablissement, data)
+    if status >= 400:
+        delete_logo_file(data.get('logo'))  # pas de fichier orphelin
+    return result, status
 
 
 def update_etablissement(entity, data, logo_file=None):
+    """Le nom du fichier logo est indépendant du nom de l'établissement
+    (suffixe aléatoire) : renommer l'établissement ne touche plus au
+    fichier. Un nouveau logo remplace l'ancien, supprimé APRÈS la mise à
+    jour réussie de la base."""
     data = dict(data or {})
     data.pop('logo', None)
+    data.pop('code', None)  # jamais modifiable
+    ancien_logo = entity.logo
     try:
         if logo_file and getattr(logo_file, 'filename', None):
-            nom_pour_fichier = data.get('nom') or entity.nom
-            data['logo'] = save_logo_file(logo_file, nom_pour_fichier, ancien_logo=entity.logo)
-        elif data.get('nom') and data.get('nom') != entity.nom and entity.logo:
-            # Le nom change et un logo existe déjà sans nouveau fichier fourni :
-            # on renomme le fichier existant pour qu'il reste cohérent avec le
-            # nouveau nom de l'établissement.
-            ext = entity.logo.rsplit('.', 1)[-1] if '.' in entity.logo else None
-            if ext:
-                nouveau_nom = f"{_slugify(data['nom'])}.{ext}"
-                ancien_path = os.path.join(LOGOS_DIR, entity.logo)
-                if nouveau_nom != entity.logo and os.path.isfile(ancien_path):
-                    os.replace(ancien_path, os.path.join(LOGOS_DIR, nouveau_nom))
-                data['logo'] = nouveau_nom
-        return update_entity(entity, data)
+            data['logo'] = save_logo_file(logo_file, data.get('nom') or entity.nom)
     except ValueError as e:
         return {"erreur": str(e)}, 400
+    result, status = update_entity(entity, data)
+    if 'logo' in data:
+        delete_logo_file(data['logo'] if status >= 400 else ancien_logo)
+    return result, status
 
 
 # ---------------------------------------------------------------------------
@@ -276,7 +289,28 @@ def update_etablissement(entity, data, logo_file=None):
 # ---------------------------------------------------------------------------
 
 def get_all_entities_scoped(model_class, etablissement_id, classe_ids_restriction=None):
-    return [e.to_dict() for e in scoped_query(model_class, etablissement_id, classe_ids_restriction).all()]
+    entities = scoped_query(model_class, etablissement_id, classe_ids_restriction).all()
+    if model_class is Classe:
+        # Effectifs calculés en UNE requête pour toute la liste (au lieu
+        # d'une requête par classe).
+        effectifs = effectifs_classes(etablissement_id, [c.id for c in entities])
+        return [c.to_dict(effectif=effectifs.get(c.id, 0)) for c in entities]
+    return [e.to_dict() for e in entities]
+
+
+def _desactiver_autres_annees(data, etablissement_id, annee_id=None):
+    """Une seule année scolaire active par établissement : activer une
+    année désactive les autres DANS LA MÊME transaction (commit fait par
+    create_entity/update_entity). Auparavant seul le front s'en chargeait,
+    par une série de requêtes non atomique."""
+    if not data.get('active'):
+        return
+    query = AnneeScolaire.query.filter(AnneeScolaire.etablissement_id == etablissement_id,
+                                       AnneeScolaire.active.is_(True))
+    if annee_id is not None:
+        query = query.filter(AnneeScolaire.id != annee_id)
+    for autre in query.all():
+        autre.active = False
 
 
 def get_entity_scoped(model_class, entity_id, etablissement_id, classe_ids_restriction=None):
@@ -307,9 +341,16 @@ def create_entity_scoped(model_class, data, etablissement_id):
     if model_class in DIRECT_SCOPE_MODELS:
         data['etablissement_id'] = etablissement_id
 
+    for champ in CHAMPS_REQUIS.get(model_class, ()):
+        if data.get(champ) in (None, ''):
+            return {"erreur": f"{champ} requis"}, 400
+
     error = _validate_foreign_keys_scoped(model_class, data, etablissement_id)
     if error:
         return {"erreur": error}, 400
+
+    if model_class is AnneeScolaire:
+        _desactiver_autres_annees(data, etablissement_id)
 
     return create_entity(model_class, data)
 
@@ -328,6 +369,9 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
     error = _validate_foreign_keys_scoped(type(entity), data, etablissement_id)
     if error:
         return {"erreur": error}, 400
+
+    if isinstance(entity, AnneeScolaire):
+        _desactiver_autres_annees(data, etablissement_id, entity.id)
 
     return update_entity(entity, data)
 

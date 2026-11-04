@@ -89,7 +89,7 @@ def tranche_create():
     etab_id = _etablissement_id_pour_creation()
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    result, status = create_tranche_scoped(request.get_json(), etab_id)
+    result, status = create_tranche_scoped((request.get_json(silent=True) or {}), etab_id)
     return jsonify(result), status
 
 
@@ -108,7 +108,7 @@ def tranche_update(id):
     entity = get_tranche_scoped(id, etab_id) if etab_id else None
     if not entity:
         return jsonify({"erreur": "Tranche non trouvée"}), 404
-    result, status = update_tranche_scoped(entity, request.get_json(), etab_id)
+    result, status = update_tranche_scoped(entity, (request.get_json(silent=True) or {}), etab_id)
     return jsonify(result), status
 
 
@@ -208,7 +208,7 @@ def paiement_update(id):
     entity = get_paiement_scoped(id, etab_id) if etab_id else None
     if not entity:
         return jsonify({"erreur": "Paiement non trouvé"}), 404
-    result, status = update_paiement_scoped(entity, request.get_json(), etab_id)
+    result, status = update_paiement_scoped(entity, (request.get_json(silent=True) or {}), etab_id)
     return jsonify(result), status
 
 

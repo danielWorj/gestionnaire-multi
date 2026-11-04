@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { NAV_COURTE, roleInfo, RUBRIQUES } from '../lib/espaces';
+import { NAV_COURTE, NAV_MOBILE, roleInfo } from '../lib/espaces';
+import { useTableauxMobiles } from '../lib/tableauxMobiles';
+import BottomSheet from './BottomSheet';
 import './espace.css';
+import './app-mobile.css';
 import Select from './Select';
 
 // Menu par rôle, repris de server/static/js/sidebar.js (sections et libellés).
@@ -36,9 +39,9 @@ export const MENU_SECTIONS = [
   {
     header: 'Inscriptions',
     items: [
-      { to: '/eleves', label: 'Élèves', icon: 'bx-user', roles: ADMIN },
-      { to: '/parents', label: 'Parents', icon: 'bx-group', roles: ADMIN },
-      { to: '/inscriptions', label: 'Inscriptions', icon: 'bx-user-plus', roles: ADMIN },
+      { to: '/eleves', label: 'Élèves', icon: 'bx-user', roles: [...ADMIN, 'Secretaire'] },
+      { to: '/parents', label: 'Parents', icon: 'bx-group', roles: [...ADMIN, 'Secretaire'] },
+      { to: '/inscriptions', label: 'Inscriptions', icon: 'bx-user-plus', roles: [...ADMIN, 'Secretaire'] },
     ],
   },
   {
@@ -52,7 +55,7 @@ export const MENU_SECTIONS = [
     header: 'Notes',
     items: [
       { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: CENSEUR },
-      { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: CENSEUR },
+      { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: [...CENSEUR, ...ADMIN] },
     ],
   },
   {
@@ -76,25 +79,34 @@ function getInitials(name) {
     .join('');
 }
 
+const estActif = (to, pathname) => (to === '/' ? pathname === '/' : pathname.startsWith(to));
+
+// Mobile et tablette (< 1200px) : barre du haut compacte, barre de
+// navigation basse et menu complet dans une feuille glissante. Ordinateur :
+// menu latéral Sneat et barre du haut détachée.
 export default function Layout() {
   const { user, logout, isSuperAdmin, etablissements, activeEtablissementId, selectEtablissement } = useAuth();
   const location = useLocation();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [menuMobileOuvert, setMenuMobileOuvert] = useState(false);
   const userMenuRef = useRef(null);
+  const contenuRef = useRef(null);
 
   const role = roleDe(user);
   const roleLabel = role === 'SuperAdmin' ? 'SuperAdmin' : role ? roleInfo(role).label : 'Compte';
   const multiRoles = (user?.roles?.length || 0) > 1;
-  const rubriques = RUBRIQUES[role];
+  // Le SuperAdmin a un mot de passe, les comptes d'établissement un code PIN.
+  const libelleSecret = isSuperAdmin ? 'Changer le mot de passe' : 'Changer mon code PIN';
+  const etablissementNom = isSuperAdmin
+    ? etablissements.find((etab) => etab.id === activeEtablissementId)?.nom || 'Aucun établissement'
+    : user?.etablissement_nom || 'Plateforme multi-établissement';
 
-  // Menu mobile : Sneat l'ouvre via la classe layout-menu-expanded sur <html>.
-  const setMenuExpanded = (expanded) => {
-    document.documentElement.classList.toggle('layout-menu-expanded', expanded);
-  };
+  useTableauxMobiles(contenuRef);
 
   useEffect(() => {
-    setMenuExpanded(false);
     setUserMenuOpen(false);
+    setMenuMobileOuvert(false);
+    window.scrollTo(0, 0);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -111,7 +123,7 @@ export default function Layout() {
   }, [userMenuOpen]);
 
   return (
-    <div className={`layout-wrapper layout-content-navbar ${rubriques ? 'avec-nav-basse' : ''}`}>
+    <div className="layout-wrapper layout-content-navbar app-shell">
       <div className="layout-container">
         <aside id="layout-menu" className="layout-menu menu-vertical menu bg-menu-theme">
           <div className="app-brand demo">
@@ -121,14 +133,6 @@ export default function Layout() {
               </span>
               <span className="app-brand-text demo menu-text fw-bolder ms-2">Gestionnaire</span>
             </NavLink>
-            <button
-              type="button"
-              className="btn-reset layout-menu-toggle menu-link text-large ms-auto d-block d-xl-none"
-              onClick={() => setMenuExpanded(false)}
-              aria-label="Fermer le menu"
-            >
-              <i className="bx bx-chevron-left bx-sm align-middle" />
-            </button>
           </div>
 
           <div className="menu-inner-shadow" />
@@ -141,16 +145,33 @@ export default function Layout() {
         </aside>
 
         <div className="layout-page">
+          {/* Barre du haut — mobile et tablette */}
+          <header className="app-topbar">
+            <NavLink to="/" className="app-topbar-logo" aria-label="Accueil">
+              <i className="bx bxs-graduation" />
+            </NavLink>
+            <button type="button" className="app-topbar-contexte" onClick={() => setMenuMobileOuvert(true)}>
+              <span className="app-topbar-etab">
+                <span className="text-truncate">{etablissementNom}</span>
+                {isSuperAdmin && <i className="bx bx-chevron-down" />}
+              </span>
+              <span className="app-topbar-role">{roleLabel}</span>
+            </button>
+            {multiRoles && (
+              <NavLink to="/choisir-espace" className={`app-topbar-espace esp-tone-${roleInfo(role).color}`} aria-label="Changer d'espace">
+                <i className="bx bx-transfer-alt" />
+              </NavLink>
+            )}
+            <button type="button" className="app-topbar-avatar" onClick={() => setMenuMobileOuvert(true)} aria-label="Mon compte">
+              <span className="avatar-initial rounded-circle bg-label-primary">{getInitials(user?.nom)}</span>
+            </button>
+          </header>
+
+          {/* Barre du haut — ordinateur */}
           <nav
             className="layout-navbar container-xxl navbar navbar-expand-xl navbar-detached align-items-center bg-navbar-theme"
             id="layout-navbar"
           >
-            <div className="layout-menu-toggle navbar-nav align-items-xl-center me-3 me-xl-0 d-xl-none">
-              <button type="button" className="btn-reset nav-item nav-link px-0 me-xl-4" onClick={() => setMenuExpanded(true)} aria-label="Ouvrir le menu">
-                <i className="bx bx-menu bx-sm" />
-              </button>
-            </div>
-
             <div className="navbar-nav-right d-flex align-items-center" id="navbar-collapse">
               <div className="navbar-nav align-items-center">
                 <div className="nav-item d-flex align-items-center">
@@ -168,7 +189,7 @@ export default function Layout() {
                       ))}
                     </Select>
                   ) : (
-                    <span className="text-muted text-truncate">{user?.etablissement_nom || 'Plateforme multi-établissement'}</span>
+                    <span className="text-muted text-truncate">{etablissementNom}</span>
                   )}
                 </div>
               </div>
@@ -206,6 +227,7 @@ export default function Layout() {
                           <div className="flex-grow-1">
                             <span className="fw-semibold d-block">{user?.nom || 'Utilisateur'}</span>
                             <small className="text-muted">{roleLabel}</small>
+                            {user?.code_connexion && <small className="text-muted d-block">Code : <span className="font-monospace fw-semibold">{user.code_connexion}</span></small>}
                           </div>
                         </div>
                       </div>
@@ -224,10 +246,10 @@ export default function Layout() {
                     <li>
                       <NavLink className="dropdown-item" to="/change-password">
                         <i className="bx bx-lock-alt me-2" />
-                        <span className="align-middle">Changer le mot de passe</span>
+                        <span className="align-middle">{libelleSecret}</span>
                       </NavLink>
                     </li>
-                    {ADMIN.includes(roleDe(user)) && (
+                    {ADMIN.includes(role) && (
                       <li>
                         <NavLink className="dropdown-item" to="/configuration">
                           <i className="bx bx-cog me-2" />
@@ -251,7 +273,7 @@ export default function Layout() {
           </nav>
 
           <div className="content-wrapper">
-            <div className="container-xxl flex-grow-1 container-p-y">
+            <div className="container-xxl flex-grow-1 container-p-y app-content" ref={contenuRef}>
               <Outlet />
             </div>
 
@@ -263,28 +285,111 @@ export default function Layout() {
                 <div className="text-muted">Thème Sneat (ThemeSelection, MIT)</div>
               </div>
             </footer>
-
-            <div className="content-backdrop fade" />
           </div>
         </div>
       </div>
 
-      <div className="layout-overlay layout-menu-toggle" onClick={() => setMenuExpanded(false)} />
+      <NavMobile role={role} pathname={location.pathname} menuOuvert={menuMobileOuvert} onMenu={() => setMenuMobileOuvert(true)} />
 
-      {rubriques && <NavBasse rubriques={rubriques} />}
+      <BottomSheet open={menuMobileOuvert} onClose={() => setMenuMobileOuvert(false)} className="menu-mobile">
+        <div className="mm-profil">
+          <span className="avatar-initial rounded-circle bg-label-primary mm-avatar">{getInitials(user?.nom)}</span>
+          <div className="min-w-0 flex-grow-1">
+            <div className="mm-nom">{user?.nom || 'Utilisateur'}</div>
+            <div className="mm-role">{roleLabel}{user?.code_connexion && <> · Code <span className="font-monospace">{user.code_connexion}</span></>}</div>
+          </div>
+          <button type="button" className="sheet-fermer" onClick={() => setMenuMobileOuvert(false)} aria-label="Fermer"><i className="bx bx-x" /></button>
+        </div>
+
+        {isSuperAdmin ? (
+          <div className="mm-bloc">
+            <label className="mm-etiquette" htmlFor="mm-etablissement">Établissement consulté</label>
+            <Select
+              id="mm-etablissement"
+              className="form-select"
+              value={activeEtablissementId ?? ''}
+              onChange={(event) => selectEtablissement(event.target.value)}
+              aria-label="Établissement consulté"
+            >
+              {etablissements.length === 0 && <option value="">Aucun établissement</option>}
+              {etablissements.map((etab) => (
+                <option key={etab.id} value={etab.id}>{etab.nom}</option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <div className="mm-bloc mm-etab"><i className="bx bx-buildings" /><span>{etablissementNom}</span></div>
+        )}
+
+        <div className="mm-section">
+          <div className="mm-etiquette">Rubriques</div>
+          <div className="mm-grille">
+            {itemsDuRole(role).map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                className={`mm-tuile${estActif(item.to, location.pathname) ? ' actif' : ''}`}
+                onClick={() => setMenuMobileOuvert(false)}
+              >
+                <span className="mm-tuile-icone"><i className={`bx ${item.icon}`} /></span>
+                <span className="mm-tuile-label">{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
+        </div>
+
+        <div className="mm-section">
+          <div className="mm-etiquette">Mon compte</div>
+          <div className="mm-liste">
+            {multiRoles && (
+              <NavLink to="/choisir-espace" className="mm-ligne">
+                <i className="bx bx-transfer-alt" /><span>Changer d'espace</span><i className="bx bx-chevron-right mm-chevron" />
+              </NavLink>
+            )}
+            <NavLink to="/change-password" className="mm-ligne">
+              <i className="bx bx-lock-alt" /><span>{libelleSecret}</span><i className="bx bx-chevron-right mm-chevron" />
+            </NavLink>
+            <button type="button" className="mm-ligne mm-ligne-danger" onClick={logout}>
+              <i className="bx bx-power-off" /><span>Déconnexion</span>
+            </button>
+          </div>
+        </div>
+      </BottomSheet>
     </div>
   );
 }
 
-// Barre de navigation basse (mobile et tablette) des espaces à rubriques :
-// accès en un geste du pouce à l'accueil et à chaque rubrique.
-function NavBasse({ rubriques }) {
+// Onglets de la barre basse : ceux de NAV_MOBILE pour le rôle (à défaut, les
+// premières entrées de son menu), puis « Menu » qui ouvre tout le reste.
+const itemsDuRole = (role) => MENU_SECTIONS.flatMap((section) => section.items.filter((item) => item.roles.includes(role)));
+
+function ongletsMobiles(role) {
+  const items = itemsDuRole(role);
+  const parChemin = new Map(items.map((item) => [item.to, item]));
+  const voulus = NAV_MOBILE[role] || items.slice(0, 4).map((item) => item.to);
+  const onglets = voulus.map((to) => parChemin.get(to)).filter(Boolean);
+  if (onglets.length === 0) onglets.push({ to: '/', label: 'Accueil', icon: 'bx-home-circle' });
+  return onglets;
+}
+
+function NavMobile({ role, pathname, menuOuvert, onMenu }) {
+  const onglets = ongletsMobiles(role);
   return (
-    <nav className="esp-nav-basse" aria-label="Navigation de l'espace">
-      <NavLink to="/" end><i className="bx bx-home-circle" /><span>Accueil</span></NavLink>
-      {rubriques.map((r) => (
-        <NavLink key={r.to} to={r.to}><i className={`bx ${r.icon}`} /><span>{NAV_COURTE[r.to] || r.label}</span></NavLink>
-      ))}
+    <nav className="app-nav-basse" aria-label="Navigation principale">
+      {onglets.map((item) => {
+        const actif = !menuOuvert && estActif(item.to, pathname);
+        return (
+          <NavLink key={item.to} to={item.to} end={item.to === '/'} className={actif ? 'actif' : ''} aria-current={actif ? 'page' : undefined}>
+            <span className="app-nav-icone"><i className={`bx ${item.icon}`} /></span>
+            <span className="app-nav-label">{NAV_COURTE[item.to] || item.label}</span>
+          </NavLink>
+        );
+      })}
+      <button type="button" className={menuOuvert ? 'actif' : ''} onClick={onMenu} aria-haspopup="dialog">
+        <span className="app-nav-icone"><i className="bx bx-grid-alt" /></span>
+        <span className="app-nav-label">Menu</span>
+      </button>
     </nav>
   );
 }
@@ -302,17 +407,14 @@ function MenuSection({ section, pathname, role }) {
           <span className="menu-header-text">{section.header}</span>
         </li>
       )}
-      {items.map((item) => {
-        const active = item.to === '/' ? pathname === '/' : pathname.startsWith(item.to);
-        return (
-          <li key={item.to} className={`menu-item ${active ? 'active' : ''}`}>
-            <NavLink to={item.to} end={item.to === '/'} className="menu-link">
-              <i className={`menu-icon tf-icons bx ${item.icon}`} />
-              <div>{item.label}</div>
-            </NavLink>
-          </li>
-        );
-      })}
+      {items.map((item) => (
+        <li key={item.to} className={`menu-item ${estActif(item.to, pathname) ? 'active' : ''}`}>
+          <NavLink to={item.to} end={item.to === '/'} className="menu-link">
+            <i className={`menu-icon tf-icons bx ${item.icon}`} />
+            <div>{item.label}</div>
+          </NavLink>
+        </li>
+      ))}
     </>
   );
 }

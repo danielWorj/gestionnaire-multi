@@ -25,6 +25,7 @@ import EnseignantHorairePage from './pages/EnseignantHorairePage';
 import EnseignantClassesPage from './pages/EnseignantClassesPage';
 import EspaceAccueilPage from './pages/EspaceAccueilPage';
 import ChoixEspacePage from './pages/ChoixEspacePage';
+import AccesRefusePage from './pages/AccesRefusePage';
 
 function AucunRole() {
   const { logout } = useAuth();
@@ -75,6 +76,9 @@ function ProtectedRoute({ children, sansEspace = false }) {
 
 const ADMIN = ['Admin', 'SuperAdmin'];
 const CENSEUR = ['Censeur', 'Surveillant'];
+// Secrétariat : élèves, parents et inscriptions (mêmes droits API que l'Admin
+// sur ces trois ressources, cf. server/api/inscription_api.py).
+const SCOLARITE = [...ADMIN, 'Secretaire'];
 
 function EmploiDuTempsSelonRole() {
   const { user } = useAuth();
@@ -97,15 +101,15 @@ const PAGES = [
   { path: 'etablissements', element: <EtablissementsPage />, roles: ['SuperAdmin'] },
   { path: 'matieres', element: <MatieresPage />, roles: ADMIN },
   { path: 'enseignants', element: <EnseignantsPage />, roles: ADMIN },
-  { path: 'eleves', element: <ElevesPage />, roles: ADMIN },
-  { path: 'parents', element: <ParentsPage />, roles: ADMIN },
-  { path: 'inscriptions', element: <InscriptionsPage />, roles: ADMIN },
+  { path: 'eleves', element: <ElevesPage />, roles: SCOLARITE },
+  { path: 'parents', element: <ParentsPage />, roles: SCOLARITE },
+  { path: 'inscriptions', element: <InscriptionsPage />, roles: SCOLARITE },
   { path: 'configuration', element: <ConfigurationPage />, roles: ADMIN },
   { path: 'paiements', element: <PaiementsPage />, roles: [...ADMIN, 'Comptable'] },
   { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR] },
   { path: 'pedagogie', element: <PedagogiePage />, roles: CENSEUR },
   { path: 'notes', element: <CenseurNotesPage />, roles: CENSEUR },
-  { path: 'bulletins', element: <BulletinsPage />, roles: CENSEUR },
+  { path: 'bulletins', element: <BulletinsPage />, roles: [...CENSEUR, ...ADMIN] },
   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
@@ -113,7 +117,7 @@ const PAGES = [
 
 // Page d'accueil propre à chaque rôle : tableau de bord pour l'administration,
 // cartes de rubriques pour les espaces Enseignant / Censeur / Surveillant.
-const ACCUEIL = { Comptable: '/paiements' };
+const ACCUEIL = { Comptable: '/paiements', Secretaire: '/inscriptions' };
 const ESPACES_RUBRIQUES = ['Enseignant', 'Censeur', 'Surveillant'];
 
 function Accueil() {
@@ -129,7 +133,7 @@ function Accueil() {
 function RoleRoute({ roles, children }) {
   const { user } = useAuth();
   if (!roles.includes(roleDe(user))) {
-    return <Navigate to="/" replace />;
+    return <AccesRefusePage />;
   }
   return children;
 }

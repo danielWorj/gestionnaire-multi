@@ -28,7 +28,7 @@ function relTime(date, now) {
 
 function Stat({ label, value, icon, color, sub, trend }) {
   return (
-    <div className="col-sm-6 col-xl-3">
+    <div className="stat-col col-sm-6 col-xl-3">
       <div className="card h-100">
         <div className="card-body">
           <div className="d-flex justify-content-between align-items-start mb-2">
@@ -247,7 +247,7 @@ export default function EtablissementDashboardPage() {
       </div>
       <div className="row g-3 mb-4">
         <Stat label="Notes saisies (séquence en cours)" value={v(`${fmtNombre(m?.notesSaisies)} / ${fmtNombre(m?.notesAttendues)}`)} icon="bx-edit" color="primary" sub={m ? `${fmtNombre(m.notesEnAttente)} en attente` : '…'} trend={m && <span className="badge bg-label-secondary">{m.notesAttendues ? Math.round((m.notesSaisies / m.notesAttendues) * 100) : 0}%</span>} />
-        <Stat label="Filles / Garçons" value={v(`${fmtNombre(m?.filles)} / ${fmtNombre(m?.garcons)}`)} icon="bx-male-female" color="info" sub={m ? `Effectif total : ${fmtNombre(m.eleves)}` : '…'} />
+        <Stat label="Filles / Garçons" value={v(`${fmtNombre(m?.filles)} / ${fmtNombre(m?.garcons)}`)} icon="bx-male-sign" color="info" sub={m ? `Effectif total : ${fmtNombre(m.eleves)}` : '…'} />
         <Stat label="Absences (séquence en cours)" value={v(fmtNombre(m?.absences))} icon="bx-run" color="danger" sub={m ? `${fmtNombre(m.retards)} retards · ${fmtNombre(m.exclusions)} exclusions` : '…'} />
         <Stat label="Parents enregistrés" value={v(fmtNombre(m?.parents))} icon="bx-group" color="success" sub={m ? `${fmtNombre(m.parentsTel)} avec téléphone` : '…'} />
       </div>

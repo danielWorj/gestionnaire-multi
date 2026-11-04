@@ -1,10 +1,17 @@
+from sqlalchemy import event
 from extensions import db
+from models.authentification_models import CODE_LENGTH, generer_code_unique
 
 
 class Etablissement(db.Model):
     __tablename__ = 'etablissement'
 
     id = db.Column(db.Integer, primary_key=True)
+    # Code court de l'établissement (même alphabet que les codes de
+    # connexion), attribué automatiquement à la création et jamais
+    # modifiable : référence à communiquer au support. N'intervient PAS dans
+    # la connexion (le code de connexion d'un Utilisateur suffit seul).
+    code = db.Column(db.String(CODE_LENGTH), nullable=False)
     nom = db.Column(db.String(150), nullable=False)
     nom_bilingue = db.Column(db.String(150))
     adresse = db.Column(db.String(255))
@@ -23,13 +30,23 @@ class Etablissement(db.Model):
     classes = db.relationship('Classe', backref='etablissement', lazy=True)
     annees_scolaires = db.relationship('AnneeScolaire', backref='etablissement', lazy=True)
 
+    __table_args__ = (
+        db.UniqueConstraint('code', name='uq_etablissement_code'),
+    )
+
     def to_dict(self):
-        data = {k: getattr(self, k) for k in ['id', 'nom', 'nom_bilingue', 'adresse',
+        data = {k: getattr(self, k) for k in ['id', 'code', 'nom', 'nom_bilingue', 'adresse',
                 'bp', 'telephone', 'region', 'logo']}
         # URL prête à l'emploi pour un <img src="..."> côté frontend, construite
         # à partir du nom de fichier stocké — jamais exposée telle quelle en base.
         data['logo_url'] = f"/api/etablissements/storage/logos/{self.logo}" if self.logo else None
         return data
+
+
+@event.listens_for(Etablissement, 'before_insert')
+def _attribuer_code_etablissement(mapper, connection, etablissement):
+    if not etablissement.code:
+        etablissement.code = generer_code_unique(connection, Etablissement.code)
 
 
 class Cycle(db.Model):
@@ -56,22 +73,18 @@ class Classe(db.Model):
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     cycle_id = db.Column(db.Integer, db.ForeignKey('cycle.id'), nullable=False)
     option = db.Column(db.String(50))
-   
+
     @property
     def effectif(self):
-        try:
-            from models.inscription_models import Inscription
-        except ModuleNotFoundError:
-            return 0
-        return (
-            db.session.query(Inscription)
-            .filter(Inscription.classe_id == self.id, Inscription.statut == 'Actif')
-            .count()
-    )
-    def to_dict(self):
+        """Élèves en cours (cf. STATUTS_INSCRIPTION_EN_COURS) inscrits dans
+        la classe pour l'année ACTIVE de l'établissement — et non plus toutes
+        années confondues."""
+        return effectifs_classes(self.etablissement_id, [self.id]).get(self.id, 0)
+
+    def to_dict(self, effectif=None):
         data = {k: getattr(self, k) for k in ['id', 'etablissement_id', 'cycle_id',
                 'option']}
-        data['effectif'] = self.effectif
+        data['effectif'] = self.effectif if effectif is None else effectif
         return data
 
 
@@ -126,3 +139,33 @@ class Sequence(db.Model):
         if self.date_debut: d['date_debut'] = self.date_debut.isoformat()
         if self.date_fin: d['date_fin'] = self.date_fin.isoformat()
         return d
+
+def annee_active(etablissement_id):
+    """Année scolaire active de l'établissement ; à défaut la plus récente
+    (libellé le plus grand, ex. '2025-2026'), ou None."""
+    annees = AnneeScolaire.query.filter_by(etablissement_id=etablissement_id).all()
+    return next((a for a in annees if a.active), None) or max(annees, key=lambda a: a.libelle, default=None)
+
+
+def effectifs_classes(etablissement_id, classe_ids=None, annee_scolaire_id=None):
+    """{classe_id: effectif} en une seule requête : inscriptions en cours
+    (STATUTS_INSCRIPTION_EN_COURS) de l'année donnée, ou de l'année active
+    de l'établissement. Définition unique de l'effectif, partagée par les
+    listes de classes, les espaces enseignant/censeur et les bulletins."""
+    from models.inscription_models import Inscription, STATUTS_INSCRIPTION_EN_COURS
+
+    if annee_scolaire_id is None:
+        annee = annee_active(etablissement_id)
+        if annee is None:
+            return {}
+        annee_scolaire_id = annee.id
+    query = (
+        db.session.query(Inscription.classe_id, db.func.count(Inscription.id))
+        .join(Classe, Classe.id == Inscription.classe_id)
+        .filter(Classe.etablissement_id == etablissement_id,
+                Inscription.annee_scolaire_id == annee_scolaire_id,
+                Inscription.statut.in_(STATUTS_INSCRIPTION_EN_COURS))
+    )
+    if classe_ids is not None:
+        query = query.filter(Inscription.classe_id.in_(list(classe_ids)))
+    return dict(query.group_by(Inscription.classe_id).all())

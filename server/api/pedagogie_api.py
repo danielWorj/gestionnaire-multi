@@ -25,10 +25,16 @@ from models.pedagogie_models import (
 
 def make_pedagogie_scoped_blueprint(name, model, url_prefix,
                                      roles_autorises=("Admin", "SuperAdmin", "Censeur", "Surveillant"),
+                                     roles_ecriture=("Admin", "SuperAdmin"),
                                      classe_scoped=False):
-    """roles_autorises : par défaut ouvert en lecture+écriture à Admin, SuperAdmin,
-    Censeur et Surveillant (référentiels pédagogiques : matières, enseignants,
-    classes-matières...). Les blueprints censeur_bp/surveillant_bp/
+    """roles_autorises : rôles ayant accès en LECTURE (par défaut Admin,
+    SuperAdmin, Censeur, Surveillant). roles_ecriture : rôles autorisés à
+    créer/modifier/supprimer — par défaut Admin et SuperAdmin seulement : un
+    Censeur/Surveillant ne gère ni les enseignants (dont le lien
+    utilisateur_id vers un compte de connexion), ni les matières, ni les
+    départements/grades. Seuls titulaire_classe_bp et matiere_classe_bp
+    l'ouvrent aux Censeur/Surveillant, limités à leurs classes.
+    Les blueprints censeur_bp/surveillant_bp/
     censeur_classe_bp/surveillant_classe_bp ci-dessous surchargent ce
     paramètre pour rester réservés à Admin/SuperAdmin : un Censeur ou un
     Surveillant ne doit pas pouvoir créer/gérer les comptes de ses pairs, ni
@@ -51,8 +57,11 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
     @bp.before_request
     @jwt_required()
     def _require_role():
-        if get_jwt().get("role") not in roles_autorises:
+        role = get_jwt().get("role")
+        if role not in roles_autorises:
             return jsonify({"erreur": "Accès non autorisé"}), 403
+        if request.method != "GET" and role not in roles_ecriture:
+            return jsonify({"erreur": "Accès en lecture seule"}), 403
 
     def _current_etablissement_id():
         """- Admin d'établissement : toujours celui de son propre compte (claim JWT)
@@ -84,11 +93,12 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
     @bp.route('/', methods=['POST'])
     def create():
         claims = get_jwt()
-        etab_id = request.get_json().get("etablissement_id") if claims.get("role") == "SuperAdmin" \
+        data = request.get_json(silent=True) or {}
+        etab_id = data.get("etablissement_id") if claims.get("role") == "SuperAdmin" \
             else claims.get("etablissement_id")
         if not etab_id:
             return jsonify({"erreur": "etablissement_id requis"}), 400
-        result, status = create_entity_scoped(model, request.get_json(), etab_id, _current_classe_restriction())
+        result, status = create_entity_scoped(model, data, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
     @bp.route('/<int:id>', methods=['GET'])
@@ -105,7 +115,8 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
-        result, status = update_entity_scoped(entity, request.get_json(), etab_id, _current_classe_restriction())
+        result, status = update_entity_scoped(entity, request.get_json(silent=True) or {}, etab_id,
+                                              _current_classe_restriction())
         return jsonify(result), status
 
     @bp.route('/<int:id>', methods=['DELETE'])
@@ -130,15 +141,17 @@ departement_bp = make_pedagogie_scoped_blueprint('departement', Departement, '/a
 grade_bp = make_pedagogie_scoped_blueprint('grade', Grade, '/api/grades')
 enseignant_bp = make_pedagogie_scoped_blueprint('enseignant', Enseignant, '/api/enseignants')
 
-# classe_scoped=True : un Censeur/Surveillant n'accède qu'aux classes qui lui
-# ont été assignées (cf. CenseurClasse/SurveillantClasse plus bas) — avant
-# l'introduction de ce mécanisme, ces deux blueprints étaient ouverts à tout
-# l'établissement pour ces deux rôles, au même titre qu'Admin/SuperAdmin.
+# classe_scoped=True : un Censeur/Surveillant n'accède (lecture ET écriture)
+# qu'aux classes qui lui ont été assignées (cf. CenseurClasse/SurveillantClasse
+# plus bas) — il y organise les matières (page Pédagogie).
+ROLES_AFFECTATIONS = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
 titulaire_classe_bp = make_pedagogie_scoped_blueprint(
-    'titulaire_classe', TitulaireClasse, '/api/titulaires-classe', classe_scoped=True
+    'titulaire_classe', TitulaireClasse, '/api/titulaires-classe',
+    roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
 )
 matiere_classe_bp = make_pedagogie_scoped_blueprint(
-    'matiere_classe', MatiereClasse, '/api/matieres-classe', classe_scoped=True
+    'matiere_classe', MatiereClasse, '/api/matieres-classe',
+    roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
 )
 
 # Gestion des profils Censeur/Surveillant : réservée à l'Admin d'établissement

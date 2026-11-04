@@ -8,6 +8,7 @@ import {
   SortTh, StatCard, TableCard, TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
+import ImportElevesModal from '../components/ImportElevesModal';
 
 // Portage de server/static/templates/eleve.html : répertoire des élèves
 // (inscription_api.py) avec filtres, analyses, fiche et formulaire
@@ -38,6 +39,7 @@ export default function ElevesPage() {
   const [ch, setCh] = useState({ anneeClasses: '', cycleClasses: '', detailClasses: 'total', classeAnnees: '', sexeAnnees: '', anneeProfil: '', classeProfil: '' });
   const [formModal, setFormModal] = useState(null);
   const [detail, setDetail] = useState(null);
+  const [importOuvert, setImportOuvert] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -289,13 +291,14 @@ export default function ElevesPage() {
       <PageHeader title="Élèves" subtitle="Le répertoire des élèves de l'établissement. La classe affichée est celle de l'année scolaire choisie dans les filtres.">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={exportCsv}><i className="bx bx-file me-1" /> Exporter la sélection</button>
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
+        <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>
       </PageHeader>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Élèves au répertoire" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.actifs} actifs · ${stats.total - stats.actifs} inactifs`} icon="bx-child" color="primary" />
+        <StatCard label="Élèves au répertoire" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.actifs} actifs · ${stats.total - stats.actifs} inactifs`} icon="bx-face" color="primary" />
         <StatCard label={`Inscrits ${anneeLabel(annee)}`} value={loading ? null : stats.inscrits} sub={stats.total ? `${Math.round((stats.inscrits / stats.total) * 100)} % du répertoire` : '—'} icon="bx-user-check" color="success" />
-        <StatCard label="Garçons / Filles" value={loading ? null : `${stats.m} / ${stats.f}`} sub={stats.total ? `${Math.round((stats.f / stats.total) * 100)} % de filles` : '—'} icon="bx-male-female" color="info" />
+        <StatCard label="Garçons / Filles" value={loading ? null : `${stats.m} / ${stats.f}`} sub={stats.total ? `${Math.round((stats.f / stats.total) * 100)} % de filles` : '—'} icon="bx-male-sign" color="info" />
         <StatCard label="Sans classe cette année" value={loading ? null : stats.sansClasse} sub={stats.sansClasse ? 'à inscrire' : 'tout le monde est inscrit'} icon="bx-time" color="warning" />
       </div>
 
@@ -441,6 +444,10 @@ export default function ElevesPage() {
         />
       )}
 
+      {importOuvert && (
+        <ImportElevesModal parents={parents} onClose={() => setImportOuvert(false)} onImported={loadAll} />
+      )}
+
       {detail && (
         <Modal
           title={<><i className="bx bx-id-card me-2 text-primary" />Fiche élève</>}
@@ -578,7 +585,7 @@ function EleveModal({ data, parents, onClose, onSaved }) {
 
   return (
     <Modal
-      title={data ? <><i className="bx bx-edit-alt me-2 text-primary" />Modifier {fullName(data)}</> : <><i className="bx bx-child me-2 text-primary" />Ajouter un élève</>}
+      title={data ? <><i className="bx bx-edit-alt me-2 text-primary" />Modifier {fullName(data)}</> : <><i className="bx bx-face me-2 text-primary" />Ajouter un élève</>}
       onClose={onClose}
       onSubmit={submit}
       footer={(

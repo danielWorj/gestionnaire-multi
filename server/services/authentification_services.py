@@ -1,6 +1,7 @@
 from models.authentification_models import (
-    Utilisateur, Role, SuperAdmin, TokenBlocklist, generate_temp_password,
-    valider_force_mot_de_passe, TEMP_PASSWORD_VALIDITY_HOURS
+    Utilisateur, Role, SuperAdmin, TokenBlocklist, SessionConnexion, generate_temp_pin,
+    valider_force_mot_de_passe, valider_pin, normaliser_code, hash_token,
+    TEMP_PASSWORD_VALIDITY_HOURS
 )
 from models.structure_models import Etablissement
 # Utilisé UNIQUEMENT par _build_claims ci-dessous, pour résoudre le claim
@@ -12,6 +13,8 @@ from extensions import db
 from flask import current_app
 from flask_jwt_extended import create_access_token, create_refresh_token
 from datetime import datetime, timedelta
+import math
+import bcrypt
 from sqlalchemy.exc import IntegrityError
 
 # NB : les durées de vie des tokens (ACCESS/REFRESH) ne sont plus codées en
@@ -19,9 +22,55 @@ from sqlalchemy.exc import IntegrityError
 # vérité) : voir _token_lifetimes() ci-dessous, qui lit
 # current_app.config['JWT_ACCESS_TOKEN_EXPIRES'] / ['JWT_REFRESH_TOKEN_EXPIRES'].
 
-# Durée de validité d'un mot de passe temporaire (généré automatiquement à la
+# Durée de validité d'un PIN temporaire (généré automatiquement à la
 # création d'un Utilisateur, ou lors d'une réinitialisation)
 TEMP_PASSWORD_VALIDITY = timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
+
+ERREUR_IDENTIFIANTS = "Code ou PIN incorrect"
+
+# Hash factice vérifié quand le code saisi n'existe pas : la réponse prend
+# alors le même temps qu'un PIN faux, ce qui empêche de deviner par le
+# chronométrage quels codes existent.
+_HASH_FACTICE = None
+
+
+def _verifier_pin_factice(pin):
+    global _HASH_FACTICE
+    if _HASH_FACTICE is None:
+        _HASH_FACTICE = bcrypt.hashpw(b'0000', bcrypt.gensalt())
+    bcrypt.checkpw(str(pin).encode('utf-8'), _HASH_FACTICE)
+
+
+def _message_verrouillage(utilisateur):
+    minutes = max(1, math.ceil((utilisateur.verrouille_jusqua - datetime.utcnow()).total_seconds() / 60))
+    return (f"Trop de codes PIN incorrects : compte bloqué pendant encore {minutes} minute(s). "
+            "Votre administrateur peut le débloquer en réinitialisant votre PIN.")
+
+
+def nettoyer_email(email):
+    """Email facultatif : '' ou espaces -> None (NULL en base)."""
+    if not isinstance(email, str):
+        return None
+    return email.strip() or None
+
+
+def trouver_compte_existant(etablissement_id, email=None, code_existant=None):
+    """Compte de connexion déjà existant de la personne dans
+    l'établissement, auquel AJOUTER un rôle plutôt que d'en créer un second
+    (multi-rôles, ex : l'Admin qui enseigne aussi) : désigné par son code de
+    connexion (code_existant), ou à défaut retrouvé par son email.
+    Retourne (Utilisateur ou None, None) ou (None, (erreur, status))."""
+    if code_existant:
+        code = normaliser_code(code_existant)
+        utilisateur = code and Utilisateur.query.filter_by(
+            code_connexion=code, etablissement_id=etablissement_id
+        ).first()
+        if not utilisateur:
+            return None, ({"erreur": "Aucun compte de cet établissement ne porte ce code de connexion"}, 400)
+        return utilisateur, None
+    if email:
+        return Utilisateur.query.filter_by(email=email, etablissement_id=etablissement_id).first(), None
+    return None, None
 
 
 def _token_lifetimes():
@@ -100,26 +149,107 @@ def _build_claims(utilisateur, role_actif=None):
     return claims
 
 
-def _emettre_tokens(utilisateur, role_actif=None):
-    """Génère access + refresh token (rôle actif inclus) et stocke le hash du
-    refresh token : tout refresh token émis précédemment devient inutilisable
-    (rotation). Ne committe pas."""
-    claims = _build_claims(utilisateur, role_actif)
-    access_expires, refresh_expires = _token_lifetimes()
+# ============================================================================
+# SESSIONS (une par appareil, cf. SessionConnexion)
+# ============================================================================
 
-    access_token = create_access_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=access_expires
-    )
+ERREUR_SESSION = "Session expirée ou fermée : reconnectez-vous"
+
+
+def _creer_access_token(compte_id, claims):
+    access_expires, _ = _token_lifetimes()
+    return create_access_token(identity=str(compte_id), additional_claims=claims, expires_delta=access_expires)
+
+
+def _emettre_session(type_compte, compte_id, claims, sid=None):
+    """Émet access + refresh token pour la session `sid` du compte (rotation
+    de son refresh token), ou ouvre une nouvelle session si sid est None ou
+    inconnu. Les autres sessions du compte (autres appareils) ne sont pas
+    touchées. Ne committe pas. Retourne (access, refresh)."""
+    _, refresh_expires = _token_lifetimes()
+    maintenant = datetime.utcnow()
+
+    session = None
+    if sid:
+        session = SessionConnexion.query.filter_by(
+            sid=sid, type_compte=type_compte, compte_id=compte_id
+        ).first()
+    if session is None:
+        SessionConnexion.purger_expirees(type_compte, compte_id)
+        session = SessionConnexion(sid=SessionConnexion.nouveau_sid(), type_compte=type_compte,
+                                   compte_id=compte_id, token_hash='')
+        db.session.add(session)
+
+    claims = {**claims, 'sid': session.sid}
+    access_token = _creer_access_token(compte_id, claims)
     refresh_token_str = create_refresh_token(
-        identity=str(utilisateur.id),
-        additional_claims=claims,
-        expires_delta=refresh_expires
+        identity=str(compte_id), additional_claims=claims, expires_delta=refresh_expires
     )
 
-    # Ne stocker que le hash du refresh token en base (jamais le token en clair)
-    utilisateur.set_refresh_token(refresh_token_str, datetime.utcnow() + refresh_expires)
+    if session.token_hash:
+        session.token_precedent_hash = session.token_hash
+        session.rotation_le = maintenant
+    session.token_hash = hash_token(refresh_token_str)
+    session.expire_le = maintenant + refresh_expires
+    return access_token, refresh_token_str
+
+
+def _rafraichir_session(type_compte, compte_id, sid, presented_refresh_token, claims):
+    """Vérifie le refresh token présenté contre sa session puis le fait
+    tourner. Retourne ((access, refresh|None), None) ou (None, (erreur, status)).
+
+    refresh vaut None dans le délai de grâce (deux onglets ont rafraîchi en
+    même temps avec le même token) : seul un access token est réémis, le
+    cookie de refresh déjà posé par l'autre requête reste le bon."""
+    session = SessionConnexion.query.filter_by(sid=sid).first() if sid else None
+    if not session or session.type_compte != type_compte or session.compte_id != compte_id:
+        return None, ({"erreur": ERREUR_SESSION}, 401)
+
+    maintenant = datetime.utcnow()
+    if session.expire_le < maintenant:
+        db.session.delete(session)
+        db.session.commit()
+        return None, ({"erreur": ERREUR_SESSION}, 401)
+
+    presente = hash_token(presented_refresh_token or '')
+    if presente == session.token_hash:
+        tokens = _emettre_session(type_compte, compte_id, claims, sid)
+        db.session.commit()
+        return tokens, None
+
+    if (presente == session.token_precedent_hash and session.rotation_le
+            and maintenant - session.rotation_le <= SessionConnexion.DELAI_GRACE_ROTATION):
+        return (_creer_access_token(compte_id, {**claims, 'sid': sid}), None), None
+
+    # Token déjà tourné présenté hors délai de grâce : vol probable, on ferme
+    # CETTE session (les autres appareils du compte restent connectés).
+    db.session.delete(session)
+    db.session.commit()
+    return None, ({"erreur": "Refresh token invalide ou déjà utilisé"}, 401)
+
+
+def fermer_session(type_compte, compte_id, sid):
+    if sid:
+        SessionConnexion.query.filter_by(
+            sid=sid, type_compte=type_compte, compte_id=compte_id
+        ).delete(synchronize_session=False)
+
+
+def session_ouverte(type_compte, compte_id, sid):
+    """True si la session portée par un access token existe toujours (pas
+    de déconnexion, de PIN réinitialisé ou de compte désactivé entre-temps)."""
+    if not sid:
+        return False
+    return db.session.query(SessionConnexion.query.filter_by(
+        sid=sid, type_compte=type_compte, compte_id=compte_id
+    ).exists()).scalar()
+
+
+def _emettre_tokens(utilisateur, role_actif=None, sid=None):
+    """Access + refresh token d'un Utilisateur (rôle actif inclus), pour la
+    session `sid` (rotation) ou une nouvelle session. Ne committe pas."""
+    claims = _build_claims(utilisateur, role_actif)
+    access_token, refresh_token_str = _emettre_session('utilisateur', utilisateur.id, claims, sid)
     return access_token, refresh_token_str, claims['role']
 
 
@@ -161,23 +291,24 @@ def _build_superadmin_claims(superadmin):
 def create_utilisateur(data):
     """
     Crée un nouvel utilisateur (personnel/parent rattaché à un établissement).
-    data: {nom, email, role_ids (ou role_id), etablissement_id}
-    Si un compte existe déjà avec cet email dans l'établissement, les rôles
-    demandés lui sont AJOUTÉS (multi-rôles : ex. un Censeur que l'on crée
-    ensuite comme Enseignant garde un seul compte de connexion) : réponse 200
-    avec 'compte_existant': True et sans mot de passe temporaire, le mot de
-    passe du compte restant inchangé.
-    NB : etablissement_id est désormais obligatoire pour tout Utilisateur, y compris
-    ceux ayant le rôle 'Admin' (rôle d'établissement). Le compte d'administration
-    globale hors établissement se crée via create_superadmin().
+    data: {nom, role_ids (ou role_id), etablissement_id, email (facultatif),
+           code_existant (facultatif)}
 
-    Un mot de passe temporaire est TOUJOURS généré automatiquement, sans
-    exception : ni le SuperAdmin ni un Admin d'établissement ne peuvent
-    imposer un mot de passe définitif à la création (aucun champ 'password'
-    n'est accepté en entrée). L'utilisateur devra le changer dès sa première
-    connexion (doit_changer_mdp=True), et ce mot de passe temporaire n'est
-    valable que 48h (mdp_expire_le) : passé ce délai, il ne permet plus de se
-    connecter et doit être régénéré par un admin (cf. reset_temp_password).
+    Le compte reçoit automatiquement son code de connexion (unique sur la
+    plateforme, cf. Utilisateur.code_connexion) et un PIN temporaire de 4
+    chiffres, renvoyé UNE SEULE FOIS dans la réponse ('pin_temporaire').
+    Ni le SuperAdmin ni un Admin d'établissement ne peuvent imposer le PIN :
+    la personne le change dès sa première connexion (doit_changer_mdp=True),
+    et le PIN temporaire n'est valable que 48h (mdp_expire_le) — passé ce
+    délai, un admin doit le régénérer (cf. reset_temp_password).
+
+    Multi-rôles : si 'code_existant' désigne un compte de l'établissement (ou,
+    à défaut, si l'email y a déjà un compte), les rôles demandés sont AJOUTÉS
+    à ce compte au lieu d'en créer un second : réponse 200 avec
+    'compte_existant': True et sans PIN, celui du compte restant inchangé.
+    NB : etablissement_id est obligatoire pour tout Utilisateur, y compris le
+    rôle 'Admin' (rôle d'établissement). Le compte d'administration globale
+    hors établissement se crée via create_superadmin().
     """
     try:
         if not data.get('etablissement_id'):
@@ -192,12 +323,13 @@ def create_utilisateur(data):
         if erreur:
             return erreur
 
-        # Un compte existe déjà pour cet email dans cet établissement : on lui
-        # ajoute les rôles demandés plutôt que d'en créer un second.
-        existing = Utilisateur.query.filter_by(
-            email=data['email'],
-            etablissement_id=data['etablissement_id']
-        ).first()
+        email = nettoyer_email(data.get('email'))
+
+        existing, erreur = trouver_compte_existant(
+            data['etablissement_id'], email=email, code_existant=data.get('code_existant')
+        )
+        if erreur:
+            return erreur
 
         if existing:
             for role in roles:
@@ -208,24 +340,24 @@ def create_utilisateur(data):
             result['compte_existant'] = True
             return result, 200
 
-        # Mot de passe temporaire : jamais fourni par l'appelant (même admin),
-        # toujours généré ici. C'est la seule façon d'obtenir un compte
-        # Utilisateur, quel que soit son rôle (y compris 'Admin' d'établissement).
-        mot_de_passe_genere = generate_temp_password()
-        doit_changer_mdp = True
-        mdp_expire_le = datetime.utcnow() + TEMP_PASSWORD_VALIDITY
+        if not (data.get('nom') or '').strip():
+            return {"erreur": "Le nom est requis"}, 400
+
+        # PIN temporaire : jamais fourni par l'appelant (même admin),
+        # toujours généré ici, quel que soit le rôle (y compris 'Admin').
+        pin_genere = generate_temp_pin()
 
         utilisateur = Utilisateur(
-            nom=data['nom'],
-            email=data['email'],
+            nom=data['nom'].strip(),
+            email=email,
             roles=roles,
             etablissement_id=data['etablissement_id'],
             actif=True,
-            doit_changer_mdp=doit_changer_mdp,
-            mdp_expire_le=mdp_expire_le
+            doit_changer_mdp=True,
+            mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY
         )
 
-        utilisateur.set_password(mot_de_passe_genere)
+        utilisateur.set_password(pin_genere)
 
         db.session.add(utilisateur)
         db.session.commit()
@@ -233,8 +365,8 @@ def create_utilisateur(data):
         result = utilisateur.to_dict()
         result['compte_existant'] = False
         # Communiqué UNE SEULE FOIS ici : le hash bcrypt n'est pas réversible,
-        # donc ce mot de passe en clair ne sera plus jamais récupérable ensuite.
-        result['mot_de_passe_temporaire'] = mot_de_passe_genere
+        # donc ce PIN en clair ne sera plus jamais récupérable ensuite.
+        result['pin_temporaire'] = pin_genere
         return result, 201
 
     except IntegrityError:
@@ -245,35 +377,46 @@ def create_utilisateur(data):
         return {"erreur": "Erreur lors de la création"}, 500
 
 
-def login(email, password, etablissement_id=None):
+def login(code, pin):
     """
-    Authentifie un utilisateur et génère les tokens JWT
+    Authentifie un utilisateur par son code de connexion (4 caractères,
+    unique sur la plateforme) et son PIN (4 chiffres), puis génère les
+    tokens JWT.
+
+    Le PIN étant court, la protection repose sur le verrouillage du compte
+    après MAX_ECHECS_CONNEXION PIN faux consécutifs (en plus de la limite de
+    tentatives par IP de la route). Code inconnu et PIN faux renvoient le
+    même message, pour ne pas révéler quels codes existent.
     Retourne: {access_token, refresh_token, utilisateur} ou erreur
     """
-    # Trouver l'utilisateur
-    query = Utilisateur.query.filter_by(email=email)
-    if etablissement_id:
-        query = query.filter_by(etablissement_id=etablissement_id)
+    code = normaliser_code(code)
+    utilisateur = Utilisateur.query.filter_by(code_connexion=code).first() if code else None
 
-    utilisateurs = query.all()
+    if not utilisateur:
+        _verifier_pin_factice(pin)
+        return {"erreur": ERREUR_IDENTIFIANTS}, 401
 
-    # Un même email peut exister dans plusieurs établissements : si l'appelant
-    # n'a pas précisé etablissement_id et qu'il y a ambiguïté, on lui demande de préciser
-    if len(utilisateurs) > 1:
-        return {"erreur": "Plusieurs comptes trouvés pour cet email, précisez etablissement_id"}, 409
+    if utilisateur.est_verrouille():
+        return {"erreur": _message_verrouillage(utilisateur), "code": "compte_verrouille"}, 429
 
-    utilisateur = utilisateurs[0] if utilisateurs else None
+    if not utilisateur.check_password(pin):
+        vient_d_etre_verrouille = utilisateur.enregistrer_echec_connexion()
+        db.session.commit()
+        if vient_d_etre_verrouille:
+            return {"erreur": _message_verrouillage(utilisateur), "code": "compte_verrouille"}, 429
+        return {"erreur": ERREUR_IDENTIFIANTS}, 401
 
-    if not utilisateur or not utilisateur.check_password(password):
-        return {"erreur": "Email ou mot de passe incorrect"}, 401
+    utilisateur.deverrouiller()
 
     if not utilisateur.actif:
+        db.session.commit()
         return {"erreur": "Compte désactivé"}, 403
 
     if utilisateur.mot_de_passe_expire():
+        db.session.commit()
         return {
-            "erreur": "Mot de passe temporaire expiré. Contactez votre administrateur "
-                      "pour obtenir un nouveau mot de passe."
+            "erreur": "PIN temporaire expiré. Contactez votre administrateur "
+                      "pour obtenir un nouveau PIN."
         }, 403
 
     # Générer les tokens : identity = user_id (string, requis par flask-jwt-extended),
@@ -293,11 +436,11 @@ def login(email, password, etablissement_id=None):
     }, 200
 
 
-def choisir_role(user_id, role_libelle):
+def choisir_role(user_id, role_libelle, sid=None):
     """Bascule la session sur l'un des rôles du compte (choix d'espace après
     le login, ou "Changer d'espace" en cours de session) : réémet access +
-    refresh token avec ce rôle actif. L'appelant (couche API) révoque
-    l'access token précédent."""
+    refresh token de la MÊME session avec ce rôle actif. L'appelant (couche
+    API) révoque l'access token précédent."""
     utilisateur = Utilisateur.query.get(user_id)
 
     if not utilisateur or not utilisateur.actif:
@@ -306,7 +449,7 @@ def choisir_role(user_id, role_libelle):
     if not role_libelle or not utilisateur.a_role(role_libelle):
         return {"erreur": "Ce rôle ne fait pas partie de vos rôles"}, 403
 
-    access_token, refresh_token_str, role_actif = _emettre_tokens(utilisateur, role_libelle)
+    access_token, refresh_token_str, role_actif = _emettre_tokens(utilisateur, role_libelle, sid)
     db.session.commit()
 
     return {
@@ -316,21 +459,16 @@ def choisir_role(user_id, role_libelle):
     }, 200
 
 
-def refresh_token(user_id, presented_refresh_token, role_actif=None):
+def refresh_token(user_id, presented_refresh_token, role_actif=None, sid=None):
     """
+    Génère un nouveau access token ET un nouveau refresh token (ROTATION) à
+    partir d'un refresh token valide, pour la session `sid` (claim du refresh
+    token) — cf. _rafraichir_session pour la détection de réutilisation.
+
     `role_actif` : rôle actif porté par le refresh token présenté, conservé
     dans les nouveaux tokens tant qu'il fait toujours partie des rôles du
     compte (sinon retombe à None pour un compte multi-rôles, cf.
     resoudre_role_actif).
-
-    Génère un nouveau access token ET un nouveau refresh token (ROTATION) à
-    partir d'un refresh token valide.
-
-    `user_id` vient de l'identity du JWT refresh déjà vérifié (signature +
-    expiration) par @jwt_required(refresh=True) côté API. On vérifie EN PLUS
-    que le token présenté correspond bien au hash stocké en base : c'est ce
-    qui permet de détecter la réutilisation d'un refresh token déjà tourné
-    (donc potentiellement volé) et de couper la session immédiatement.
     """
     utilisateur = Utilisateur.query.get(user_id)
 
@@ -340,38 +478,22 @@ def refresh_token(user_id, presented_refresh_token, role_actif=None):
     if not utilisateur.actif:
         return {"erreur": "Compte désactivé"}, 403
 
-    if not utilisateur.check_refresh_token(presented_refresh_token):
-        # Le token présenté est valide (signature/expiration OK) mais ne
-        # correspond plus au hash stocké : soit il a déjà été tourné et
-        # réutilisé (vol probable), soit la session a été révoquée entre
-        # temps (logout, changement de mot de passe, désactivation...).
-        # Dans le doute, on révoque la session courante par précaution.
-        utilisateur.revoke_refresh_token()
-        db.session.commit()
-        return {"erreur": "Refresh token invalide ou déjà utilisé"}, 401
-
-    if utilisateur.refresh_token_expire_le < datetime.utcnow():
-        return {"erreur": "Refresh token expiré"}, 401
-
-    # Rotation : l'ancien refresh token devient immédiatement inutilisable.
-    new_access_token, new_refresh_token, _ = _emettre_tokens(utilisateur, role_actif)
-    db.session.commit()
-
-    return {'access_token': new_access_token, 'refresh_token': new_refresh_token}, 200
+    tokens, erreur = _rafraichir_session(
+        'utilisateur', utilisateur.id, sid, presented_refresh_token,
+        _build_claims(utilisateur, role_actif),
+    )
+    if erreur:
+        return erreur
+    return {'access_token': tokens[0], 'refresh_token': tokens[1]}, 200
 
 
-def logout(user_id, access_jti=None, access_exp_timestamp=None):
+def logout(user_id, access_jti=None, access_exp_timestamp=None, sid=None):
     """
-    Déconnexion : révoque le refresh token stocké pour cet utilisateur (donc
-    plus aucun /refresh possible avec l'ancienne session), et met l'access
-    token courant en liste noire (TokenBlocklist) pour qu'il soit rejeté
-    immédiatement par les routes protégées, sans attendre son expiration
-    naturelle (jusqu'à JWT_ACCESS_TOKEN_EXPIRES sinon).
+    Déconnexion de CET appareil : ferme sa session (plus aucun /refresh
+    possible) et met l'access token courant en liste noire. Les sessions des
+    autres appareils du compte restent ouvertes.
     """
-    utilisateur = Utilisateur.query.get(user_id)
-
-    if utilisateur:
-        utilisateur.revoke_refresh_token()
+    fermer_session('utilisateur', user_id, sid)
 
     if access_jti and access_exp_timestamp:
         TokenBlocklist.revoquer(
@@ -413,7 +535,9 @@ def update_utilisateur(user_id, data):
         return {"erreur": "Utilisateur non trouvé"}, 404
 
     if 'nom' in data:
-        utilisateur.nom = data['nom']
+        if not (data['nom'] or '').strip():
+            return {"erreur": "Le nom est requis"}, 400
+        utilisateur.nom = data['nom'].strip()
 
     if 'etablissement_id' in data and data['etablissement_id']:
         etablissement = Etablissement.query.get(data['etablissement_id'])
@@ -422,9 +546,10 @@ def update_utilisateur(user_id, data):
         utilisateur.etablissement_id = data['etablissement_id']
 
     if 'email' in data:
+        email = nettoyer_email(data['email'])
         # Vérifier l'unicité de l'email au sein de l'établissement (courant ou nouveau)
-        existing = Utilisateur.query.filter(
-            Utilisateur.email == data['email'],
+        existing = email and Utilisateur.query.filter(
+            Utilisateur.email == email,
             Utilisateur.id != user_id,
             Utilisateur.etablissement_id == utilisateur.etablissement_id
         ).first()
@@ -432,7 +557,7 @@ def update_utilisateur(user_id, data):
         if existing:
             return {"erreur": "Email déjà utilisé"}, 409
 
-        utilisateur.email = data['email']
+        utilisateur.email = email
 
     # 'role_ids' REMPLACE l'ensemble des rôles du compte. Si le rôle actif
     # d'une session en cours est retiré, enforce_role_actif la renvoie au
@@ -444,13 +569,14 @@ def update_utilisateur(user_id, data):
         utilisateur.roles = roles
 
     if 'actif' in data:
-        utilisateur.actif = data['actif']
+        utilisateur.actif = bool(data['actif'])
+        if not utilisateur.actif:
+            SessionConnexion.fermer_toutes('utilisateur', utilisateur.id)
 
-    # NB : le mot de passe ne se modifie JAMAIS via cette mise à jour générique
-    # (pas de validation de force, pas de doit_changer_mdp forcé, pas de
-    # révocation de session ici). Utiliser change_password() (self-service,
-    # avec ancien mot de passe) ou reset_temp_password() (réinitialisation
-    # admin), qui appliquent tous deux les règles complètes.
+    # NB : ni le PIN ni le code de connexion ne se modifient via cette mise à
+    # jour générique. Pour le PIN : change_password() (self-service, avec
+    # l'ancien PIN) ou reset_temp_password() (réinitialisation admin), qui
+    # appliquent les règles complètes.
 
     try:
         db.session.commit()
@@ -474,7 +600,7 @@ def delete_utilisateur(user_id):
 
     # Soft delete : on désactive au lieu de supprimer
     utilisateur.actif = False
-    utilisateur.revoke_refresh_token()
+    SessionConnexion.fermer_toutes('utilisateur', utilisateur.id)
 
     try:
         db.session.commit()
@@ -484,63 +610,76 @@ def delete_utilisateur(user_id):
         return {"erreur": "Erreur lors de la désactivation"}, 500
 
 
-def change_password(user_id, old_password, new_password):
+def change_password(user_id, old_pin, new_pin, role_actif=None, sid=None):
     """
-    Change le mot de passe d'un utilisateur
+    Change le PIN d'un utilisateur (4 chiffres, cf. valider_pin).
+    Émet de nouveaux tokens pour la session courante (même rôle actif) : le
+    compte reste connecté sur cet appareil, les autres sessions sont fermées.
     """
     utilisateur = Utilisateur.query.get(user_id)
 
     if not utilisateur:
         return {"erreur": "Utilisateur non trouvé"}, 404
 
-    if not utilisateur.check_password(old_password):
-        return {"erreur": "Ancien mot de passe incorrect"}, 401
+    if not utilisateur.check_password(old_pin):
+        return {"erreur": "PIN actuel incorrect"}, 401
 
-    valide, message = valider_force_mot_de_passe(new_password)
+    valide, message = valider_pin(new_pin)
     if not valide:
         return {"erreur": message}, 400
 
-    utilisateur.set_password(new_password)
+    if new_pin == old_pin:
+        return {"erreur": "Le nouveau PIN doit être différent de l'actuel"}, 400
+
+    utilisateur.set_password(new_pin)
     utilisateur.doit_changer_mdp = False
     utilisateur.mdp_expire_le = None
-    # Un changement de mot de passe doit invalider les sessions existantes
-    # (ex : compte compromis, mot de passe changé volontairement après un
-    # doute) — l'utilisateur devra se reconnecter, y compris sur cet appareil.
-    utilisateur.revoke_refresh_token()
+    # Un changement de PIN invalide les autres sessions (ex : compte
+    # compromis, PIN changé après un doute) ; seule celle-ci continue, avec
+    # des tokens réémis (doit_changer_mdp=False).
+    SessionConnexion.fermer_toutes('utilisateur', utilisateur.id, sauf_sid=sid)
+    access_token, refresh_token_str, role = _emettre_tokens(utilisateur, role_actif, sid)
 
     try:
         db.session.commit()
-        return {"message": "Mot de passe modifié avec succès"}, 200
+        return {
+            "message": "PIN modifié avec succès",
+            "access_token": access_token,
+            "refresh_token": refresh_token_str,
+            "role_actif": role,
+        }, 200
     except Exception:
         db.session.rollback()
-        return {"erreur": "Erreur lors du changement de mot de passe"}, 500
+        return {"erreur": "Erreur lors du changement de PIN"}, 500
 
 
 def reset_temp_password(user_id):
     """
-    Régénère un mot de passe temporaire pour un utilisateur (ex : son précédent
-    mot de passe temporaire a expiré sans avoir été utilisé, ou l'admin veut
-    forcer un renouvellement). Invalide au passage sa session en cours.
+    Régénère un PIN temporaire pour un utilisateur (PIN oublié, PIN
+    temporaire expiré, ou compte bloqué après trop d'échecs : la
+    réinitialisation le débloque). Invalide au passage sa session en cours.
+    Le code de connexion, lui, ne change pas.
     """
     utilisateur = Utilisateur.query.get(user_id)
 
     if not utilisateur:
         return {"erreur": "Utilisateur non trouvé"}, 404
 
-    nouveau_mdp = generate_temp_password()
-    utilisateur.set_password(nouveau_mdp)
+    nouveau_pin = generate_temp_pin()
+    utilisateur.set_password(nouveau_pin)
     utilisateur.doit_changer_mdp = True
     utilisateur.mdp_expire_le = datetime.utcnow() + TEMP_PASSWORD_VALIDITY
-    utilisateur.revoke_refresh_token()
+    utilisateur.deverrouiller()
+    SessionConnexion.fermer_toutes('utilisateur', utilisateur.id)
 
     try:
         db.session.commit()
         result = utilisateur.to_dict()
-        result['mot_de_passe_temporaire'] = nouveau_mdp
+        result['pin_temporaire'] = nouveau_pin
         return result, 200
     except Exception:
         db.session.rollback()
-        return {"erreur": "Erreur lors de la réinitialisation du mot de passe"}, 500
+        return {"erreur": "Erreur lors de la réinitialisation du PIN"}, 500
 
 
 # ============================================================================
@@ -585,7 +724,7 @@ def create_superadmin(data):
 
 def login_superadmin(email, password):
     """
-    Authentifie un SuperAdmin et génère les tokens JWT
+    Authentifie un SuperAdmin et ouvre une session (un appareil de plus).
     """
     superadmin = SuperAdmin.query.filter_by(email=email).first()
 
@@ -595,22 +734,9 @@ def login_superadmin(email, password):
     if not superadmin.actif:
         return {"erreur": "Compte désactivé"}, 403
 
-    claims = _build_superadmin_claims(superadmin)
-    access_expires, refresh_expires = _token_lifetimes()
-
-    access_token = create_access_token(
-        identity=str(superadmin.id),
-        additional_claims=claims,
-        expires_delta=access_expires
+    access_token, refresh_token_str = _emettre_session(
+        'superadmin', superadmin.id, _build_superadmin_claims(superadmin)
     )
-
-    refresh_token_str = create_refresh_token(
-        identity=str(superadmin.id),
-        additional_claims=claims,
-        expires_delta=refresh_expires
-    )
-
-    superadmin.set_refresh_token(refresh_token_str, datetime.utcnow() + refresh_expires)
     superadmin.dernier_login = datetime.utcnow()
 
     db.session.commit()
@@ -622,11 +748,10 @@ def login_superadmin(email, password):
     }, 200
 
 
-def refresh_superadmin_token(superadmin_id, presented_refresh_token):
+def refresh_superadmin_token(superadmin_id, presented_refresh_token, sid=None):
     """
-    Génère un nouveau access token + refresh token (ROTATION) SuperAdmin à
-    partir d'un refresh token valide. Même logique de détection de
-    réutilisation que refresh_token() ci-dessus.
+    Rotation du refresh token de la session SuperAdmin `sid` — même logique
+    de détection de réutilisation que refresh_token() ci-dessus.
     """
     superadmin = SuperAdmin.query.get(superadmin_id)
 
@@ -636,43 +761,20 @@ def refresh_superadmin_token(superadmin_id, presented_refresh_token):
     if not superadmin.actif:
         return {"erreur": "Compte désactivé"}, 403
 
-    if not superadmin.check_refresh_token(presented_refresh_token):
-        superadmin.revoke_refresh_token()
-        db.session.commit()
-        return {"erreur": "Refresh token invalide ou déjà utilisé"}, 401
-
-    if superadmin.refresh_token_expire_le < datetime.utcnow():
-        return {"erreur": "Refresh token expiré"}, 401
-
-    claims = _build_superadmin_claims(superadmin)
-    access_expires, refresh_expires = _token_lifetimes()
-
-    new_access_token = create_access_token(
-        identity=str(superadmin.id),
-        additional_claims=claims,
-        expires_delta=access_expires
+    tokens, erreur = _rafraichir_session(
+        'superadmin', superadmin.id, sid, presented_refresh_token, _build_superadmin_claims(superadmin)
     )
-    new_refresh_token = create_refresh_token(
-        identity=str(superadmin.id),
-        additional_claims=claims,
-        expires_delta=refresh_expires
-    )
-
-    superadmin.set_refresh_token(new_refresh_token, datetime.utcnow() + refresh_expires)
-    db.session.commit()
-
-    return {'access_token': new_access_token, 'refresh_token': new_refresh_token}, 200
+    if erreur:
+        return erreur
+    return {'access_token': tokens[0], 'refresh_token': tokens[1]}, 200
 
 
-def logout_superadmin(superadmin_id, access_jti=None, access_exp_timestamp=None):
+def logout_superadmin(superadmin_id, access_jti=None, access_exp_timestamp=None, sid=None):
     """
-    Révoque le refresh token SuperAdmin et met l'access token courant en
-    liste noire (voir logout() ci-dessus pour le détail du raisonnement).
+    Ferme la session SuperAdmin de cet appareil et met l'access token
+    courant en liste noire (cf. logout() ci-dessus).
     """
-    superadmin = SuperAdmin.query.get(superadmin_id)
-
-    if superadmin:
-        superadmin.revoke_refresh_token()
+    fermer_session('superadmin', superadmin_id, sid)
 
     if access_jti and access_exp_timestamp:
         TokenBlocklist.revoquer(
@@ -706,7 +808,8 @@ def change_password_superadmin(superadmin_id, old_password, new_password):
         return {"erreur": message}, 400
 
     superadmin.set_password(new_password)
-    superadmin.revoke_refresh_token()
+    # Reconnexion exigée partout, y compris sur cet appareil.
+    SessionConnexion.fermer_toutes('superadmin', superadmin.id)
 
     try:
         db.session.commit()

@@ -11,12 +11,12 @@ Usage :
 - Crée un second établissement de démo, « Collège Bilingue Les Pionniers »,
   rempli de la même façon (avec son propre compte Admin).
 
-Chaque compte de connexion créé reçoit un mot de passe temporaire (même
-mécanisme que authentification_services.create_utilisateur : valable 48h,
-changement obligatoire à la première connexion). Les mots de passe en clair
-sont écrits dans ~/Downloads/mots_de_passe_demo.txt et
-mot_de_passe_demo.txt à la racine du projet — c'est la seule trace,
-la base ne stocke que les hash bcrypt.
+Chaque compte de connexion créé reçoit un code de connexion et un PIN
+temporaire (même mécanisme que authentification_services.create_utilisateur :
+valable 48h, changement obligatoire à la première connexion). Les codes et
+PIN en clair sont écrits dans ~/Downloads/mots_de_passe_demo.txt et
+mot_de_passe_demo.txt à la racine du projet — c'est la seule trace des PIN,
+la base ne stocke que leurs hash bcrypt.
 
 Le script refuse de tourner deux fois (il s'arrête si LMA a déjà des élèves
 ou si l'établissement de démo existe).
@@ -38,7 +38,7 @@ app = create_app()
 
 from extensions import db
 from models.authentification_models import (
-    Role, Utilisateur, generate_temp_password, TEMP_PASSWORD_VALIDITY_HOURS,
+    Role, Utilisateur, generate_temp_pin, TEMP_PASSWORD_VALIDITY_HOURS,
 )
 from models.structure_models import Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence
 from models.pedagogie_models import (
@@ -112,21 +112,21 @@ def personne(sexe=None):
 
 # ── Comptes de connexion ─────────────────────────────────────────────────
 
-comptes = []  # (établissement, rôles, nom, email, mot de passe)
+comptes = []  # (établissement, rôles, nom, email, code de connexion, PIN)
 
 
 def creer_compte(etab, nom, email, roles):
-    mdp = generate_temp_password()
+    pin = generate_temp_pin()
     u = Utilisateur(
         etablissement_id=etab.id, nom=nom, email=email, actif=True,
         roles=[Role.query.filter_by(libelle=r).one() for r in roles],
         doit_changer_mdp=True,
         mdp_expire_le=datetime.utcnow() + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS),
     )
-    u.set_password(mdp)
+    u.set_password(pin)
     db.session.add(u)
-    db.session.flush()
-    comptes.append((etab.nom, ', '.join(roles), nom, email, mdp))
+    db.session.flush()  # attribue u.code_connexion (cf. Utilisateur before_insert)
+    comptes.append((etab.nom, ', '.join(roles), nom, email, u.code_connexion, pin))
     return u
 
 
@@ -702,40 +702,39 @@ def main():
                 'CBP', 18, tarifs_pionniers, admin=True,
             )
             cumuls = cumuler_roles()
-            comptes[:] = [(e, cumuls.get(email, r), n, email, m) for e, r, n, email, m in comptes]
+            comptes[:] = [(e, cumuls.get(email, r), n, email, c, pin) for e, r, n, email, c, pin in comptes]
             db.session.commit()
         except Exception:
             db.session.rollback()
             raise
 
         ecrire_fichier()
-        print(f"\n✅ {len(comptes)} comptes créés. Mots de passe : {', '.join(map(str, FICHIERS_MDP))}")
+        print(f"\n✅ {len(comptes)} comptes créés. Codes et PIN : {', '.join(map(str, FICHIERS_MDP))}")
 
 
 def ecrire_fichier(genere_le=None):
     genere_le = genere_le or datetime.now()
     expire = genere_le + timedelta(hours=TEMP_PASSWORD_VALIDITY_HOURS)
     lignes = [
-        'MOTS DE PASSE TEMPORAIRES — DONNÉES DE DÉMONSTRATION',
+        'CODES DE CONNEXION ET PIN TEMPORAIRES — DONNÉES DE DÉMONSTRATION',
         f"Généré le {genere_le:%d/%m/%Y à %H:%M}",
-        f"Valables {TEMP_PASSWORD_VALIDITY_HOURS}h (jusqu'au {expire:%d/%m/%Y à %H:%M}) ; "
-        "changement de mot de passe demandé à la première connexion.",
-        "Passé ce délai : un Admin peut régénérer un mot de passe temporaire depuis l'application.",
+        f"PIN valables {TEMP_PASSWORD_VALIDITY_HOURS}h (jusqu'au {expire:%d/%m/%Y à %H:%M}) ; "
+        "changement de PIN demandé à la première connexion.",
+        "Passé ce délai : un Admin peut régénérer un PIN temporaire depuis l'application.",
         "Comptes à plusieurs rôles (marqués *) : après connexion, choisir l'espace de travail.",
         '',
     ]
     etab_courant = None
-    largeur_email = max(len(c[3]) for c in comptes)
     largeur_roles = max(len(c[1]) + (2 if ',' in c[1] else 0) for c in comptes) + 2
-    largeur = largeur_roles + largeur_email + 2 + 14 + 24
-    for etab, roles, nom, email, mdp in comptes:
+    largeur = largeur_roles + 8 + 7 + 30
+    for etab, roles, nom, _email, code, pin in comptes:
         if etab != etab_courant:
             etab_courant = etab
             lignes += ['', '=' * largeur, etab, '=' * largeur]
-            lignes.append(f"{'RÔLE(S)':<{largeur_roles}}{'EMAIL':<{largeur_email + 2}}{'MOT DE PASSE':<14}NOM")
+            lignes.append(f"{'RÔLE(S)':<{largeur_roles}}{'CODE':<8}{'PIN':<7}NOM")
             lignes.append('-' * largeur)
         marque = '* ' if ',' in roles else ''
-        lignes.append(f"{marque + roles:<{largeur_roles}}{email:<{largeur_email + 2}}{mdp:<14}{nom}")
+        lignes.append(f"{marque + roles:<{largeur_roles}}{code:<8}{pin:<7}{nom}")
     contenu = '\n'.join(lignes) + '\n'
     for fichier in FICHIERS_MDP:
         fichier.parent.mkdir(parents=True, exist_ok=True)

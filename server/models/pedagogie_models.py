@@ -124,10 +124,11 @@ class Enseignant(db.Model):
     nom = db.Column(db.String(100), nullable=False)
     prenom = db.Column(db.String(100), nullable=False)
     telephone = db.Column(db.String(20))
-    # Unique globalement (et non par établissement comme Utilisateur.email) :
-    # un même enseignant, s'il intervient dans plusieurs établissements,
-    # devrait à terme être identifié par un seul et même compte — cf. diagramme.
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    # Unique AU SEIN de l'établissement (uq_enseignant_email_etablissement),
+    # comme Utilisateur.email : un même enseignant peut exercer dans deux
+    # établissements, chacun ayant sa propre fiche. Facultatif : la
+    # connexion se fait par code + PIN (Utilisateur).
+    email = db.Column(db.String(150), nullable=True)
     # 'M' (masculin) ou 'F' (féminin) — cf. CheckConstraint ci-dessous.
     # Nullable pour ne pas casser les enregistrements existants créés avant
     # l'ajout de cet attribut ; le formulaire de création/édition côté
@@ -156,6 +157,7 @@ class Enseignant(db.Model):
 
     __table_args__ = (
         db.CheckConstraint("sexe IN ('M', 'F')", name='ck_enseignant_sexe'),
+        db.UniqueConstraint('etablissement_id', 'email', name='uq_enseignant_email_etablissement'),
     )
 
     etablissement = db.relationship('Etablissement', backref='enseignants', lazy=True)
@@ -168,6 +170,7 @@ class Enseignant(db.Model):
                 ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'sexe',
                  'departement_id', 'grade_id', 'utilisateur_id']}
         data['est_titulaire'] = self.est_titulaire
+        data['code_connexion'] = self.utilisateur.code_connexion if self.utilisateur else None
         return data
 
     @property
@@ -210,8 +213,8 @@ class Censeur(db.Model):
     nom = db.Column(db.String(100), nullable=False)
     prenom = db.Column(db.String(100), nullable=False)
     telephone = db.Column(db.String(20))
-    # Unique globalement, comme Enseignant.email (cf. docstring Enseignant).
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    # Unique au sein de l'établissement et facultatif, comme Enseignant.email.
+    email = db.Column(db.String(150), nullable=True)
     sexe = db.Column(db.String(1), nullable=True)
     # Lien vers le compte de connexion (Utilisateur, authentification_models.py)
     # qui porte le rôle 'Censeur' pour cette personne. Le profil "métier"
@@ -229,14 +232,17 @@ class Censeur(db.Model):
 
     __table_args__ = (
         db.CheckConstraint("sexe IN ('M', 'F')", name='ck_censeur_sexe'),
+        db.UniqueConstraint('etablissement_id', 'email', name='uq_censeur_email_etablissement'),
     )
 
     etablissement = db.relationship('Etablissement', backref='censeurs', lazy=True)
     utilisateur = db.relationship('Utilisateur', backref=db.backref('profil_censeur', uselist=False), lazy=True)
 
     def to_dict(self):
-        return {k: getattr(self, k) for k in
+        data = {k: getattr(self, k) for k in
                 ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'sexe', 'utilisateur_id']}
+        data['code_connexion'] = self.utilisateur.code_connexion if self.utilisateur else None
+        return data
 
 
 class Surveillant(db.Model):
@@ -247,7 +253,7 @@ class Surveillant(db.Model):
     nom = db.Column(db.String(100), nullable=False)
     prenom = db.Column(db.String(100), nullable=False)
     telephone = db.Column(db.String(20))
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), nullable=True)
     sexe = db.Column(db.String(1), nullable=True)
     # Voir Censeur.utilisateur_id ci-dessus : même logique de liaison au
     # compte de connexion (rôle 'Surveillant'), pour la même raison (résoudre
@@ -257,14 +263,17 @@ class Surveillant(db.Model):
 
     __table_args__ = (
         db.CheckConstraint("sexe IN ('M', 'F')", name='ck_surveillant_sexe'),
+        db.UniqueConstraint('etablissement_id', 'email', name='uq_surveillant_email_etablissement'),
     )
 
     etablissement = db.relationship('Etablissement', backref='surveillants', lazy=True)
     utilisateur = db.relationship('Utilisateur', backref=db.backref('profil_surveillant', uselist=False), lazy=True)
 
     def to_dict(self):
-        return {k: getattr(self, k) for k in
+        data = {k: getattr(self, k) for k in
                 ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'sexe', 'utilisateur_id']}
+        data['code_connexion'] = self.utilisateur.code_connexion if self.utilisateur else None
+        return data
 
 
 class TitulaireClasse(db.Model):

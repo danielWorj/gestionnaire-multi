@@ -123,8 +123,8 @@ export function construireHtmlRapportSolvabilite({ rapport, etablissement, annee
       + `<strong>${formatMontant(g.totalAttendu)}</strong>. À cette date, un montant de <strong>${formatMontant(g.totalVerse)}</strong> a été `
       + `effectivement recouvré, soit un taux de recouvrement global de <strong>${g.pctPaye.toFixed(2)}%</strong>, laissant un solde restant dû de `
       + `<strong>${formatMontant(g.solde)}</strong>. Sur le plan de la solvabilité, <strong>${g.nbSolvables} élève(s)</strong> (${g.pctSolvable.toFixed(2)}%) `
-      + `sont à jour ou dans les délais de leur échéancier, tandis que <strong>${g.nbInsolvables} élève(s)</strong> (${g.pctInsolvable.toFixed(2)}%) n'ont effectué `
-      + 'aucun versement, ou présentent au moins une tranche impayée dont la date limite est dépassée, et sont à ce titre considérés comme insolvables.'
+      + `sont à jour ou dans les délais de leur échéancier, tandis que <strong>${g.nbInsolvables} élève(s)</strong> (${g.pctInsolvable.toFixed(2)}%) présentent `
+      + 'au moins une tranche exigible impayée (date limite dépassée, ou tranche due dès l’inscription), et sont à ce titre considérés comme insolvables.'
       + (g.nbSansEcheancier > 0
         ? ` Enfin, <strong>${g.nbSansEcheancier} élève(s)</strong> appartiennent à des classes sans échéancier défini pour cette année : leur solvabilité ne peut être établie.`
         : '')

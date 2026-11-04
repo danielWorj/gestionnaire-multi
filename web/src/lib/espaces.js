@@ -14,6 +14,10 @@ export const ROLES_INFO = {
   Parent: { label: 'Parent', icon: 'bx-group', color: 'secondary', description: 'Suivez la scolarité de vos enfants.' },
 };
 
+// Rôles prévus mais sans aucun espace dans l'application pour l'instant :
+// non proposés à l'attribution (un compte n'aurait accès à rien).
+export const ROLES_SANS_ESPACE = ['Proviseur', 'Infirmier', 'Parent'];
+
 export const roleInfo = (libelle) => ROLES_INFO[libelle] || { label: libelle, icon: 'bx-user', color: 'secondary', description: '' };
 
 const RUBRIQUES_CENSEUR = [
@@ -35,6 +39,15 @@ export const RUBRIQUES = {
 
 // Libellés courts de la barre de navigation basse (mobile).
 export const NAV_COURTE = {
+  '/': 'Accueil',
+  '/etablissements': 'Écoles',
+  '/matieres': 'Matières',
+  '/enseignants': 'Profs',
+  '/eleves': 'Élèves',
+  '/parents': 'Parents',
+  '/inscriptions': 'Inscriptions',
+  '/paiements': 'Paiements',
+  '/configuration': 'Réglages',
   '/enseignant/notes': 'Notes',
   '/enseignant/classes': 'Classes',
   '/enseignant/emploi-du-temps': 'Horaires',
@@ -42,6 +55,19 @@ export const NAV_COURTE = {
   '/bulletins': 'Bulletins',
   '/emploi-du-temps': 'Horaires',
   '/pedagogie': 'Pédagogie',
+};
+
+// Onglets de la barre de navigation basse, par rôle (4 au plus : le 5e est
+// toujours « Menu », qui donne accès à tout le reste). Un rôle absent prend
+// les premières entrées de son menu.
+export const NAV_MOBILE = {
+  SuperAdmin: ['/', '/etablissements', '/eleves', '/paiements'],
+  Admin: ['/', '/eleves', '/inscriptions', '/paiements'],
+  Censeur: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
+  Surveillant: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
+  Enseignant: ['/', '/enseignant/notes', '/enseignant/classes', '/enseignant/emploi-du-temps'],
+  Comptable: ['/paiements'],
+  Secretaire: ['/inscriptions', '/eleves', '/parents'],
 };
 
 const DERNIER_ROLE_KEY = 'dernierEspace';

@@ -116,8 +116,24 @@ def _validate_note_coherence(data, etablissement_id):
         sequence = db.session.get(Sequence, data['sequence_id'])
         if not sequence or sequence.trimestre.annee_scolaire.etablissement_id != etablissement_id:
             return "Séquence invalide pour cet établissement"
+        if inscription and sequence.trimestre.annee_scolaire_id != inscription.annee_scolaire_id:
+            return "La séquence n'appartient pas à l'année scolaire de l'inscription"
 
     return None
+
+
+def _normaliser_absence(data):
+    """'absent' et 'valeur' s'excluent : un élève absent n'a pas de note
+    chiffrée (sinon elle compterait dans les moyennes malgré l'absence).
+    saisie_le n'est jamais accepté depuis le client (horodatage serveur)."""
+    data.pop('saisie_le', None)
+    if data.get('absent'):
+        data['absent'] = True
+        data['valeur'] = None
+    elif data.get('valeur') not in (None, ''):
+        data['absent'] = False
+    elif 'valeur' in data and data['valeur'] == '':
+        data['valeur'] = None
 
 
 def _validate_valeur(data):
@@ -187,6 +203,7 @@ def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
     if int(data['matiere_classe_id']) not in matiere_classe_ids_restriction:
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
+    _normaliser_absence(data)
     error = _validate_valeur(data)
     if error:
         return {"erreur": error}, 400
@@ -223,6 +240,7 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
         # périmètre (même logique que emploi_du_temps_services.update_entity_scoped).
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
+    _normaliser_absence(data)
     error = _validate_valeur(data)
     if error:
         return {"erreur": error}, 400
@@ -273,6 +291,9 @@ def _validate_discipline_foreign_keys(data, etablissement_id):
         sequence = db.session.get(Sequence, data['sequence_id'])
         if not sequence or sequence.trimestre.annee_scolaire.etablissement_id != etablissement_id:
             return "Séquence invalide pour cet établissement"
+        inscription = Inscription.query.get(data['inscription_id']) if data.get('inscription_id') else None
+        if inscription and sequence.trimestre.annee_scolaire_id != inscription.annee_scolaire_id:
+            return "La séquence n'appartient pas à l'année scolaire de l'inscription"
 
     return None
 
@@ -355,7 +376,11 @@ def update_discipline_scoped(entity, data, etablissement_id, classe_ids_restrict
         if not inscription or inscription.classe_id not in classe_ids_restriction:
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
-    error = _validate_discipline_foreign_keys(data, etablissement_id)
+    merged = {
+        'inscription_id': data.get('inscription_id', entity.inscription_id),
+        'sequence_id': data.get('sequence_id', entity.sequence_id),
+    }
+    error = _validate_discipline_foreign_keys(merged, etablissement_id)
     if error:
         return {"erreur": error}, 400
 

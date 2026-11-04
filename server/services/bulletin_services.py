@@ -2,8 +2,9 @@ import re
 
 from models.evaluation_models import Note, Discipline
 from models.pedagogie_models import MatiereClasse, TitulaireClasse
-from models.inscription_models import Inscription
+from models.inscription_models import Inscription, STATUTS_INSCRIPTION_EN_COURS
 from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
+from services.import_commun import jetons_classe
 
 
 # ---------------------------------------------------------------------------
@@ -21,10 +22,14 @@ from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
 #   - matière sans aucune note -> « Non classé(e) », exclue des totaux ;
 #   - matières regroupées par GroupeMatiere (tri par ordre puis libellé),
 #     chaque groupe ayant son sous-total (coef, points, moyenne/20) ;
-#   - moyenne générale d'une séquence = Σ(moy × coef) / Σ coef ;
-#   - moyenne générale de la période = moyenne des moyennes générales des
-#     séquences de la période (identique à celle de la séquence pour un
-#     bulletin séquentiel).
+#   - moyenne générale d'une séquence = Σ(note × coef) / Σ coef ;
+#   - moyenne générale de la période = Σ(moy matière × coef) / Σ coef des
+#     matières classées, soit exactement « total points / total coef »
+#     imprimé sur le bulletin (l'ancienne moyenne des moyennes de séquences
+#     différait de ce total dès qu'une note manquait) ;
+#   - seuls les élèves en cours (STATUTS_INSCRIPTION_EN_COURS) sont
+#     classés : un élève radié ou transféré ne compte ni dans l'effectif ni
+#     dans les rangs.
 # ---------------------------------------------------------------------------
 
 # Appréciation par matière (légende du bulletin).
@@ -76,6 +81,20 @@ def _libelle_court_sequence(sequence):
     """'Sequence 3' / 'Séquence 3' -> 'SEQ3' (en-tête de colonne)."""
     trouve = re.search(r'(\d+)\s*$', sequence.libelle or '')
     return f"SEQ{trouve.group(1)}" if trouve else sequence.libelle
+
+
+def niveau_classe(classe):
+    """Clé de NIVEAU d'une classe, indépendante de sa section : « 6 eme A »
+    et « 6e B » -> ('6',), « Tle C » -> ('tle',), « MACO 2 » -> ('maco', '2').
+    Le niveau est lu dans l'option (« Premier Cycle » + « 6 eme A »), à
+    défaut dans le libellé du cycle quand c'est lui qui porte le niveau
+    (« 6ème » + « A ») ; jetons jusqu'au premier chiffre ou « tle » inclus."""
+    for source in (classe.option, classe.cycle.libelle if classe.cycle else None):
+        jetons = jetons_classe(source or '')
+        for i, jeton in enumerate(jetons):
+            if jeton.isdigit() or jeton == 'tle':
+                return (classe.cycle_id,) + tuple(jetons[:i + 1])
+    return (classe.cycle_id, (classe.option or '').strip().lower())
 
 
 def classe_label(classe):
@@ -161,7 +180,10 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
     type_periode, sequences, titre, libelle_periode = _resoudre_periode(periode, annee)
     seq_ids = [s.id for s in sequences]
 
-    inscriptions = Inscription.query.filter_by(classe_id=classe.id, annee_scolaire_id=annee.id).all()
+    inscriptions = Inscription.query.filter(
+        Inscription.classe_id == classe.id, Inscription.annee_scolaire_id == annee.id,
+        Inscription.statut.in_(STATUTS_INSCRIPTION_EN_COURS),
+    ).all()
     insc_ids = [i.id for i in inscriptions]
     effectif = len(inscriptions)
 
@@ -184,19 +206,23 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                                          Discipline.sequence_id.in_(seq_ids)).all():
             disciplines[(d.inscription_id, d.sequence_id)] = d
 
-    # Statut N (nouveau) / R (redoublant) : déjà inscrit une autre année dans
-    # une classe du même cycle (même niveau).
+    # Statut N (nouveau) / R (redoublant) : déjà inscrit une année
+    # ANTÉRIEURE dans une classe du même NIVEAU (cf. niveau_classe). Comparer
+    # le seul cycle_id marquait redoublant tout élève passé de 6e en 5e
+    # quand le cycle est « Premier Cycle ».
     redoublants = set()
     if inscriptions:
-        redoublants = {
-            eleve_id for (eleve_id,) in Inscription.query
+        niveau = niveau_classe(classe)
+        anterieures = (
+            Inscription.query
             .join(Classe, Classe.id == Inscription.classe_id)
+            .join(AnneeScolaire, AnneeScolaire.id == Inscription.annee_scolaire_id)
             .filter(Inscription.eleve_id.in_([i.eleve_id for i in inscriptions]),
-                    Inscription.annee_scolaire_id != annee.id,
-                    Classe.cycle_id == classe.cycle_id,
+                    AnneeScolaire.libelle < annee.libelle,
                     Classe.etablissement_id == etablissement.id)
-            .with_entities(Inscription.eleve_id).all()
-        }
+            .all()
+        )
+        redoublants = {i.eleve_id for i in anterieures if niveau_classe(i.classe) == niveau}
 
     titulaire = TitulaireClasse.query.filter_by(classe_id=classe.id, annee_scolaire_id=annee.id).first()
 
@@ -219,7 +245,16 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                     coefs += mc.coefficient
             moy_sequence[(i, s)] = points / coefs if coefs else None
 
-    moy_periode = {i: _moyenne([moy_sequence[(i, s)] for s in seq_ids]) for i in insc_ids}
+    def _moyenne_ponderee(i):
+        points = coefs = 0
+        for mc in matieres_classe:
+            moy = moy_matiere[(i, mc.id)]
+            if moy is not None:
+                points += moy * mc.coefficient
+                coefs += mc.coefficient
+        return points / coefs if coefs else None
+
+    moy_periode = {i: _moyenne_ponderee(i) for i in insc_ids}
 
     rang_periode = _rangs(moy_periode)
     rang_sequence = {s: _rangs({i: moy_sequence[(i, s)] for i in insc_ids}) for s in seq_ids}

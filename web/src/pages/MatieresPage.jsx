@@ -6,6 +6,8 @@ import {
   classeLabel, Field, FormFooter, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
+import ImportModal from '../components/importConfigs';
+import { roleDe } from '../components/Layout';
 
 // Portage de server/static/templates/matiere.html : groupes de matières,
 // matières et affectations matière → classe (pedagogie_api.py, cloisonné
@@ -14,7 +16,9 @@ import Select from '../components/Select';
 export default function MatieresPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
-  const { activeEtablissementId } = useAuth();
+  const { user, activeEtablissementId } = useAuth();
+  const peutImporter = ['Admin', 'SuperAdmin'].includes(roleDe(user));
+  const [importOuvert, setImportOuvert] = useState(false);
 
   const [tab, setTab] = useState('groupes');
   const [groupes, setGroupes] = useState([]);
@@ -135,6 +139,11 @@ export default function MatieresPage() {
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}>
           <i className="bx bx-refresh me-1" /> Actualiser
         </button>
+        {peutImporter && (
+          <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}>
+            <i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)
+          </button>
+        )}
       </PageHeader>
 
       <div className="row g-3 mb-4">
@@ -269,6 +278,7 @@ export default function MatieresPage() {
           onSaved={async (msg) => { setAffectationModal(null); toast(msg); await loadAffectations(); }}
         />
       )}
+      {importOuvert && <ImportModal module="matieres" onClose={() => setImportOuvert(false)} onImported={loadAll} />}
       {confirmNode}
     </>
   );

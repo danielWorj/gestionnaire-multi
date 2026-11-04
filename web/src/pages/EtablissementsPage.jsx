@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
 import Modal from '../components/Modal';
 import AdministrateursModal from '../components/AdministrateursModal';
-import { useConfirm, useToast } from '../components/ui';
+import { IdentifiantsModal, useConfirm, useToast } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import Select from '../components/Select';
 
@@ -51,7 +51,7 @@ export default function EtablissementsPage() {
   const [summaries, setSummaries] = useState({});
 
   const [formModal, setFormModal] = useState(null); // { etab } (null = création)
-  const [mdpTemp, setMdpTemp] = useState(null); // { email, motDePasse }
+  const [identifiants, setIdentifiants] = useState(null); // { nom, code, pin }
   const [toDelete, setToDelete] = useState(null);
   const [structureEtab, setStructureEtab] = useState(null);
   const [adminsEtab, setAdminsEtab] = useState(null);
@@ -111,7 +111,7 @@ export default function EtablissementsPage() {
     return etablissements.filter((e) => {
       if (region && (e.region || '').toLowerCase() !== region) return false;
       if (search) {
-        const haystack = [e.nom, e.nom_bilingue, e.adresse, e.bp, e.region].filter(Boolean).join(' ').toLowerCase();
+        const haystack = [e.code, e.nom, e.nom_bilingue, e.adresse, e.bp, e.region].filter(Boolean).join(' ').toLowerCase();
         if (!haystack.includes(search)) return false;
       }
       return true;
@@ -162,7 +162,7 @@ export default function EtablissementsPage() {
             </div>
             <div className="col-md-5">
               <label className="form-label small text-muted mb-1" htmlFor="filterSearch">Recherche</label>
-              <input id="filterSearch" type="text" className="form-control form-control-sm" placeholder="Nom, ville, BP..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
+              <input id="filterSearch" type="text" className="form-control form-control-sm" placeholder="Code, nom, ville, BP..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
             </div>
             <div className="col-md-3">
               <button type="button" className="btn btn-outline-secondary btn-sm w-100" onClick={() => { setFilterRegion(''); setFilterSearch(''); }}>
@@ -228,17 +228,17 @@ export default function EtablissementsPage() {
         <EtablissementFormModal
           etab={formModal.etab}
           onClose={() => setFormModal(null)}
-          onSaved={async ({ created, mdp, adminError }) => {
+          onSaved={async ({ created, ids, adminError }) => {
             setFormModal(null);
             toast(created ? 'Établissement créé avec succès.' : 'Établissement modifié avec succès.');
             if (adminError) toast(`Établissement créé, mais le compte Admin n'a pas pu être créé : ${adminError}`, 'error');
-            if (mdp) setMdpTemp(mdp);
+            if (ids) setIdentifiants(ids);
             await afterChange();
           }}
         />
       )}
 
-      {mdpTemp && <MdpTempModal email={mdpTemp.email} motDePasse={mdpTemp.motDePasse} onClose={() => setMdpTemp(null)} />}
+      {identifiants && <IdentifiantsModal {...identifiants} titre="Administrateur créé" destinataire="l'administrateur de l'établissement" onClose={() => setIdentifiants(null)} />}
 
       {toDelete && (
         <DeleteEtablissementModal
@@ -279,7 +279,7 @@ export default function EtablissementsPage() {
 
 function KpiCard({ label, value, sub, icon, color }) {
   return (
-    <div className="col-xl-3 col-md-6">
+    <div className="stat-col col-xl-3 col-md-6">
       <div className="card h-100">
         <div className="card-body">
           <div className="d-flex justify-content-between align-items-start">
@@ -310,7 +310,10 @@ function EtablissementRow({ etab, summary, onStructure, onAdmins, onEdit, onDele
               : <span className="avatar-initial rounded bg-label-primary">{initiales(etab.nom)}</span>}
           </div>
           <div>
-            <div className="fw-semibold">{etab.nom}</div>
+            <div className="fw-semibold">
+              {etab.nom}
+              {etab.code && <span className="badge bg-label-dark font-monospace ms-2" title="Code de l'établissement">{etab.code}</span>}
+            </div>
             {etab.nom_bilingue && <div className="text-muted small">{etab.nom_bilingue}</div>}
           </div>
         </div>
@@ -338,7 +341,7 @@ function EtablissementRow({ etab, summary, onStructure, onAdmins, onEdit, onDele
             {summary.admins.length ? (
               <>
                 <div className="fw-medium">{summary.admins[0].nom}{summary.admins.length > 1 && <span className="badge bg-label-primary ms-1">+{summary.admins.length - 1}</span>}</div>
-                <div className="text-muted">{summary.admins[0].email}</div>
+                <div className="text-muted">Code <span className="font-monospace">{summary.admins[0].code_connexion}</span></div>
               </>
             ) : <span className="text-warning"><i className="bx bx-error me-1" />Aucun admin actif — en ajouter</span>}
           </div>
@@ -426,7 +429,6 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
     adresse: etab?.adresse || '',
     bp: etab?.bp || '',
     adminNom: '',
-    adminEmail: '',
   });
   const [logo, setLogo] = useState(null);
   const [preview, setPreview] = useState(etab?.logo_url || '');
@@ -471,28 +473,27 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
       });
 
       // Compte Admin optionnel, uniquement à la création.
-      let mdp = null;
+      let ids = null;
       let adminError = null;
       const adminNom = form.adminNom.trim();
-      const adminEmail = form.adminEmail.trim();
-      if (!isEdit && adminNom && adminEmail) {
+      if (!isEdit && adminNom) {
         try {
           const roles = await apiRequest('/auth/roles');
           const adminRole = roles.find((r) => r.libelle === 'Admin');
           if (!adminRole) throw new Error("Le rôle 'Admin' n'existe pas côté serveur");
           const result = await apiRequest('/auth/utilisateurs', {
             method: 'POST',
-            body: JSON.stringify({ nom: adminNom, email: adminEmail, role_id: adminRole.id, etablissement_id: saved.id }),
+            body: JSON.stringify({ nom: adminNom, role_id: adminRole.id, etablissement_id: saved.id }),
           });
-          if (result?.mot_de_passe_temporaire) {
-            mdp = { email: adminEmail, motDePasse: result.mot_de_passe_temporaire };
+          if (result?.pin_temporaire) {
+            ids = { nom: adminNom, code: result.code_connexion, pin: result.pin_temporaire };
           }
         } catch (adminErr) {
           adminError = adminErr.message;
         }
       }
 
-      await onSaved({ created: !isEdit, mdp, adminError });
+      await onSaved({ created: !isEdit, ids, adminError });
     } catch (err) {
       setError(err.message);
       setSaving(false);
@@ -564,34 +565,15 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
             <div className="col-12"><hr className="my-0" /></div>
             <div className="col-12">
               <h6 className="mb-1"><i className="bx bx-shield-quarter me-2 text-primary" />Compte administrateur de l'établissement</h6>
-              <p className="text-muted small mb-0">Optionnel : renseignez ces champs pour créer immédiatement le compte Admin de cet établissement. Un mot de passe temporaire sera généré et affiché une seule fois.</p>
+              <p className="text-muted small mb-0">Optionnel : renseignez le nom pour créer immédiatement le compte Admin de cet établissement. Son code de connexion et un PIN temporaire seront générés et affichés une seule fois, sur une fiche à imprimer.</p>
             </div>
-            <div className="col-md-6">
+            <div className="col-12">
               <label className="form-label" htmlFor="adminNom">Nom complet de l'admin</label>
               <input id="adminNom" type="text" className="form-control" value={form.adminNom} onChange={set('adminNom')} />
-            </div>
-            <div className="col-md-6">
-              <label className="form-label" htmlFor="adminEmail">Email de connexion</label>
-              <input id="adminEmail" type="email" className="form-control" value={form.adminEmail} onChange={set('adminEmail')} />
             </div>
           </>
         )}
       </div>
-    </Modal>
-  );
-}
-
-function MdpTempModal({ email, motDePasse, onClose }) {
-  return (
-    <Modal
-      size=""
-      title={<><i className="bx bx-key me-2 text-primary" />Mot de passe temporaire généré</>}
-      onClose={onClose}
-      footer={<button type="button" className="btn btn-primary" onClick={onClose}>Compris</button>}
-    >
-      <p className="mb-2">Communiquez ces identifiants à l'administrateur de l'établissement. Ce mot de passe ne sera plus affiché ensuite (valide 48h, changement obligatoire à la première connexion).</p>
-      <div className="mb-2"><span className="text-muted small">Email :</span> <strong>{email}</strong></div>
-      <div><span className="text-muted small">Mot de passe temporaire :</span> <code style={{ fontSize: 14 }}>{motDePasse}</code></div>
     </Modal>
   );
 }

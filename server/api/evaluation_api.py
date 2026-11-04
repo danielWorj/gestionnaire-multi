@@ -21,9 +21,9 @@ from services.pedagogie_services import resolve_classe_ids_restriction, resolve_
 # (« mon espace » : classes/matières-classe, années/trimestres/séquences,
 # liste des élèves). Enseignant : utilisé par censeur_espace_bp pour
 # enrichir matieres_classe avec le nom de l'enseignant titulaire.
-from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
+from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes
 from models.pedagogie_models import Matiere, MatiereClasse, Enseignant
-from models.inscription_models import Inscription, Eleve
+from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN_COURS
 # CreneauHoraire/Horaire : nécessaires UNIQUEMENT à enseignant_horaire()
 # ci-dessous (page /enseignant/horaire, cf. templates/enseignant/horaire.html)
 # — emploi_du_temps_api.py (horaire_bp / creneau_horaire_bp) n'autorise pas
@@ -142,7 +142,7 @@ def note_create():
     # before_request garantit ici role == "Enseignant" (seul rôle passé pour
     # un verbe autre que GET) : matiere_classe_ids_restriction est donc
     # toujours un set() concret (potentiellement vide), jamais None.
-    result, status = create_note_scoped(request.get_json(), etab_id, _current_matiere_classe_restriction())
+    result, status = create_note_scoped((request.get_json(silent=True) or {}), etab_id, _current_matiere_classe_restriction())
     return jsonify(result), status
 
 
@@ -164,7 +164,7 @@ def note_update(id):
     entity = get_note_scoped(id, etab_id, None, mc_restriction) if etab_id else None
     if not entity:
         return jsonify({"erreur": "Note non trouvée"}), 404
-    result, status = update_note_scoped(entity, request.get_json(), etab_id, mc_restriction)
+    result, status = update_note_scoped(entity, (request.get_json(silent=True) or {}), etab_id, mc_restriction)
     return jsonify(result), status
 
 
@@ -241,7 +241,7 @@ def discipline_create():
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
     result, status = create_discipline_scoped(
-        request.get_json(), etab_id, _current_classe_restriction_discipline()
+        (request.get_json(silent=True) or {}), etab_id, _current_classe_restriction_discipline()
     )
     return jsonify(result), status
 
@@ -262,7 +262,7 @@ def discipline_update(id):
     if not entity:
         return jsonify({"erreur": "Fiche disciplinaire non trouvée"}), 404
     result, status = update_discipline_scoped(
-        entity, request.get_json(), etab_id, _current_classe_restriction_discipline()
+        entity, (request.get_json(silent=True) or {}), etab_id, _current_classe_restriction_discipline()
     )
     return jsonify(result), status
 
@@ -493,17 +493,10 @@ def enseignant_mon_espace():
     matieres = ({m.id: m for m in Matiere.query.filter(Matiere.id.in_(matiere_ids)).all()}
                 if matiere_ids else {})
 
-    # Effectif par classe sur l'année active, en une seule requête agrégée.
-    effectifs = {}
-    if classe_ids:
-        requete = (
-            Inscription.query
-            .with_entities(Inscription.classe_id, func.count(Inscription.id))
-            .filter(Inscription.classe_id.in_(classe_ids))
-        )
-        if annee_active is not None:
-            requete = requete.filter(Inscription.annee_scolaire_id == annee_active.id)
-        effectifs = dict(requete.group_by(Inscription.classe_id).all())
+    # Effectif par classe sur l'année active (élèves en cours, cf.
+    # structure_models.effectifs_classes), en une seule requête agrégée.
+    effectifs = (effectifs_classes(etab_id, classe_ids, annee_active.id)
+                 if classe_ids and annee_active is not None else {})
 
     sequence = _sequence_courante(annee_active)
     notes_saisies = _notes_saisies_par_mc([lien.id for lien in liens], sequence, annee_active)
@@ -702,8 +695,9 @@ def enseignant_roster():
     if classe_id not in {lien.classe_id for lien in liens}:
         return jsonify({"erreur": "Cette classe ne vous est pas attribuée"}), 403
 
-    inscriptions = Inscription.query.filter_by(
-        classe_id=classe_id, annee_scolaire_id=annee_id
+    inscriptions = Inscription.query.filter(
+        Inscription.classe_id == classe_id, Inscription.annee_scolaire_id == annee_id,
+        Inscription.statut.in_(STATUTS_INSCRIPTION_EN_COURS),
     ).all()
 
     eleve_ids = {inscription.eleve_id for inscription in inscriptions}
@@ -753,24 +747,36 @@ def enseignant_roster():
 censeur_espace_bp = Blueprint('censeur_espace_api', __name__, url_prefix='/api/censeur')
 
 
+# Admin et SuperAdmin y accèdent aussi (toutes les classes de
+# l'établissement) : c'est ce qui alimente leur page Bulletins.
+ROLES_ESPACE_CENSEUR = ("Censeur", "Surveillant", "Admin", "SuperAdmin")
+
+
 @censeur_espace_bp.before_request
 @jwt_required()
 def _require_censeur_ou_surveillant():
-    if get_jwt().get("role") not in ("Censeur", "Surveillant"):
-        return jsonify({"erreur": "Accès réservé aux Censeurs et Surveillants"}), 403
+    if get_jwt().get("role") not in ROLES_ESPACE_CENSEUR:
+        return jsonify({"erreur": "Accès réservé aux Censeurs, Surveillants et à l'administration"}), 403
 
 
 def _etablissement_id_censeur():
-    return get_jwt().get("etablissement_id")
+    claims = get_jwt()
+    if claims.get("role") == "SuperAdmin":
+        return request.args.get("etablissement_id", type=int)
+    return claims.get("etablissement_id")
 
 
 def _mes_classe_ids_censeur():
-    """set() des classe_id assignées au Censeur/Surveillant connecté,
-    résolu EN DIRECT depuis son user_id courant (get_jwt_identity()) — même
-    logique que _current_classe_restriction_note/_discipline plus haut, et
-    que le reste de l'application (cf. resolve_classe_ids_restriction)."""
+    """set() des classe_id accessibles : classes assignées au
+    Censeur/Surveillant connecté, résolues EN DIRECT depuis son user_id
+    (cf. resolve_classe_ids_restriction) ; toutes les classes de
+    l'établissement pour Admin/SuperAdmin."""
     claims = get_jwt()
-    return resolve_classe_ids_restriction(claims.get("role"), int(get_jwt_identity()))
+    restriction = resolve_classe_ids_restriction(claims.get("role"), int(get_jwt_identity()))
+    if restriction is None:
+        etab_id = _etablissement_id_censeur()
+        return {c.id for c in Classe.query.filter_by(etablissement_id=etab_id).all()} if etab_id else set()
+    return restriction
 
 
 # ---------------------------------------------------------------------------
@@ -824,16 +830,8 @@ def censeur_mon_espace():
 
     # Effectif par classe sur l'année active, en une seule requête agrégée
     # (même logique que enseignant_mon_espace ci-dessus).
-    effectifs = {}
-    if classe_ids_reels:
-        requete = (
-            Inscription.query
-            .with_entities(Inscription.classe_id, func.count(Inscription.id))
-            .filter(Inscription.classe_id.in_(classe_ids_reels))
-        )
-        if annee_active is not None:
-            requete = requete.filter(Inscription.annee_scolaire_id == annee_active.id)
-        effectifs = dict(requete.group_by(Inscription.classe_id).all())
+    effectifs = (effectifs_classes(etab_id, classe_ids_reels, annee_active.id)
+                 if classe_ids_reels and annee_active is not None else {})
 
     liens = (MatiereClasse.query.filter(MatiereClasse.classe_id.in_(classe_ids_reels)).all()
              if classe_ids_reels else [])
@@ -967,8 +965,9 @@ def censeur_roster():
     if classe_id not in classe_ids:
         return jsonify({"erreur": "Cette classe ne vous est pas assignée"}), 403
 
-    inscriptions = Inscription.query.filter_by(
-        classe_id=classe_id, annee_scolaire_id=annee_id
+    inscriptions = Inscription.query.filter(
+        Inscription.classe_id == classe_id, Inscription.annee_scolaire_id == annee_id,
+        Inscription.statut.in_(STATUTS_INSCRIPTION_EN_COURS),
     ).all()
 
     eleve_ids = {inscription.eleve_id for inscription in inscriptions}

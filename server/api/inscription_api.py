@@ -108,11 +108,12 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
     @bp.route('/', methods=['POST'])
     def create():
         claims = get_jwt()
-        etab_id = request.get_json().get("etablissement_id") if claims.get("role") == "SuperAdmin" \
+        data = request.get_json(silent=True) or {}
+        etab_id = data.get("etablissement_id") if claims.get("role") == "SuperAdmin" \
             else claims.get("etablissement_id")
         if not etab_id:
             return jsonify({"erreur": "etablissement_id requis"}), 400
-        result, status = create_entity_scoped(model, request.get_json(), etab_id, _current_classe_restriction())
+        result, status = create_entity_scoped(model, data, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
     @bp.route('/<int:id>', methods=['GET'])
@@ -129,7 +130,8 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
-        result, status = update_entity_scoped(entity, request.get_json(), etab_id, _current_classe_restriction())
+        result, status = update_entity_scoped(entity, request.get_json(silent=True) or {}, etab_id,
+                                              _current_classe_restriction())
         return jsonify(result), status
 
     @bp.route('/<int:id>', methods=['DELETE'])

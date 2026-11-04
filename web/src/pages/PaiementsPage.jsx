@@ -46,7 +46,9 @@ function aujourdhuiIso() {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-const estEchue = (dateLimite) => Boolean(dateLimite) && String(dateLimite).slice(0, 10) < aujourdhuiIso();
+// Tranche exigible : date limite passée, ou pas de date limite (due dès
+// l'inscription) — cf. paiements_services.tranche_exigible.
+const estExigible = (dateLimite) => !dateLimite || String(dateLimite).slice(0, 10) < aujourdhuiIso();
 
 const SOLVABILITE = {
   SOLVABLE: { label: 'Solvable', badge: 'bg-label-success' },
@@ -351,9 +353,8 @@ export default function PaiementsPage() {
           return;
         }
         const v = versements[insc.id] || {};
-        const aucune = tranchesClasse.every((t) => Number(v[t.id] || 0) === 0);
-        const retard = tranchesClasse.some((t) => estEchue(t.date_limite) && Number(v[t.id] || 0) < Number(t.montant_attendu || 0));
-        if (aucune || retard) nbInsolvables += 1;
+        const retard = tranchesClasse.some((t) => estExigible(t.date_limite) && Number(v[t.id] || 0) < Number(t.montant_attendu || 0));
+        if (retard) nbInsolvables += 1;
         else nbSolvables += 1;
       });
       const totalAttendu = tr.reduce((s, t) => s + t.attenduTotal, 0);
@@ -508,7 +509,7 @@ export default function PaiementsPage() {
         >
           <table className="table table-hover mb-0">
             <thead><tr><th>Élève</th><th>Classe</th><th>N° Reçu</th><th>Montant total</th><th>Date</th><th>Mode</th><th>Statut</th><th className="text-end">Actions</th></tr></thead>
-            <TBody colSpan={8} loading={loading} rows={paiementsAffiches.length} empty="Aucun paiement enregistré pour ce filtre." emptyIcon="bx-inbox">
+            <TBody colSpan={8} loading={loading} rows={paiementsAffiches.length} empty="Aucun paiement enregistré pour ce filtre." emptyIcon="bx-archive">
               {paiementsAffiches.map((p) => {
                 const insc = inscriptionsById[p.inscription_id];
                 const nom = insc ? eleveLabel(insc.eleve_id) : `Inscription #${p.inscription_id}`;
@@ -675,7 +676,7 @@ export default function PaiementsPage() {
               {loading ? (
                 <div className="col-12 text-center text-muted py-4"><span className="spinner-border spinner-border-sm me-1" /> Chargement des tranches…</div>
               ) : !tranchesGrid.length ? (
-                <div className="col-12 text-center text-muted py-4"><i className="bx bx-inbox me-2" />Aucune tranche définie pour ce filtre.</div>
+                <div className="col-12 text-center text-muted py-4"><i className="bx bx-archive me-2" />Aucune tranche définie pour ce filtre.</div>
               ) : tranchesGrid.map((t) => {
                 // montant_attendu est un montant PAR ÉLÈVE : l'attendu de la
                 // tranche pour la classe = montant × effectif actif.
@@ -684,7 +685,7 @@ export default function PaiementsPage() {
                 const effectif = effectifClasse(t.classe_id);
                 const attendu = montantUnitaire * effectif;
                 const pct = attendu > 0 ? Math.min(100, Math.round((verse / attendu) * 100)) : 0;
-                const enRetard = estEchue(t.date_limite) && verse < attendu;
+                const enRetard = estExigible(t.date_limite) && verse < attendu;
                 return (
                   <div key={t.id} className="col-md-6 col-xl-4">
                     <div className={`card border shadow-none h-100 ${enRetard ? 'border-danger' : ''}`}>
@@ -693,7 +694,7 @@ export default function PaiementsPage() {
                           <div>
                             <div className="fw-semibold">{t.libelle}</div>
                             <small className="text-muted d-block">{classeLabel(t.classe_id)} · ordre {t.ordre}</small>
-                            <small className="text-muted">{t.date_limite ? `Échéance : ${formatDateCourt(t.date_limite)}` : 'Sans échéance'}{enRetard && <EnRetard />}</small>
+                            <small className="text-muted">{t.date_limite ? `Échéance : ${formatDateCourt(t.date_limite)}` : 'Due dès l’inscription'}{enRetard && <EnRetard />}</small>
                           </div>
                           <div className="text-nowrap">
                             <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'tranche', data: t })} />

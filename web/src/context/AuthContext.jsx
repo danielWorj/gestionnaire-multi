@@ -85,15 +85,12 @@ export function AuthProvider({ children }) {
     return refreshUser();
   }, [refreshUser]);
 
-  const login = useCallback(async ({ email, password, etablissementId, superadmin = false }) => {
-    const body = { email, password };
-    if (!superadmin && etablissementId) {
-      body.etablissement_id = Number(etablissementId);
-    }
-
+  // Comptes d'établissement : code de connexion + PIN. SuperAdmin : email +
+  // mot de passe.
+  const login = useCallback(async ({ code, pin, email, password, superadmin = false }) => {
     await apiRequest(superadmin ? '/auth/superadmin/login' : '/auth/login', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify(superadmin ? { email, password } : { code, pin }),
     });
 
     // /auth/me renvoie un format unique (avec 'type' et 'doit_changer_mdp')
@@ -113,15 +110,23 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
-  // Le serveur révoque la session et efface les cookies après un changement
-  // de mot de passe : il faut se reconnecter avec le nouveau mot de passe.
+  // Changement de PIN : le serveur pose de nouveaux cookies, la session
+  // continue (on relit le compte, doit_changer_mdp repasse à false).
+  // SuperAdmin : session révoquée et cookies effacés, il faut se reconnecter.
   const changePassword = useCallback(async ({ oldPassword, newPassword }) => {
+    const superadmin = user?.type === 'superadmin';
     await apiRequest('/auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+      body: JSON.stringify(superadmin
+        ? { old_password: oldPassword, new_password: newPassword }
+        : { ancien_pin: oldPassword, nouveau_pin: newPassword }),
     });
-    setUser(null);
-  }, []);
+    if (superadmin) {
+      setUser(null);
+      return null;
+    }
+    return refreshUser();
+  }, [user, refreshUser]);
 
   const reloadEtablissements = useCallback(async () => {
     if (user?.type !== 'superadmin') {

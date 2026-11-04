@@ -13,9 +13,11 @@ from models.structure_models import Classe, AnneeScolaire
 # pedagogie_models.py. Pas de cycle : authentification_models.py n'importe
 # rien de ce module ni de pedagogie_models.py.
 from models.authentification_models import (
-    Utilisateur, Role, generate_temp_password, TEMP_PASSWORD_VALIDITY_HOURS
+    Utilisateur, Role, generate_temp_pin, TEMP_PASSWORD_VALIDITY_HOURS
 )
 from extensions import db
+# Pas de cycle : authentification_services n'importe pas ce module.
+from services.authentification_services import nettoyer_email, trouver_compte_existant
 
 # Les opérations CRUD "brutes" (create_entity, get_all_entities,
 # get_entity_by_id, update_entity, delete_entity) sont 100% génériques
@@ -154,7 +156,38 @@ def _validate_foreign_keys_scoped(model_class, data, etablissement_id):
         if not surveillant or surveillant.etablissement_id != etablissement_id:
             return "Surveillant invalide pour cet établissement"
 
+    if model_class in _ROLE_PROFIL and data.get('utilisateur_id') not in (None, ''):
+        # Lien profil métier -> compte de connexion : le compte doit exister,
+        # appartenir au MÊME établissement et porter le rôle correspondant
+        # (sinon n'importe quel compte, voire celui d'un autre
+        # établissement, pouvait hériter des classes ou des matières du
+        # profil — et donc des droits de saisie des notes).
+        utilisateur = Utilisateur.query.get(data['utilisateur_id'])
+        role = _ROLE_PROFIL[model_class]
+        if not utilisateur or utilisateur.etablissement_id != etablissement_id:
+            return "Compte de connexion invalide pour cet établissement"
+        if not utilisateur.a_role(role):
+            return f"Ce compte de connexion n'a pas le rôle {role}"
+
+    if model_class is MatiereClasse and 'coefficient' in data:
+        try:
+            coefficient = int(data['coefficient'])
+        except (TypeError, ValueError):
+            return "Coefficient invalide"
+        if coefficient <= 0:
+            return "Le coefficient doit être un entier strictement positif"
+
     return None
+
+
+_ROLE_PROFIL = {Enseignant: 'Enseignant', Censeur: 'Censeur', Surveillant: 'Surveillant'}
+
+
+def _entier(valeur):
+    try:
+        return int(valeur)
+    except (TypeError, ValueError):
+        return None
 
 
 def get_all_entities_scoped(model_class, etablissement_id, classe_ids_restriction=None):
@@ -190,8 +223,7 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
         return {"erreur": error}, 400
 
     if classe_ids_restriction is not None and model_class in CLASSE_RESTREIGNABLE_MODELS:
-        classe_id = data.get('classe_id')
-        if classe_id is None or int(classe_id) not in classe_ids_restriction:
+        if _entier(data.get('classe_id')) not in classe_ids_restriction:
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     return create_entity(model_class, data)
@@ -209,8 +241,7 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
         # get_entity_scoped, appelé en amont côté API) ; on vérifie ICI en
         # plus la classe CIBLE, si le payload cherche à déplacer
         # l'affectation vers une autre classe hors périmètre.
-        nouveau_classe_id = data.get('classe_id', entity.classe_id)
-        if int(nouveau_classe_id) not in classe_ids_restriction:
+        if _entier(data.get('classe_id', entity.classe_id)) not in classe_ids_restriction:
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     error = _validate_foreign_keys_scoped(type(entity), data, etablissement_id)
@@ -357,17 +388,18 @@ _ROLE_MODELS = {
 
 
 def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
-    """role_libelle : 'Censeur' ou 'Surveillant'. data : {nom, prenom, email,
-    telephone (optionnel), sexe (optionnel), classe_ids (optionnel, liste
-    d'int)}. Retourne (résultat, status) — résultat contient le profil créé,
-    le compte de connexion lié et le mot de passe temporaire en clair (une
-    seule fois, comme create_utilisateur ; None si un compte existant a été
-    réutilisé, cf. compte_existant)."""
+    """role_libelle : 'Censeur' ou 'Surveillant'. data : {nom, prenom,
+    email (optionnel), code_existant (optionnel), telephone (optionnel),
+    sexe (optionnel), classe_ids (optionnel, liste d'int)}. Retourne
+    (résultat, status) — résultat contient le profil créé, le compte de
+    connexion lié (avec son code_connexion) et le PIN temporaire en clair
+    (une seule fois, comme create_utilisateur ; None si un compte existant a
+    été réutilisé, cf. compte_existant)."""
     model_class, liaison_class, cle_profil = _ROLE_MODELS[role_libelle]
     data = dict(data or {})
 
-    for champ in ('nom', 'prenom', 'email'):
-        if not data.get(champ):
+    for champ in ('nom', 'prenom'):
+        if not (data.get(champ) or '').strip():
             return {"erreur": f"{champ} requis"}, 400
 
     role = Role.query.filter_by(libelle=role_libelle).first()
@@ -376,17 +408,22 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
         # préfère un message explicite à une 500 muette.
         return {"erreur": f"Rôle '{role_libelle}' introuvable — avez-vous appelé Role.init_roles() ?"}, 500
 
-    email = data['email']
+    email = nettoyer_email(data.get('email'))
 
-    # Unicité du profil métier, globale — même règle que Enseignant.email
-    # (cf. pedagogie_models.py).
-    if model_class.query.filter_by(email=email).first():
+    # Unicité du profil métier au sein de l'établissement (cf.
+    # pedagogie_models.py : une même personne peut exercer dans deux écoles).
+    if email and model_class.query.filter_by(email=email, etablissement_id=etablissement_id).first():
         return {"erreur": f"Un {role_libelle.lower()} avec cet email existe déjà"}, 409
 
     # Multi-rôles : si cette personne a déjà un compte de connexion dans
-    # l'établissement (ex : un Enseignant que l'on nomme aussi Censeur), on
-    # le réutilise en lui ajoutant le rôle, au lieu d'en créer un second.
-    compte_existant = Utilisateur.query.filter_by(email=email, etablissement_id=etablissement_id).first()
+    # l'établissement (ex : un Enseignant que l'on nomme aussi Censeur),
+    # désigné par son code de connexion (ou retrouvé par son email), on le
+    # réutilise en lui ajoutant le rôle, au lieu d'en créer un second.
+    compte_existant, erreur = trouver_compte_existant(
+        etablissement_id, email=email, code_existant=data.get('code_existant')
+    )
+    if erreur:
+        return erreur
     if compte_existant and model_class.query.filter_by(utilisateur_id=compte_existant.id).first():
         return {"erreur": f"Ce compte est déjà relié à un profil {role_libelle.lower()}"}, 409
 
@@ -411,19 +448,19 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
             return {"erreur": f"Classe(s) déjà assignée(s) à un autre censeur : {libelles}"}, 409
 
     if compte_existant:
-        # Le mot de passe du compte reste inchangé : rien à communiquer.
-        mot_de_passe = None
+        # Le PIN du compte reste inchangé : rien à communiquer.
+        pin = None
         utilisateur = compte_existant
         if role not in utilisateur.roles:
             utilisateur.roles.append(role)
     else:
-        mot_de_passe = generate_temp_password()
+        pin = generate_temp_pin()
 
         utilisateur = Utilisateur(
             # Utilisateur ne porte qu'un champ 'nom' (pas de prenom séparé,
             # contrairement à Censeur/Surveillant/Enseignant) : on y concatène
             # prénom + nom pour un affichage correct côté /api/auth/me.
-            nom=f"{data['prenom']} {data['nom']}".strip(),
+            nom=f"{data['prenom'].strip()} {data['nom'].strip()}",
             email=email,
             roles=[role],
             etablissement_id=etablissement_id,
@@ -431,12 +468,12 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
             doit_changer_mdp=True,
             mdp_expire_le=datetime.utcnow() + TEMP_PASSWORD_VALIDITY,
         )
-        utilisateur.set_password(mot_de_passe)
+        utilisateur.set_password(pin)
 
     profil = model_class(
         etablissement_id=etablissement_id,
-        nom=data['nom'],
-        prenom=data['prenom'],
+        nom=data['nom'].strip(),
+        prenom=data['prenom'].strip(),
         telephone=data.get('telephone'),
         email=email,
         sexe=data.get('sexe'),
@@ -465,9 +502,8 @@ def _creer_profil_avec_compte(role_libelle, data, etablissement_id):
     result['compte'] = utilisateur.to_dict()
     # Communiqué UNE SEULE FOIS ici, comme dans
     # authentification_services.create_utilisateur : le hash bcrypt n'est
-    # pas réversible, ce mot de passe en clair ne sera plus jamais
-    # récupérable ensuite.
-    result['mot_de_passe_temporaire'] = mot_de_passe
+    # pas réversible, ce PIN en clair ne sera plus jamais récupérable ensuite.
+    result['pin_temporaire'] = pin
     result['compte_existant'] = compte_existant is not None
     result['classe_ids'] = [c.id for c in classes]
     return result, 201

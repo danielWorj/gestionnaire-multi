@@ -40,6 +40,16 @@ function lireOptions(children, groupe = null, acc = []) {
   return acc;
 }
 
+const MOBILE = '(max-width: 767.98px)';
+
+// Libellé du champ (label[for], ou .form-label qui précède le Select).
+function libelleDuChamp(bouton) {
+  const sel = bouton?.closest('.sel');
+  const label = (bouton?.id && document.querySelector(`label[for="${CSS.escape(bouton.id)}"]`))
+    || (sel?.previousElementSibling?.matches('.form-label, label') && sel.previousElementSibling);
+  return label?.textContent.replace(/\s*\*\s*$/, '').trim() || '';
+}
+
 const setterValeur = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
 
 export default function Select({
@@ -82,6 +92,11 @@ export default function Select({
   }, [options, recherche]);
 
   const placer = () => {
+    // Téléphone : la liste s'ouvre en feuille glissante depuis le bas.
+    if (window.matchMedia(MOBILE).matches) {
+      setPosition({ feuille: true, titre: ariaLabel || libelleDuChamp(triggerRef.current) });
+      return;
+    }
     const r = triggerRef.current?.getBoundingClientRect();
     if (!r) return;
     const hauteurMax = 320;
@@ -116,7 +131,12 @@ export default function Select({
     if (!ouvert) return;
     const index = filtrees.findIndex((o) => o.value === String(courante));
     setActif(index >= 0 ? index : filtrees.findIndex((o) => !o.disabled));
-    rechercheRef.current?.focus();
+    // En feuille, pas de focus automatique : le clavier masquerait la liste.
+    if (window.matchMedia(MOBILE).matches) {
+      listeRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'center' });
+    } else {
+      rechercheRef.current?.focus();
+    }
   }, [ouvert]);
 
   useEffect(() => {
@@ -127,6 +147,9 @@ export default function Select({
   useEffect(() => {
     if (!ouvert) return undefined;
     const surClic = (e) => {
+      // Le fond de la feuille se ferme au « click » (pas au mousedown) pour
+      // que le tap ne retombe pas sur l'élément situé dessous.
+      if (e.target.classList?.contains('sel-fond')) return;
       if (!panneauRef.current?.contains(e.target) && !triggerRef.current?.contains(e.target)) fermer(false);
     };
     document.addEventListener('mousedown', surClic);
@@ -185,60 +208,70 @@ export default function Select({
   const classesBouton = `${className} sel-trigger${ouvert ? ' sel-trigger-ouvert' : ''}`;
 
   let groupePrecedent = null;
+  const feuille = !!position?.feuille;
+  const avecRecherche = !feuille || options.length > 7;
   const panneau = ouvert && position && createPortal(
-    <div
-      ref={panneauRef}
-      className={`sel-panneau${position.versLeHaut ? ' sel-panneau-haut' : ''}`}
-      style={{ left: position.left, width: position.width, top: position.top, bottom: position.bottom, maxHeight: position.maxHeight }}
-    >
-      <div className="sel-recherche">
-        <i className="bx bx-search" />
-        <input
-          ref={rechercheRef}
-          type="text"
-          value={recherche}
-          onChange={(e) => setRecherche(e.target.value)}
-          onKeyDown={surToucheRecherche}
-          placeholder={searchPlaceholder}
-          aria-controls={listeId}
-          aria-activedescendant={actif >= 0 ? `${listeId}-${actif}` : undefined}
-        />
-        {recherche && (
-          <button type="button" className="sel-effacer" onClick={() => { setRecherche(''); rechercheRef.current?.focus(); }} aria-label="Effacer">
-            <i className="bx bx-x" />
-          </button>
+    <>
+      {feuille && <div className="sel-fond" onClick={() => fermer(false)} />}
+      <div
+        ref={panneauRef}
+        className={`sel-panneau${position.versLeHaut ? ' sel-panneau-haut' : ''}${feuille ? ' sel-panneau-feuille' : ''}`}
+        style={feuille ? undefined : { left: position.left, width: position.width, top: position.top, bottom: position.bottom, maxHeight: position.maxHeight }}
+        role={feuille ? 'dialog' : undefined}
+        aria-label={feuille ? ariaLabel : undefined}
+      >
+        {feuille && position.titre && <div className="sel-titre">{position.titre}</div>}
+        {avecRecherche && (
+          <div className="sel-recherche">
+            <i className="bx bx-search" />
+            <input
+              ref={rechercheRef}
+              type="text"
+              value={recherche}
+              onChange={(e) => setRecherche(e.target.value)}
+              onKeyDown={surToucheRecherche}
+              placeholder={searchPlaceholder}
+              aria-controls={listeId}
+              aria-activedescendant={actif >= 0 ? `${listeId}-${actif}` : undefined}
+            />
+            {recherche && (
+              <button type="button" className="sel-effacer" onClick={() => { setRecherche(''); rechercheRef.current?.focus(); }} aria-label="Effacer">
+                <i className="bx bx-x" />
+              </button>
+            )}
+          </div>
         )}
+        <ul ref={listeRef} id={listeId} className="sel-liste" role="listbox">
+          {filtrees.length === 0 && (
+            <li className="sel-vide"><i className="bx bx-search-alt" />Aucun résultat</li>
+          )}
+          {filtrees.map((o, i) => {
+            const entete = o.groupe && o.groupe !== groupePrecedent;
+            groupePrecedent = o.groupe;
+            const choisie = o.value === String(courante);
+            return (
+              <Fragment key={`${o.value}-${i}`}>
+                {entete && <li className="sel-groupe">{o.groupe}</li>}
+                <li
+                  id={`${listeId}-${i}`}
+                  data-index={i}
+                  role="option"
+                  aria-selected={choisie}
+                  aria-disabled={o.disabled || undefined}
+                  className={`sel-option${choisie ? ' sel-option-choisie' : ''}${i === actif ? ' sel-option-active' : ''}${o.disabled ? ' sel-option-desactivee' : ''}${o.groupe ? ' sel-option-groupee' : ''}`}
+                  onMouseEnter={() => !o.disabled && setActif(i)}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => choisir(o)}
+                >
+                  <span className="sel-option-texte">{o.label || ' '}</span>
+                  {choisie && <i className="bx bx-check" />}
+                </li>
+              </Fragment>
+            );
+          })}
+        </ul>
       </div>
-      <ul ref={listeRef} id={listeId} className="sel-liste" role="listbox">
-        {filtrees.length === 0 && (
-          <li className="sel-vide"><i className="bx bx-search-alt" />Aucun résultat</li>
-        )}
-        {filtrees.map((o, i) => {
-          const entete = o.groupe && o.groupe !== groupePrecedent;
-          groupePrecedent = o.groupe;
-          const choisie = o.value === String(courante);
-          return (
-            <Fragment key={`${o.value}-${i}`}>
-              {entete && <li className="sel-groupe">{o.groupe}</li>}
-              <li
-                id={`${listeId}-${i}`}
-                data-index={i}
-                role="option"
-                aria-selected={choisie}
-                aria-disabled={o.disabled || undefined}
-                className={`sel-option${choisie ? ' sel-option-choisie' : ''}${i === actif ? ' sel-option-active' : ''}${o.disabled ? ' sel-option-desactivee' : ''}${o.groupe ? ' sel-option-groupee' : ''}`}
-                onMouseEnter={() => !o.disabled && setActif(i)}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => choisir(o)}
-              >
-                <span className="sel-option-texte">{o.label || ' '}</span>
-                {choisie && <i className="bx bx-check" />}
-              </li>
-            </Fragment>
-          );
-        })}
-      </ul>
-    </div>,
+    </>,
     document.body,
   );
 

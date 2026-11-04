@@ -111,19 +111,19 @@ export function useSave(onSaved) {
 
 export function PageHeader({ title, subtitle, children }) {
   return (
-    <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-      <div>
+    <div className="page-entete d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+      <div className="page-entete-titre">
         <h4 className="fw-bold mb-1">{title}</h4>
         {subtitle && <p className="mb-0 text-muted small">{subtitle}</p>}
       </div>
-      {children && <div className="d-flex flex-wrap gap-2">{children}</div>}
+      {children && <div className="page-entete-actions d-flex flex-wrap gap-2">{children}</div>}
     </div>
   );
 }
 
 export function StatCard({ label, value, icon, color = 'primary', sub, className = 'col-sm-6 col-xl-3' }) {
   return (
-    <div className={className}>
+    <div className={`stat-col ${className}`}>
       <div className="card h-100">
         <div className="card-body">
           <div className="d-flex justify-content-between align-items-start">
@@ -168,7 +168,7 @@ export function TableCard({ title, icon, count, actions, children, footer }) {
           {title}
           {count !== undefined && <span className="badge rounded-pill bg-label-primary ms-2">{count}</span>}
         </h5>
-        {actions && <div className="d-flex flex-wrap gap-2">{actions}</div>}
+        {actions && <div className="table-carte-actions d-flex flex-wrap gap-2">{actions}</div>}
       </div>
       <div className="table-responsive text-nowrap">{children}</div>
       {footer && <div className="card-footer">{footer}</div>}
@@ -291,9 +291,9 @@ export function Pager({ pagination, unit = 'éléments', sizes = [25, 50, 100] }
   const numbers = [];
   for (let i = from; i <= to; i++) numbers.push(i);
   return (
-    <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-2 border-top">
+    <div className="pager d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-2 border-top">
       <small className="text-muted">{total ? `${start + 1}–${end} sur ${total} ${unit}` : `Aucun ${unit.replace(/s$/, '')}`}</small>
-      <div className="d-flex align-items-center gap-2">
+      <div className="pager-actions d-flex align-items-center gap-2">
         <Select className="form-select form-select-sm" style={{ width: 'auto' }} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="Par page">
           {sizes.map((n) => <option key={n} value={n}>{n} / page</option>)}
           <option value={0}>Tout afficher</option>
@@ -356,32 +356,49 @@ export async function copyText(text, label, toast) {
   }
 }
 
-// Modale « identifiants générés » (mot de passe temporaire affiché une seule fois).
-export function IdentifiantsModal({ email, motDePasse, onClose, destinataire = "l'utilisateur", titre = 'Compte de connexion créé' }) {
+// Modale « fiche d'accès » : code de connexion + PIN temporaire, affichés
+// une seule fois. La fiche elle-même (.print-area) est imprimable pour être
+// remise en main propre.
+export function IdentifiantsModal({ nom, code, pin, onClose, destinataire = "l'utilisateur", titre = 'Compte de connexion créé' }) {
   const toast = useToast();
   return (
     <Modal
       size=""
       title={<><i className="bx bx-key me-2 text-primary" />{titre}</>}
       onClose={onClose}
-      footer={<button type="button" className="btn btn-primary btn-sm" onClick={onClose}><i className="bx bx-check me-1" /> J'ai noté, fermer</button>}
+      footer={(
+        <>
+          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => window.print()}><i className="bx bx-printer me-1" /> Imprimer la fiche</button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onClose}><i className="bx bx-check me-1" /> J'ai noté, fermer</button>
+        </>
+      )}
     >
       <div className="alert alert-warning d-flex align-items-start gap-2 py-2 mb-3 small">
         <i className="bx bx-error mt-1" />
-        <div>Ce mot de passe temporaire ne sera plus affiché après la fermeture de cette fenêtre. Copiez-le et transmettez-le à {destinataire} dès maintenant. Il devra le changer lors de sa première connexion (valable 48h).</div>
+        <div>Ce PIN ne sera plus affiché après la fermeture de cette fenêtre. Notez-le ou imprimez la fiche, et remettez-la à {destinataire}.</div>
       </div>
-      <label className="form-label">Email de connexion</label>
-      <div className="input-group mb-3">
-        <input type="text" className="form-control" value={email} readOnly />
-        <button type="button" className="btn btn-outline-secondary" title="Copier l'email" onClick={() => copyText(email, "L'email", toast)}><i className="bx bx-copy" /></button>
+      <div className="fiche-acces print-area">
+        <div className="fiche-acces-titre">Fiche d'accès</div>
+        {nom && <div className="fw-semibold mb-2">{nom}</div>}
+        <div className="fiche-acces-ligne">
+          <span className="fiche-acces-etiquette">Code de connexion</span>
+          <span className="fiche-acces-valeur">{code}</span>
+        </div>
+        {pin && (
+          <div className="fiche-acces-ligne">
+            <span className="fiche-acces-etiquette">PIN temporaire</span>
+            <span className="fiche-acces-valeur">{pin}</span>
+          </div>
+        )}
+        <ol className="fiche-acces-consignes">
+          <li>Ouvrez l'application et saisissez votre <strong>code</strong> puis votre <strong>PIN</strong>.</li>
+          <li>Choisissez ensuite votre propre PIN de 4 chiffres (ce PIN temporaire n'est valable que 48h).</li>
+          <li>Ne communiquez jamais votre PIN : votre code seul ne suffit pas pour se connecter.</li>
+        </ol>
       </div>
-      <label className="form-label">Mot de passe temporaire</label>
-      <div className="input-group mb-3">
-        <input type="text" className="form-control fw-bold font-monospace" value={motDePasse} readOnly />
-        <button type="button" className="btn btn-outline-secondary" title="Copier le mot de passe" onClick={() => copyText(motDePasse, 'Le mot de passe', toast)}><i className="bx bx-copy" /></button>
-      </div>
-      <button type="button" className="btn btn-outline-primary btn-sm w-100" onClick={() => copyText(`Email : ${email}\nMot de passe temporaire : ${motDePasse}`, 'Les identifiants', toast)}>
-        <i className="bx bx-copy me-1" /> Copier l'email et le mot de passe
+      <button type="button" className="btn btn-outline-primary btn-sm w-100 mt-3" onClick={() => copyText(`Code de connexion : ${code}${pin ? `
+PIN temporaire : ${pin}` : ''}`, 'Le code et le PIN', toast)}>
+        <i className="bx bx-copy me-1" /> Copier le code et le PIN
       </button>
     </Modal>
   );

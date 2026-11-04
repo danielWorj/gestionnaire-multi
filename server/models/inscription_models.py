@@ -1,5 +1,12 @@
 from extensions import db
 
+# Statuts d'une Inscription (cf. web/src/pages/InscriptionsPage.jsx).
+STATUTS_INSCRIPTION = ('Actif', 'Suspendu', 'Radié', 'Transféré')
+# Élèves qui font encore partie de la classe : ce sont eux que comptent
+# l'effectif, les listes d'appel/de saisie et les bulletins (un élève
+# suspendu reste dans la classe ; radié ou transféré, il en est sorti).
+STATUTS_INSCRIPTION_EN_COURS = ('Actif', 'Suspendu')
+
 
 # ---------------------------------------------------------------------------
 # Parent, Eleve — cloisonnés par établissement (colonne etablissement_id
@@ -17,11 +24,10 @@ from extensions import db
 
 class Parent(db.Model):
     """Représente le parent/tuteur d'un ou plusieurs élèves (cf. relation
-    'enfants' ci-dessous). email est unique GLOBALEMENT (et non par
-    établissement) : un même parent, s'il a des enfants dans plusieurs
-    établissements, devrait à terme être identifié par une seule et même
-    fiche — même choix de conception que Enseignant.email dans
-    pedagogie_models.py."""
+    'enfants' ci-dessous). email est unique AU SEIN de l'établissement
+    (uq_parent_email_etablissement) : un parent ayant des enfants dans deux
+    établissements a une fiche dans chacun, et un établissement n'apprend
+    plus qu'un e-mail est déjà connu ailleurs."""
     __tablename__ = 'parent'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -29,7 +35,11 @@ class Parent(db.Model):
     nom = db.Column(db.String(100), nullable=False)
     prenom = db.Column(db.String(100), nullable=False)
     telephone = db.Column(db.String(20), nullable=False)
-    email = db.Column(db.String(150), unique=True, nullable=False)
+    email = db.Column(db.String(150), nullable=False)
+
+    __table_args__ = (
+        db.UniqueConstraint('etablissement_id', 'email', name='uq_parent_email_etablissement'),
+    )
 
     etablissement = db.relationship('Etablissement', backref='parents', lazy=True)
     enfants = db.relationship('Eleve', backref='parent', lazy=True)
@@ -84,10 +94,11 @@ class Eleve(db.Model):
 
 class Inscription(db.Model):
     """Une case d'inscription : un Eleve inscrit dans une Classe pour une
-    AnneeScolaire donnée. uq_inscription empêche la double inscription du
-    même élève, dans la même classe, la même année scolaire (un élève
-    redoublant/changeant de classe une année différente donne une nouvelle
-    ligne, ce n'est pas bloqué).
+    AnneeScolaire donnée. Un élève n'a qu'UNE inscription par année
+    scolaire (vérifié côté service, cf.
+    inscription_services._valider_inscription_unique : un changement de
+    classe en cours d'année se fait en modifiant l'inscription existante).
+    uq_inscription (élève, classe, année) reste le garde-fou en base.
 
     Pas de etablissement_id direct : déduit de classe_id ->
     Classe.etablissement_id — même logique que TitulaireClasse/MatiereClasse

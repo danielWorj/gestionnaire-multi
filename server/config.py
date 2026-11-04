@@ -73,11 +73,35 @@ class Config:
     CORS_SUPPORTS_CREDENTIALS = True
 
     # --- Rate limiting (Flask-Limiter) ---
+    # memory:// : compteur propre à chaque worker gunicorn (la limite réelle
+    # est donc multipliée par GUNICORN_WORKERS). redis://... pour un compteur
+    # partagé.
     RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
-    RATELIMIT_DEFAULT = "200 per hour"
-    # Limites dédiées aux routes sensibles (brute-force login)
-    RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "5 per minute")
-    RATELIMIT_REFRESH = os.environ.get("RATELIMIT_REFRESH", "30 per hour")
+    # Pas de limite globale par IP : une école entière partage souvent la
+    # même IP (NAT de l'opérateur, salle informatique) et chaque page fait
+    # plusieurs appels — l'ancien « 200 per hour » bloquait l'application en
+    # quelques minutes. Seules les routes sensibles sont limitées (ci-dessous).
+    if os.environ.get("RATELIMIT_DEFAULT"):
+        RATELIMIT_DEFAULT = os.environ["RATELIMIT_DEFAULT"]
+    # Limite par IP de la connexion code + PIN, souple pour la même raison.
+    # Le rempart contre les essais au hasard est double : RATELIMIT_LOGIN_ECHECS
+    # par couple (code, IP), puis le verrouillage du compte
+    # (cf. MAX_ECHECS_CONNEXION).
+    RATELIMIT_LOGIN = os.environ.get("RATELIMIT_LOGIN", "60 per minute")
+    # PIN faux pour un même code depuis une même IP : au-delà, cette IP est
+    # refusée pour ce code, sans faire avancer le compteur de verrouillage du
+    # compte — un tiers isolé ne peut donc plus bloquer le compte d'autrui.
+    RATELIMIT_LOGIN_ECHECS = os.environ.get("RATELIMIT_LOGIN_ECHECS", "5 per 15 minutes")
+    # Le SuperAdmin (email + mot de passe, sans verrouillage de compte) garde
+    # une limite stricte.
+    RATELIMIT_LOGIN_SUPERADMIN = os.environ.get("RATELIMIT_LOGIN_SUPERADMIN", "5 per minute")
+    # Comptée par SESSION (cookie de refresh), pas par IP : un refresh toutes
+    # les 15 min par session, la limite ne sert qu'à couper une boucle folle.
+    RATELIMIT_REFRESH = os.environ.get("RATELIMIT_REFRESH", "20 per minute")
+
+    # Taille maximale d'une requête (imports d'archives jusqu'à 15 Mo par
+    # fichier, logos) — aligné sur client_max_body_size de nginx.
+    MAX_CONTENT_LENGTH = 20 * 1024 * 1024
 
     # --- Politique de mot de passe ---
     PASSWORD_MIN_LENGTH = 8

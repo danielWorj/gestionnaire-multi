@@ -1,3 +1,5 @@
+from datetime import datetime, time
+
 from models.emploi_du_temps_models import CreneauHoraire, Horaire, JOURS_SEMAINE
 from models.pedagogie_models import MatiereClasse
 from models.structure_models import Classe, AnneeScolaire
@@ -48,12 +50,44 @@ def get_creneau_scoped(creneau_id, etablissement_id):
     return entity
 
 
+def _parse_heure(valeur):
+    if isinstance(valeur, time):
+        return valeur
+    for fmt in ('%H:%M:%S', '%H:%M'):
+        try:
+            return datetime.strptime(str(valeur).strip(), fmt).time()
+        except ValueError:
+            continue
+    return None
+
+
+def _valider_heures(data, entity=None):
+    """Convertit heure_debut/heure_fin ('08:00' ou '08:00:00') en objets
+    time et impose heure_debut < heure_fin (état final pour un PUT partiel).
+    Retourne un message d'erreur ou None."""
+    for champ in ('heure_debut', 'heure_fin'):
+        if champ in data:
+            heure = _parse_heure(data[champ])
+            if heure is None:
+                return f"{champ} invalide (format attendu : HH:MM)"
+            data[champ] = heure
+    debut = data.get('heure_debut', entity.heure_debut if entity else None)
+    fin = data.get('heure_fin', entity.heure_fin if entity else None)
+    if debut and fin and debut >= fin:
+        return "L'heure de début doit précéder l'heure de fin"
+    return None
+
+
 def create_creneau_scoped(data, etablissement_id):
     data = dict(data or {})
 
     for champ in ('libelle', 'heure_debut', 'heure_fin'):
-        if champ not in data:
+        if data.get(champ) in (None, ''):
             return {"erreur": f"{champ} requis"}, 400
+
+    error = _valider_heures(data)
+    if error:
+        return {"erreur": error}, 400
 
     data['etablissement_id'] = etablissement_id
     return create_entity(CreneauHoraire, data)
@@ -67,6 +101,10 @@ def update_creneau_scoped(entity, data, etablissement_id):
     # etablissement_id n'est pas modifiable via l'API (déduit du contexte,
     # pas du payload) — même logique que pour les référentiels pédagogiques.
     data.pop('etablissement_id', None)
+
+    error = _valider_heures(data, entity)
+    if error:
+        return {"erreur": error}, 400
 
     return update_entity(entity, data)
 
@@ -147,14 +185,22 @@ def _check_collisions(data, exclude_horaire_id=None):
     mc = MatiereClasse.query.get(data['matiere_classe_id'])
     if not mc:
         return "Matière-classe invalide"
+    creneau = db.session.get(CreneauHoraire, data['creneau_id'])
+    if not creneau:
+        return "Créneau horaire invalide"
 
+    # Collision = même jour, même année, et créneaux qui SE CHEVAUCHENT
+    # (pas seulement le même creneau_id : « 8h-9h » et « 8h30-9h30 » se
+    # recouvrent aussi).
     query = (
         Horaire.query
         .join(MatiereClasse, Horaire.matiere_classe_id == MatiereClasse.id)
+        .join(CreneauHoraire, Horaire.creneau_id == CreneauHoraire.id)
         .filter(
             Horaire.jour_semaine == data['jour_semaine'],
-            Horaire.creneau_id == data['creneau_id'],
             Horaire.annee_scolaire_id == data['annee_scolaire_id'],
+            CreneauHoraire.heure_debut < creneau.heure_fin,
+            CreneauHoraire.heure_fin > creneau.heure_debut,
         )
     )
     if exclude_horaire_id:

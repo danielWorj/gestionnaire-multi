@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
-import { roleInfo } from '../lib/espaces';
+import { ROLES_SANS_ESPACE, roleInfo } from '../lib/espaces';
 import Modal from './Modal';
 import { IdentifiantsModal, useConfirm, useToast } from './ui';
 
 // Gestion des administrateurs d'un établissement (SuperAdmin uniquement, cf.
-// /api/auth/utilisateurs) : liste, ajout, modification (nom, email, rôles
-// cumulés), réinitialisation du mot de passe, désactivation / réactivation.
+// /api/auth/utilisateurs) : liste, ajout, modification (nom, email
+// facultatif, rôles cumulés), réinitialisation du PIN, désactivation /
+// réactivation. Chaque compte se connecte avec son code + son PIN.
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Rôles qui ouvrent un espace lié à une fiche métier : la fiche (même email)
-// se crée côté établissement, sinon l'espace reste vide.
+// Rôles qui ouvrent un espace lié à une fiche métier : la fiche se crée côté
+// établissement (en indiquant le code de ce compte), sinon l'espace reste vide.
 const ROLES_AVEC_FICHE = {
   Enseignant: 'la fiche enseignant (page Enseignants)',
   Censeur: 'la fiche censeur (page Configuration)',
@@ -26,8 +27,9 @@ function formatDateHeure(iso) {
 
 function statutAdmin(a) {
   if (!a.actif) return { label: 'Désactivé', cls: 'bg-label-secondary' };
-  if (a.doit_changer_mdp && a.mdp_expire_le && new Date(a.mdp_expire_le) < new Date()) return { label: 'Mot de passe expiré', cls: 'bg-label-danger' };
-  if (a.doit_changer_mdp) return { label: 'Mot de passe à changer', cls: 'bg-label-warning' };
+  if (a.verrouille) return { label: 'Bloqué (PIN faux)', cls: 'bg-label-danger' };
+  if (a.doit_changer_mdp && a.mdp_expire_le && new Date(a.mdp_expire_le) < new Date()) return { label: 'PIN temporaire expiré', cls: 'bg-label-danger' };
+  if (a.doit_changer_mdp) return { label: 'PIN à changer', cls: 'bg-label-warning' };
   return { label: 'Actif', cls: 'bg-label-success' };
 }
 
@@ -43,7 +45,7 @@ export default function AdministrateursModal({ etab, onClose }) {
   const [roles, setRoles] = useState([]);
   const [erreur, setErreur] = useState('');
   const [formulaire, setFormulaire] = useState(null); // { admin } (admin null = ajout)
-  const [identifiants, setIdentifiants] = useState(null); // { email, motDePasse, titre }
+  const [identifiants, setIdentifiants] = useState(null); // { nom, code, pin, titre }
   const [occupe, setOccupe] = useState(null); // id de l'admin en cours d'action
   const modifie = useRef(false);
 
@@ -74,15 +76,15 @@ export default function AdministrateursModal({ etab, onClose }) {
   const dernierActif = (a) => a.actif && actifs.length === 1;
 
   const reinitialiser = async (a) => {
-    const ok = await confirm(<>Générer un nouveau mot de passe temporaire pour <strong>{a.nom}</strong> ?</>, {
-      title: 'Réinitialiser le mot de passe', icon: 'bx-key', danger: false, confirmLabel: 'Réinitialiser', confirmIcon: 'bx-refresh',
-      details: "Son mot de passe actuel cessera de fonctionner et sa session en cours sera fermée. Il devra choisir un nouveau mot de passe à la connexion (valable 48h).",
+    const ok = await confirm(<>Générer un nouveau PIN temporaire pour <strong>{a.nom}</strong> ?</>, {
+      title: 'Réinitialiser le PIN', icon: 'bx-key', danger: false, confirmLabel: 'Réinitialiser', confirmIcon: 'bx-refresh',
+      details: "Son PIN actuel cessera de fonctionner, son compte est débloqué et sa session en cours fermée. Son code de connexion ne change pas. Il choisira un nouveau PIN à la connexion (PIN temporaire valable 48h).",
     });
     if (!ok) return;
     setOccupe(a.id);
     try {
       const r = await apiRequest(`/auth/utilisateurs/${a.id}/reset-password`, { method: 'POST' });
-      setIdentifiants({ email: r.email, motDePasse: r.mot_de_passe_temporaire, titre: 'Nouveau mot de passe temporaire' });
+      setIdentifiants({ nom: r.nom, code: r.code_connexion, pin: r.pin_temporaire, titre: 'Nouveau PIN temporaire' });
       await apresChangement();
     } catch (e) {
       toast(e.message, 'error');
@@ -161,7 +163,9 @@ export default function AdministrateursModal({ etab, onClose }) {
                       <span className="fw-semibold">{a.nom}</span>
                       <span className={`badge ${statut.cls}`}>{statut.label}</span>
                     </div>
-                    <div className="text-muted small text-truncate">{a.email}</div>
+                    <div className="text-muted small text-truncate">
+                      Code <span className="font-monospace fw-semibold text-body">{a.code_connexion}</span>{a.email && <> · {a.email}</>}
+                    </div>
                     <div className="d-flex flex-wrap gap-1 mt-1">
                       {autresRoles.map((r) => (
                         <span key={r.id} className={`badge bg-label-${roleInfo(r.libelle).color}`} title="Rôle cumulé">
@@ -177,7 +181,7 @@ export default function AdministrateursModal({ etab, onClose }) {
                     {occupe === a.id ? <span className="spinner-border spinner-border-sm text-primary" /> : (
                       <>
                         <button type="button" className="btn btn-sm btn-icon btn-outline-secondary" title="Modifier" aria-label={`Modifier ${a.nom}`} onClick={() => setFormulaire({ admin: a })}><i className="bx bx-edit-alt" /></button>
-                        <button type="button" className="btn btn-sm btn-icon btn-outline-secondary" title="Réinitialiser le mot de passe" aria-label={`Réinitialiser le mot de passe de ${a.nom}`} onClick={() => reinitialiser(a)} disabled={!a.actif}><i className="bx bx-key" /></button>
+                        <button type="button" className="btn btn-sm btn-icon btn-outline-secondary" title="Réinitialiser le PIN" aria-label={`Réinitialiser le PIN de ${a.nom}`} onClick={() => reinitialiser(a)} disabled={!a.actif}><i className="bx bx-key" /></button>
                         {a.actif
                           ? <button type="button" className="btn btn-sm btn-icon btn-outline-danger" title="Désactiver" aria-label={`Désactiver ${a.nom}`} onClick={() => basculerActif(a)}><i className="bx bx-block" /></button>
                           : <button type="button" className="btn btn-sm btn-outline-success" onClick={() => basculerActif(a)}><i className="bx bx-check-circle me-1" />Réactiver</button>}
@@ -211,8 +215,9 @@ export default function AdministrateursModal({ etab, onClose }) {
 
       {identifiants && (
         <IdentifiantsModal
-          email={identifiants.email}
-          motDePasse={identifiants.motDePasse}
+          nom={identifiants.nom}
+          code={identifiants.code}
+          pin={identifiants.pin}
           titre={identifiants.titre}
           destinataire="l'administrateur"
           onClose={() => setIdentifiants(null)}
@@ -231,6 +236,7 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
   const [form, setForm] = useState(() => ({
     nom: admin?.nom || '',
     email: admin?.email || '',
+    codeExistant: '',
     roleIds: new Set(admin ? admin.roles.map((r) => r.id) : roleAdmin ? [roleAdmin.id] : []),
   }));
   const [erreurs, setErreurs] = useState({});
@@ -249,8 +255,9 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
 
   const valider = () => {
     const e = {};
-    if (!form.nom.trim()) e.nom = 'Le nom est requis.';
-    if (!EMAIL_RE.test(form.email.trim())) e.email = 'Saisissez un email valide.';
+    if (!form.nom.trim() && !form.codeExistant) e.nom = 'Le nom est requis.';
+    if (form.email.trim() && !EMAIL_RE.test(form.email.trim())) e.email = 'Saisissez un email valide, ou laissez le champ vide.';
+    if (form.codeExistant && form.codeExistant.length !== 4) e.codeExistant = 'Le code comporte 4 caractères.';
     if (!form.roleIds.size) e.roles = 'Au moins un rôle est requis.';
     setErreurs(e);
     return !Object.keys(e).length;
@@ -268,14 +275,17 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
       if (!ok) return;
     }
     setEnregistrement(true);
-    const payload = { nom: form.nom.trim(), email: form.email.trim(), role_ids: [...form.roleIds] };
+    const payload = { nom: form.nom.trim(), email: form.email.trim() || null, role_ids: [...form.roleIds] };
     try {
       if (creation) {
-        const r = await apiRequest('/auth/utilisateurs', { method: 'POST', body: JSON.stringify({ ...payload, etablissement_id: etab.id }) });
+        const r = await apiRequest('/auth/utilisateurs', {
+          method: 'POST',
+          body: JSON.stringify({ ...payload, etablissement_id: etab.id, code_existant: form.codeExistant || undefined }),
+        });
         if (r.compte_existant) {
-          await onSaved({ message: `${r.nom} avait déjà un compte dans cet établissement : il devient administrateur et garde son mot de passe.` });
+          await onSaved({ message: `${r.nom} avait déjà un compte dans cet établissement : il devient administrateur et garde son code et son PIN.` });
         } else {
-          await onSaved({ message: 'Administrateur ajouté.', identifiants: { email: r.email, motDePasse: r.mot_de_passe_temporaire, titre: 'Administrateur créé' } });
+          await onSaved({ message: 'Administrateur ajouté.', identifiants: { nom: r.nom, code: r.code_connexion, pin: r.pin_temporaire, titre: 'Administrateur créé' } });
         }
       } else {
         await apiRequest(`/auth/utilisateurs/${admin.id}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -283,6 +293,7 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
       }
     } catch (e) {
       if (e.status === 409) setErreurs({ email: e.message });
+      else if (form.codeExistant && e.status === 400) setErreurs({ codeExistant: e.message });
       else toast(e.message, 'error');
       setEnregistrement(false);
     }
@@ -306,21 +317,38 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
           </>
         )}
       >
+        {creation && (
+          <div className="mb-3">
+            <label className="form-label" htmlFor="admin-code">A déjà un compte dans l'établissement ? <span className="text-muted fw-normal">(facultatif)</span></label>
+            <input
+              id="admin-code"
+              type="text"
+              className={`form-control font-monospace text-uppercase ${erreurs.codeExistant ? 'is-invalid' : ''}`}
+              placeholder="Son code de connexion, ex : K7TB"
+              maxLength={4}
+              value={form.codeExistant}
+              onChange={(e) => setForm((f) => ({ ...f, codeExistant: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) }))}
+              autoComplete="off"
+            />
+            {erreurs.codeExistant && <div className="invalid-feedback">{erreurs.codeExistant}</div>}
+            <div className="form-text">Ex : un enseignant que l'on nomme administrateur. Son compte reçoit le rôle et il garde son code et son PIN.</div>
+          </div>
+        )}
         <div className="mb-3">
-          <label className="form-label" htmlFor="admin-nom">Nom complet *</label>
+          <label className="form-label" htmlFor="admin-nom">Nom complet {form.codeExistant ? '' : '*'}</label>
           <input id="admin-nom" type="text" className={`form-control ${erreurs.nom ? 'is-invalid' : ''}`} value={form.nom} onChange={(e) => setForm((f) => ({ ...f, nom: e.target.value }))} autoFocus />
           {erreurs.nom && <div className="invalid-feedback">{erreurs.nom}</div>}
         </div>
         <div className="mb-3">
-          <label className="form-label" htmlFor="admin-email">Email de connexion *</label>
+          <label className="form-label" htmlFor="admin-email">Email <span className="text-muted fw-normal">(facultatif)</span></label>
           <input id="admin-email" type="email" className={`form-control ${erreurs.email ? 'is-invalid' : ''}`} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} autoComplete="off" />
           {erreurs.email && <div className="invalid-feedback">{erreurs.email}</div>}
-          {creation && <div className="form-text">Si cet email a déjà un compte dans l'établissement (ex : un enseignant), ce compte devient administrateur et garde son mot de passe.</div>}
+          <div className="form-text">{creation ? 'La connexion se fait par code + PIN, générés automatiquement.' : 'La connexion se fait par code + PIN : l\'email est seulement informatif.'}</div>
         </div>
 
         <label className="form-label d-block">Rôles</label>
         <div className="admin-roles">
-          {roles.map((r) => {
+          {roles.filter((r) => !ROLES_SANS_ESPACE.includes(r.libelle) || form.roleIds.has(r.id)).map((r) => {
             const info = roleInfo(r.libelle);
             const verrouille = creation && r.libelle === 'Admin';
             return (
@@ -338,8 +366,8 @@ function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved 
           <div className="alert alert-info d-flex gap-2 small mt-3 mb-0">
             <i className="bx bx-info-circle mt-1" />
             <div>
-              {ficheRequise.map((r) => roleInfo(r.libelle).label).join(', ')} : le rôle donne accès à l'espace, mais il restera vide tant que {ficheRequise.map((r) => ROLES_AVEC_FICHE[r.libelle]).join(' et ')} n'est pas créée avec le même email.
-              {' '}Plus simple : créer directement cette fiche depuis l'établissement avec cet email, le rôle est alors ajouté automatiquement.
+              {ficheRequise.map((r) => roleInfo(r.libelle).label).join(', ')} : le rôle donne accès à l'espace, mais il restera vide tant que {ficheRequise.map((r) => ROLES_AVEC_FICHE[r.libelle]).join(' et ')} n'est pas créée pour ce compte.
+              {' '}Plus simple : créer directement cette fiche depuis l'établissement en indiquant le code de connexion de ce compte, le rôle est alors ajouté automatiquement.
             </div>
           </div>
         )}

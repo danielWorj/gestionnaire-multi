@@ -23,6 +23,7 @@ from api.pedagogie_api import (
 )
 from api.emploi_du_temps_api import creneau_horaire_bp, horaire_bp
 from api.inscription_api import parent_bp, eleve_bp, inscription_bp
+from api.import_api import import_bp
 # tranche_classe_bp / paiement_bp : suivi financier (échéancier par classe +
 # année scolaire, versements), réservé à Admin/SuperAdmin/Comptable — cf.
 # api/paiements_api.py. Renommé depuis tranche_paiement_bp -> tranche_classe_bp
@@ -173,6 +174,8 @@ def create_app(env=None):
     app.register_blueprint(parent_bp)
     app.register_blueprint(eleve_bp)
     app.register_blueprint(inscription_bp)
+    # Import de masse des archives (CSV, Excel, Word) — cf. api/import_api.py.
+    app.register_blueprint(import_bp)
     # Module Paiements : échéancier par classe (TrancheClasse) et versements
     # (Paiement + LignePaiement), Admin/SuperAdmin/Comptable — cf.
     # api/paiements_api.py. Sans ces deux lignes, /api/tranches-classe/ et
@@ -371,10 +374,6 @@ def create_app(env=None):
     #     actuels (pas de prime_bp / communique_bp) : ces pages afficheront
     #     donc un template vide tant que le blueprint + les modèles
     #     correspondants n'existent pas côté back.
-    @app.route("/enseignant/dashboard")
-    def enseignant_dashboard_page():
-        return render_template("enseignant/dashboard.html")
-
     @app.route("/enseignant/notes")
     def enseignant_notes_page():
         return render_template("enseignant/notes.html")
@@ -383,13 +382,9 @@ def create_app(env=None):
     def enseignant_horaires_page():
         return render_template("enseignant/horaire.html")
 
-    @app.route("/enseignant/communiques")
-    def enseignant_communiques_page():
-        return render_template("enseignant/communiques.html")
-
-    @app.route("/enseignant/primes")
-    def enseignant_primes_page():
-        return render_template("enseignant/primes.html")
+    # NB : /enseignant/dashboard, /communiques et /primes ont été retirées :
+    # leurs templates n'ont jamais existé (500 TemplateNotFound). Le front
+    # React (web/) couvre l'espace enseignant.
 
 
     @app.route("/api/health")
@@ -399,6 +394,19 @@ def create_app(env=None):
     @app.errorhandler(404)
     def not_found(error):
         return jsonify({"erreur": "Ressource non trouvée"}), 404
+
+    # Limites de Flask-Limiter (429) et de MAX_CONTENT_LENGTH (413) : même
+    # format {"erreur": ...} que le reste de l'API, lisible par le front.
+    @app.errorhandler(429)
+    def too_many_requests(error):
+        # error.description ne contient que la limite brute ("5 per 15
+        # minute") : on n'affiche que le message explicite, s'il y en a un.
+        message = getattr(getattr(error, "limit", None), "error_message", None)
+        return jsonify({"erreur": message or "Trop de requêtes : réessayez dans quelques instants."}), 429
+
+    @app.errorhandler(413)
+    def payload_too_large(error):
+        return jsonify({"erreur": "Fichier trop volumineux (20 Mo maximum par envoi)."}), 413
 
     @app.errorhandler(500)
     def internal_error(error):

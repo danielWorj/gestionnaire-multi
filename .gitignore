@@ -5,6 +5,9 @@
 access*.txt
 mot_de_passe_demo.txt
 mots_de_passe_demo.txt
+fiches_acces_*.txt
+CLES DE PROD.txt
+*CLES*PROD*.txt
 deploy/
 
 # --- Certificats / clés ---

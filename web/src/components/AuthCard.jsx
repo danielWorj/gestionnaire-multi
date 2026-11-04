@@ -28,7 +28,8 @@ export default function AuthCard({ title, subtitle, children }) {
 }
 
 // Champ mot de passe avec l'œil afficher/masquer (form-password-toggle de Sneat).
-export function PasswordInput({ id, name, value, onChange, minLength, autoFocus, placeholder = '············', autoComplete }) {
+// inputMode/maxLength/inputClassName : variante code PIN (cf. PinInput).
+export function PasswordInput({ id, name, value, onChange, minLength, maxLength, autoFocus, placeholder = '············', autoComplete, inputMode, inputClassName = '', inputRef }) {
   const [visible, setVisible] = useState(false);
 
   return (
@@ -37,11 +38,14 @@ export function PasswordInput({ id, name, value, onChange, minLength, autoFocus,
         type={visible ? 'text' : 'password'}
         id={id}
         name={name}
-        className="form-control"
+        ref={inputRef}
+        className={`form-control ${inputClassName}`}
         placeholder={placeholder}
         value={value}
         onChange={onChange}
         minLength={minLength}
+        maxLength={maxLength}
+        inputMode={inputMode}
         autoFocus={autoFocus}
         autoComplete={autoComplete}
         required
@@ -50,10 +54,30 @@ export function PasswordInput({ id, name, value, onChange, minLength, autoFocus,
         className="input-group-text cursor-pointer"
         onClick={() => setVisible((current) => !current)}
         role="button"
-        aria-label={visible ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}
+        aria-label={visible ? 'Masquer la saisie' : 'Afficher la saisie'}
       >
         <i className={`bx ${visible ? 'bx-show' : 'bx-hide'}`} />
       </span>
     </div>
+  );
+}
+
+// Saisie d'un code PIN à 4 chiffres : clavier numérique sur téléphone,
+// chiffres uniquement. onValue reçoit la valeur nettoyée.
+export function PinInput({ id, name, value, onValue, autoFocus, autoComplete = 'current-password', inputRef }) {
+  return (
+    <PasswordInput
+      id={id}
+      name={name}
+      value={value}
+      onChange={(event) => onValue(event.target.value.replace(/\D/g, '').slice(0, 4))}
+      maxLength={4}
+      inputMode="numeric"
+      autoFocus={autoFocus}
+      autoComplete={autoComplete}
+      placeholder="••••"
+      inputClassName="saisie-code"
+      inputRef={inputRef}
+    />
   );
 }
