@@ -559,8 +559,12 @@ class Schema:
         return [{'cle': c[0], 'libelle': c[1], 'aide': c[2]} for c in self.champs]
 
 
-def analyser_avec_schema(fichiers, texte_colle, schema, fiches=False, pertinence=None):
-    """Lecture des fichiers pour un module donné. -> (blocs, erreurs)."""
+def analyser_avec_schema(fichiers, texte_colle, schema, fiches=False, pertinence=None, preparer=None):
+    """Lecture des fichiers pour un module donné. -> (blocs, erreurs).
+
+    preparer : fn(bloc) appelée sur chaque bloc avant le calcul de sa
+    pertinence (ex. fusion de l'en-tête de groupe « LUNDI » dans les
+    intitulés de colonnes d'une grille d'emploi du temps)."""
     from services.import_lecture import ErreurLecture, construire_blocs, lire_fichier, lire_texte_tabule
     blocs, erreurs = [], []
     for nom, contenu in fichiers:
@@ -582,6 +586,9 @@ def analyser_avec_schema(fichiers, texte_colle, schema, fiches=False, pertinence
             erreurs.append({'fichier': 'Tableau collé', 'message': "Aucune donnée reconnue dans le texte collé."})
         blocs.extend(trouves)
     for bloc in blocs:
+        if preparer:
+            preparer(bloc)
+        bloc.pop('entetes_groupe', None)
         bloc['classe_detectee'] = libelle_classe_depuis_texte(bloc.get('contexte')) \
             or libelle_classe_depuis_texte(bloc.get('fichier_base'))
         bloc['pertinent'] = pertinence(bloc) if pertinence else True

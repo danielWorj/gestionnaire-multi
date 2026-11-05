@@ -280,6 +280,7 @@ def analyser_fichiers(fichiers, texte_colle=None):
             erreurs.append({'fichier': 'Tableau collé', 'message': "Aucune donnée reconnue dans le texte collé."})
         blocs.extend(trouves)
     for bloc in blocs:
+        bloc.pop('entetes_groupe', None)
         bloc['classe_detectee'] = libelle_classe_depuis_texte(bloc.get('contexte')) \
             or libelle_classe_depuis_texte(bloc.get('fichier_base'))
         bloc['pertinent'] = est_liste_eleves(bloc)

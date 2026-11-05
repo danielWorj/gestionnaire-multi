@@ -5,6 +5,7 @@ import ChartCanvas from '../components/ChartCanvas';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
 import { useToast } from '../components/ui';
+import ImportModal from '../components/importConfigs';
 import {
   appreciationInfo, calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
   noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
@@ -94,6 +95,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
   const [saveStates, setSaveStates] = useState({});
   const [imprimer, setImprimer] = useState(false);
   const [attente, setAttente] = useState(lireAttente);
+  const [importOuvert, setImportOuvert] = useState(false);
 
   const classe = espace.classes.find((c) => String(c.id) === String(classeId)) || null;
   const introuvable = !espace.loading && espace.matieresClasse.length > 0 && !espace.matieresClasse.some((m) => String(m.id) === String(mcParam));
@@ -264,6 +266,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
           <div className="saisie-entete-actions">
             <button type="button" className="btn btn-icon btn-outline-secondary" title="Actualiser" aria-label="Actualiser" onClick={() => { ctx.actualiser(); toast('Grille actualisée.'); }}><i className="bx bx-refresh" /></button>
             <button type="button" className="btn btn-icon btn-outline-primary" title="Imprimer / PDF" aria-label="Imprimer le relevé" onClick={() => setImprimer(true)}><i className="bx bx-printer" /></button>
+            <button type="button" className="btn btn-icon btn-outline-primary" title="Importer des notes (Excel, CSV, Word)" aria-label="Importer des notes" onClick={() => setImportOuvert(true)}><i className="bx bx-import" /></button>
           </div>
         </div>
       )}
@@ -323,6 +326,14 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
         </div>
       )}
 
+      {importOuvert && (
+        <ImportModal
+          module="notes"
+          optionsInitiales={{ matiere_classe_id: String(mcId), sequence_id: sequenceId ? String(sequenceId) : '' }}
+          onClose={() => setImportOuvert(false)}
+          onImported={() => ctx.actualiser()}
+        />
+      )}
       {imprimer && (
         <ReleveImprime
           variante="enseignant"

@@ -283,7 +283,7 @@ const CLASSES = {
 
 /* ── Matières ─────────────────────────────────────────────────────────── */
 
-function TableCorrespondance({ titre, lignes, choix, valeurDe, onChange, vide }) {
+function TableCorrespondance({ titre, lignes, choix, valeurDe, onChange, vide, detail }) {
   if (!lignes.length) return null;
   return (
     <>
@@ -301,6 +301,7 @@ function TableCorrespondance({ titre, lignes, choix, valeurDe, onChange, vide })
                   </Select>
                   {c.suggere && <span className="badge bg-label-success">auto</span>}
                 </div>
+                {detail?.(c)}
               </td>
             </tr>
           ))}
@@ -447,9 +448,254 @@ const MATIERES = {
   ],
 };
 
-const CONFIGS = { enseignants: ENSEIGNANTS, classes: CLASSES, matieres: MATIERES };
+/* ── Emploi du temps ──────────────────────────────────────────────────── */
 
-export default function ImportModal({ module, onClose, onImported }) {
+const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+
+function OptionsEmploiDuTemps({ rep, options, setOptions, setOpt }) {
+  const setCorr = (cle) => (libelle) => (e) => setOptions((o) => ({ ...o, [cle]: { ...o[cle], [libelle]: e.target.value } }));
+  const nomsClasses = (ids) => ids.map((id) => rep.classes.find((c) => c.id === id)?.libelle || `#${id}`).join(' + ');
+  return (
+    <>
+      <h6 className="mb-2">Emploi du temps</h6>
+      <div className="border rounded p-3 small mb-3">
+        <div className="row g-2">
+          <div className="col-6">
+            <label className="form-label small mb-1">Année scolaire</label>
+            <Select className="form-select form-select-sm" value={String(options.annee_scolaire_id || rep.annee_scolaire_id || '')} onChange={setOpt('annee_scolaire_id')}>
+              {rep.annees.map((a) => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (active)' : ''}</option>)}
+            </Select>
+          </div>
+          <div className="col-6">
+            <label className="form-label small mb-1">Classe des grilles sans classe</label>
+            <Select className="form-select form-select-sm" value={String(options.classe_defaut || '')} onChange={setOpt('classe_defaut')}>
+              <option value="">— Aucune —</option>
+              {rep.classes.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+            </Select>
+          </div>
+        </div>
+        <div className="form-text mb-3">La classe d'une grille vient sinon de son titre ou du nom du fichier (« EMPLOI DU TEMPS 6e A »).</div>
+        <label className="form-check mb-2">
+          <input type="checkbox" className="form-check-input" checked={options.creer_creneaux} onChange={setOpt('creer_creneaux')} />
+          <span className="form-check-label">Créer les créneaux horaires absents (« 7h30-8h25 »)</span>
+        </label>
+        <label className="form-check mb-0">
+          <input type="checkbox" className="form-check-input" checked={options.remplacer} onChange={setOpt('remplacer')} />
+          <span className="form-check-label">Remplacer l'emploi du temps actuel des classes importées</span>
+        </label>
+        {options.remplacer && rep.resume.horaires_supprimes > 0 && (
+          <div className="alert alert-warning small py-2 mt-2 mb-0">
+            <i className="bx bx-error me-1" />
+            {pluriel(rep.resume.horaires_supprimes, 'cours déjà enregistré sera supprimé', 'cours déjà enregistrés seront supprimés')} ({pluriel(rep.resume.classes_remplacees, 'classe')}).
+          </div>
+        )}
+      </div>
+
+      <h6 className="mb-2">Correspondances</h6>
+      <div className="border rounded p-3 small">
+        <p className="text-muted mb-0">Un cours doit correspondre à une matière déjà affectée à la classe (menu Matières) : c'est cette affectation qui donne l'enseignant.</p>
+        <TableCorrespondance
+          titre="Classes trouvées dans les fichiers" lignes={rep.classes_detectees} choix={rep.classes} valeurDe={(c) => c.classe_id}
+          onChange={setCorr('classes')} vide="— Non associée —"
+          detail={(c) => (c.classe_ids.length > 1 ? <div className="text-muted" style={{ fontSize: 11 }}>Cours commun : {nomsClasses(c.classe_ids)}</div> : null)}
+        />
+        <TableCorrespondance titre="Matières trouvées dans les fichiers" lignes={rep.matieres_detectees} choix={rep.matieres} valeurDe={(c) => c.matiere_id} onChange={setCorr('matieres')} vide="— Non associée —" />
+      </div>
+    </>
+  );
+}
+
+const EMPLOI_DU_TEMPS = {
+  module: 'emploi-du-temps',
+  titre: "Importer l'emploi du temps",
+  icone: 'bx-calendar',
+  titreIgnore: "Ce tableau ne ressemble pas à un emploi du temps (ni colonne par jour, ni colonnes Horaire et Matière). Cochez-le pour l'importer quand même.",
+  aideFichiers: "Grilles par classe (une colonne par jour), « EMPLOI DU TEMPS DU PROFESSEUR » (MATIÈRES / CLASSES sous chaque jour), ou liste « Classe | Jour | Horaire | Matière ».",
+  exempleCollage: 'Classe\tJour\tHoraire\tMatière\tSalle\n6e A\tLundi\t07h30-08h25\tMathématiques\tSalle 1',
+  optionsDefaut: { annee_scolaire_id: '', classe_defaut: '', creer_creneaux: true, remplacer: false, classes: {}, matieres: {} },
+  optionsMemorisees: ['creer_creneaux', 'classes', 'matieres'],
+  manquants: (champs) => {
+    const m = [];
+    const grille = champs.has('cours_jour');
+    if (!champs.has('creneau') && !(champs.has('heure_debut') && champs.has('heure_fin'))) m.push("l'horaire (colonne « Horaire », ou « Début » et « Fin »)");
+    if (!grille && !champs.has('matiere')) m.push('la matière (colonne « Matière », ou une colonne par jour)');
+    if (!grille && !champs.has('jour')) m.push('le jour (colonne « Jour », ou une colonne par jour)');
+    return m;
+  },
+  Options: OptionsEmploiDuTemps,
+  colonnesApercu: [
+    ['Cours', (l) => (
+      <>
+        <div className="fw-semibold">{l.donnees.matiere || <span className="text-danger">—</span>}</div>
+        {l.donnees.matiere_fichier && l.donnees.matiere_fichier !== l.donnees.matiere && <div className="text-muted" style={{ fontSize: 11 }}>« {l.donnees.matiere_fichier} » dans le fichier</div>}
+        <small className="text-muted">{l.source}</small>
+      </>
+    )],
+    ['Classe', (l) => l.donnees.classe || <span className="text-danger">—</span>],
+    ['Jour', (l) => (
+      <>
+        {l.donnees.jour || <span className="text-danger">—</span>}
+        <div className="text-nowrap">{l.donnees.creneau || <span className="text-danger">—</span>}<NouveauBadge visible={l.donnees.creneau_nouveau && l.statut === 'nouveau'} /></div>
+      </>
+    )],
+    ['Enseignant', (l) => l.donnees.enseignant || <span className="text-muted">—</span>],
+    ['Salle', (l) => l.donnees.salle || <span className="text-muted">—</span>],
+  ],
+  edition: {
+    champs: (rep) => [
+      { cle: 'classe_id', label: 'Classe', col: 'col-md-3', choix: [['', '— Selon le fichier —'], ...rep.classes.map((c) => [String(c.id), c.libelle])] },
+      { cle: 'matiere_id', label: 'Matière', col: 'col-md-3', choix: [['', '— Selon le fichier —'], ...rep.matieres.map((m) => [String(m.id), m.libelle])] },
+      { cle: 'jour', label: 'Jour', col: 'col-md-2', choix: [['', '—'], ...JOURS.map((j) => [j, j])] },
+      { cle: 'creneau', label: 'Horaire', col: 'col-md-2' },
+      { cle: 'salle', label: 'Salle', col: 'col-md-2' },
+    ],
+    initial: (l) => ({
+      classe_id: l.classe_id ? String(l.classe_id) : '', matiere_id: l.matiere_id ? String(l.matiere_id) : '',
+      jour: JOURS.includes(l.donnees.jour) ? l.donnees.jour : '', creneau: l.donnees.creneau || '', salle: l.donnees.salle || '',
+    }),
+  },
+  exportColonnes: [
+    ['Classe', (l) => l.donnees.classe], ['Jour', (l) => l.donnees.jour], ['Horaire', (l) => l.donnees.creneau],
+    ['Matière', (l) => l.donnees.matiere], ['Salle', (l) => l.donnees.salle],
+  ],
+  resumeApercu: (rep) => {
+    const r = rep.resume;
+    return [
+      r.creneaux_nouveaux > 0 && ['bx-time', pluriel(r.creneaux_nouveaux, 'créneau à créer', 'créneaux à créer')],
+      r.horaires_supprimes > 0 && ['bx-trash', pluriel(r.horaires_supprimes, 'cours remplacé', 'cours remplacés')],
+    ].filter(Boolean);
+  },
+  nbActions: (rep) => rep.resume.nouveaux,
+  libelleImport: (rep) => `Importer ${pluriel(rep.resume.nouveaux, 'cours', 'cours')}`,
+  cartesBilan: [
+    ['horaires_crees', 'Cours ajoutés', 'success'],
+    ['creneaux_crees', 'Créneaux créés', 'secondary'],
+    ['horaires_supprimes', 'Cours remplacés', 'warning'],
+  ],
+};
+
+/* ── Notes ────────────────────────────────────────────────────────────── */
+
+function OptionsNotes({ rep, options, setOpt, champsMappes }) {
+  const r = rep.resume;
+  return (
+    <>
+      <h6 className="mb-2">Notes</h6>
+      <div className="border rounded p-3 small mb-3">
+        <label className="form-label small mb-1">Classe et matière</label>
+        <Select className="form-select form-select-sm mb-2" value={String(options.matiere_classe_id || rep.matiere_classe_id || '')} onChange={setOpt('matiere_classe_id')}>
+          <option value="">— Choisir —</option>
+          {rep.matieres_classe.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}
+        </Select>
+        <div className="row g-2">
+          <div className="col-7">
+            <label className="form-label small mb-1">Séquence {champsMappes.has('note') ? 'de la colonne « Note »' : '(colonne « Note »)'}</label>
+            <Select className="form-select form-select-sm" value={String(options.sequence_id || '')} onChange={setOpt('sequence_id')}>
+              <option value="">— Choisir —</option>
+              {rep.sequences.map((s) => <option key={s.id} value={s.id}>{s.libelle}</option>)}
+            </Select>
+          </div>
+          <div className="col-5">
+            <label className="form-label small mb-1">Notes sur</label>
+            <Select className="form-select form-select-sm" value={String(options.note_sur)} onChange={setOpt('note_sur')}>
+              {[20, 10, 40, 100].map((n) => <option key={n} value={n}>{n}</option>)}
+            </Select>
+          </div>
+        </div>
+        <div className="form-text">Les colonnes « Séq 1 », « Séq 2 »… vont directement dans leur séquence. Les notes sur 10, 40 ou 100 sont ramenées sur 20 ; « 12/40 » dans une case aussi. « abs » = absent.</div>
+      </div>
+
+      <h6 className="mb-2">Notes déjà saisies</h6>
+      <div className="border rounded p-3 small">
+        <Select className="form-select form-select-sm" value={options.doublons} onChange={setOpt('doublons')}>
+          <option value="ignorer">Les conserver</option>
+          <option value="mettre_a_jour">Les remplacer par celles du fichier</option>
+        </Select>
+        {r.effectif > 0 && (
+          <p className="text-muted mt-2 mb-0">
+            <i className="bx bx-group me-1" />{pluriel(r.effectif, 'élève inscrit')} dans la classe
+            {r.eleves_absents_du_fichier > 0 && <>, dont {pluriel(r.eleves_absents_du_fichier, 'sans note dans le fichier', 'sans note dans le fichier')}</>}.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
+const STATUT_NOTE = {
+  nouvelle: 'text-success',
+  maj: 'text-info',
+  existe: 'text-muted',
+  ignoree: 'text-danger',
+};
+
+const NOTES = {
+  module: 'notes',
+  titre: 'Importer des notes',
+  icone: 'bx-edit',
+  titreIgnore: "Ce tableau ne ressemble pas à un relevé de notes (colonne d'élèves et colonne de notes). Cochez-le pour l'importer quand même.",
+  aideFichiers: "Votre relevé de notes Excel, Word ou CSV : une colonne d'élèves (nom ou matricule) et une colonne « Note », ou une colonne par séquence (« Séq 1 », « Séq 2 »…).",
+  exempleCollage: 'Matricule\tNoms et prénoms\tSéq 1\n250237775\tABALA MBOUNDA Joseph\t12,5',
+  optionsDefaut: { matiere_classe_id: '', sequence_id: '', note_sur: '20', doublons: 'ignorer' },
+  optionsMemorisees: ['note_sur', 'doublons'],
+  manquants: (champs, options) => {
+    const m = [];
+    if (!champs.has('nom_complet') && !champs.has('nom') && !champs.has('matricule')) m.push("l'élève (colonne « Nom et prénoms », « Nom » ou « Matricule »)");
+    if (!champs.has('note') && !champs.has('note_sequence')) m.push('les notes (colonne « Note », ou une colonne par séquence)');
+    if (!options.matiere_classe_id) m.push('la classe et la matière (à droite)');
+    if (champs.has('note') && !options.sequence_id) m.push('la séquence de la colonne « Note » (à droite)');
+    return m;
+  },
+  Options: OptionsNotes,
+  colonnesApercu: [
+    ['Élève', (l) => (
+      <>
+        <div className="fw-semibold">{l.donnees.eleve || <span className="text-danger">—</span>}</div>
+        {l.donnees.fichier && l.inscription_id && l.donnees.fichier.toLowerCase() !== l.donnees.eleve.toLowerCase() && <div className="text-muted" style={{ fontSize: 11 }}>« {l.donnees.fichier} » dans le fichier</div>}
+        <small className="text-muted">{l.donnees.matricule || l.source}</small>
+      </>
+    )],
+    ['Notes', (l) => (
+      <div className="d-flex flex-column gap-1">
+        {l.notes.map((n) => (
+          <span key={n.sequence} className={STATUT_NOTE[n.statut] || ''} title={n.motif || ''}>
+            {n.sequence} : <strong>{n.absent ? 'absent' : (n.valeur ?? '?')}</strong>{n.motif ? <span className="text-muted"> ({n.motif})</span> : null}
+          </span>
+        ))}
+      </div>
+    )],
+  ],
+  edition: {
+    champs: (rep) => [
+      { cle: 'inscription_id', label: 'Élève de la classe', col: 'col-md-6', choix: [['', '— Selon le fichier —'], ...rep.eleves.map((e) => [String(e.id), e.libelle])] },
+    ],
+    initial: (l) => ({ inscription_id: l.inscription_id ? String(l.inscription_id) : '' }),
+  },
+  exportColonnes: [
+    ['Élève', (l) => l.donnees.eleve], ['Matricule', (l) => l.donnees.matricule],
+    ['Notes', (l) => l.notes.map((n) => `${n.sequence} : ${n.absent ? 'absent' : n.valeur ?? '?'}`).join(' | ')],
+  ],
+  resumeApercu: (rep) => {
+    const r = rep.resume;
+    return [
+      r.notes_nouvelles > 0 && ['bx-plus-circle', pluriel(r.notes_nouvelles, 'note à enregistrer', 'notes à enregistrer')],
+      r.notes_maj > 0 && ['bx-refresh', pluriel(r.notes_maj, 'note corrigée', 'notes corrigées')],
+      r.absents > 0 && ['bx-user-x', pluriel(r.absents, 'absence', 'absences')],
+      r.eleves_absents_du_fichier > 0 && ['bx-info-circle', pluriel(r.eleves_absents_du_fichier, 'élève de la classe sans note', 'élèves de la classe sans note')],
+    ].filter(Boolean);
+  },
+  nbActions: (rep) => rep.resume.notes_nouvelles + rep.resume.notes_maj,
+  libelleImport: (rep) => `Enregistrer ${pluriel(rep.resume.notes_nouvelles + rep.resume.notes_maj, 'note')}`,
+  cartesBilan: [
+    ['notes_creees', 'Notes enregistrées', 'success'],
+    ['notes_mises_a_jour', 'Notes corrigées', 'info'],
+    ['absences', 'Absences', 'secondary'],
+  ],
+};
+
+const CONFIGS = { enseignants: ENSEIGNANTS, classes: CLASSES, matieres: MATIERES, 'emploi-du-temps': EMPLOI_DU_TEMPS, notes: NOTES };
+
+export default function ImportModal({ module, optionsInitiales, onClose, onImported }) {
   const config = useMemo(() => CONFIGS[module], [module]);
-  return <ImportAssistant config={config} onClose={onClose} onImported={onImported} />;
+  return <ImportAssistant config={config} optionsInitiales={optionsInitiales} onClose={onClose} onImported={onImported} />;
 }

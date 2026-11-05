@@ -43,7 +43,10 @@ function lireMemoire(cle) {
 
 const tailleLisible = (n) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} Mo` : `${Math.max(1, Math.round(n / 1024))} Ko`);
 
-export default function ImportAssistant({ config, onClose, onImported }) {
+// optionsInitiales : choix déjà faits sur la page qui ouvre l'assistant
+// (matière-classe et séquence de la saisie des notes, année de l'emploi du
+// temps) ; ils priment sur les options mémorisées.
+export default function ImportAssistant({ config, optionsInitiales, onClose, onImported }) {
   const toast = useToast();
   const { user, activeEtablissementId } = useAuth();
   const { module } = config;
@@ -63,6 +66,7 @@ export default function ImportAssistant({ config, onClose, onImported }) {
     return {
       ...config.optionsDefaut,
       ...Object.fromEntries((config.optionsMemorisees || []).filter((k) => k in memo).map((k) => [k, memo[k]])),
+      ...optionsInitiales,
     };
   });
   const [corrections, setCorrections] = useState({});

@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request, send_file
-from flask_jwt_extended import get_jwt, jwt_required
+from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 from services import (
-    import_classes_services, import_eleves_services, import_enseignants_services, import_matieres_services,
+    import_classes_services, import_eleves_services, import_emploi_du_temps_services, import_enseignants_services,
+    import_matieres_services, import_notes_services,
 )
 
 
@@ -15,15 +16,22 @@ from services import (
 #        corrections, exclues, valider -> aperçu (valider=false) ou import
 #   GET  /api/import/<module>/modele    -> modèle Excel vierge
 #
-# module : eleves, enseignants, classes, matieres.
+# module : eleves, enseignants, classes, matieres, emploi-du-temps, notes.
 #
 # Droits : élèves = mêmes rôles que eleve_bp (Admin, SuperAdmin, Secretaire) ;
 # enseignants / classes / matières = Admin et SuperAdmin uniquement (l'import
 # des enseignants crée des comptes de connexion, réservé à l'Admin comme
 # POST /api/auth/utilisateurs ; la création de classes l'est déjà dans
-# classe_bp). Établissement résolu comme dans les blueprints cloisonnés :
-# claim JWT pour un compte d'établissement, ?etablissement_id=<id> pour le
-# SuperAdmin (ajouté automatiquement par web/src/lib/api.js).
+# classe_bp) ; emploi du temps = mêmes rôles que horaire_bp (Censeur et
+# Surveillant limités à leurs classes assignées) ; notes = Enseignant seul,
+# dans ses propres matières-classes, comme l'écriture sur note_bp.
+# Établissement résolu comme dans les blueprints cloisonnés : claim JWT pour
+# un compte d'établissement, ?etablissement_id=<id> pour le SuperAdmin
+# (ajouté automatiquement par web/src/lib/api.js).
+#
+# Les services qui ont UTILISE_CONTEXTE = True reçoivent en plus le rôle et
+# l'identité de l'utilisateur (périmètre résolu en direct, jamais depuis un
+# claim mis en cache).
 # ---------------------------------------------------------------------------
 
 MODULES = {
@@ -31,6 +39,9 @@ MODULES = {
     'enseignants': (import_enseignants_services, ("Admin", "SuperAdmin"), 'modele-import-enseignants.xlsx'),
     'classes': (import_classes_services, ("Admin", "SuperAdmin"), 'modele-import-classes.xlsx'),
     'matieres': (import_matieres_services, ("Admin", "SuperAdmin"), 'modele-import-matieres.xlsx'),
+    'emploi-du-temps': (import_emploi_du_temps_services, ("Admin", "SuperAdmin", "Censeur", "Surveillant"),
+                        'modele-import-emploi-du-temps.xlsx'),
+    'notes': (import_notes_services, ("Enseignant",), 'modele-import-notes.xlsx'),
 }
 TAILLE_MAX_FICHIER = 15 * 1024 * 1024
 
@@ -77,7 +88,11 @@ def traiter(module):
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
     payload = request.get_json(silent=True) or {}
-    result, status = MODULES[module][0].traiter(etab_id, payload, valider=bool(payload.get('valider')))
+    service = MODULES[module][0]
+    extra = {}
+    if getattr(service, 'UTILISE_CONTEXTE', False):
+        extra['contexte'] = {'role': get_jwt().get("role"), 'user_id': int(get_jwt_identity())}
+    result, status = service.traiter(etab_id, payload, valider=bool(payload.get('valider')), **extra)
     return jsonify(result), status
 
 

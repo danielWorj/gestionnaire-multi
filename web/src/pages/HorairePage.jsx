@@ -7,6 +7,7 @@ import { downloadCsv, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, use
 import { Pastilles } from '../components/Espace';
 import './horaire.css';
 import Select from '../components/Select';
+import ImportModal from '../components/importConfigs';
 
 // Portage de server/static/templates/horaire.html (Admin) et
 // censeur/horaire.html (Censeur / Surveillant) — même page, seuls quelques
@@ -89,6 +90,7 @@ export default function HorairePage({ variant = 'admin', classeImposee = null })
   const [enseignantId, setEnseignantId] = useState('');
   const [modal, setModal] = useState(null);
   const [impression, setImpression] = useState(null);
+  const [importOuvert, setImportOuvert] = useState(false);
 
   const safe = useCallback((path, label) => api.get(path).catch((e) => { if (label) toast(`${label} : ${e.message}`, 'error'); return []; }), [toast]);
 
@@ -285,6 +287,7 @@ export default function HorairePage({ variant = 'admin', classeImposee = null })
           <button type="button" className="btn btn-outline-secondary btn-sm" title="Imprimer l'emploi du temps de la classe sélectionnée" onClick={imprimerClasse}><i className="bx bx-printer me-1" /> Imprimer (classe)</button>
           <button type="button" className="btn btn-outline-secondary btn-sm" title="Imprimer l'emploi du temps de l'enseignant sélectionné" onClick={imprimerEnseignant}><i className="bx bx-printer me-1" /> Imprimer (enseignant)</button>
           <button type="button" className="btn btn-outline-secondary btn-sm" title="Exporter la vue active en Excel/CSV" onClick={exportCsv}><i className="bx bx-spreadsheet me-1" /> Exporter Excel</button>
+          <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>
           <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'cours', data: null })}><i className="bx bx-plus me-1" /> Nouveau cours</button>
         </PageHeader>
       )}
@@ -415,6 +418,7 @@ export default function HorairePage({ variant = 'admin', classeImposee = null })
       )}
       {modal?.kind === 'creneau' && <CreneauModal data={modal.data} onClose={() => setModal(null)} onSaved={() => afterSave('Créneau horaire enregistré avec succès.', true)} />}
       {confirmNode}
+      {importOuvert && <ImportModal module="emploi-du-temps" optionsInitiales={{ annee_scolaire_id: annee }} onClose={() => setImportOuvert(false)} onImported={loadAll} />}
 
       {impression && (
         <div className="edt-print print-area">

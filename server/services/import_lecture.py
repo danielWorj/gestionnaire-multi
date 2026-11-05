@@ -140,13 +140,17 @@ def structurer_tableau(lignes_brutes, est_mot_cle, precedent=None):
     partie de l'en-tête, voire aucun : on complète alors avec celui du
     tableau précédent s'il a la même largeur.
 
-    Retourne (titres, entetes_brutes, lignes, numeros, entete_heritee) ; les
-    colonnes vides sont retirées ensuite par _retirer_colonnes_vides."""
+    Retourne (titres, entetes_brutes, lignes, numeros, entete_heritee,
+    groupe) ; les colonnes vides sont retirées ensuite par
+    _retirer_colonnes_vides. groupe : ligne d'en-tête de niveau supérieur
+    (cellules fusionnées « LUNDI » au-dessus de « MATIERES | CLASSES » dans
+    une grille d'emploi du temps), prolongée sur les cellules fusionnées, ou
+    None."""
     largeur = max((len(l) for l in lignes_brutes), default=0)
     largeur = min(largeur, MAX_COLONNES)
     lignes = [(list(l) + [''] * largeur)[:largeur] for l in lignes_brutes]
     if not largeur:
-        return [], [], [], [], False
+        return [], [], [], [], False, None
 
     meilleur, idx_entete = 0, None
     for i, ligne in enumerate(lignes[:FENETRE_ENTETE]):
@@ -171,9 +175,9 @@ def structurer_tableau(lignes_brutes, est_mot_cle, precedent=None):
                 debut += 1
             donnees = lignes[debut:]
             numeros = list(range(debut + 1, len(lignes) + 1))
-            return titres, list(entetes_precedentes), donnees, numeros, True
+            return titres, list(entetes_precedentes), donnees, numeros, True, None
         entetes = [f'Colonne {j + 1}' for j in range(largeur)]
-        return [], entetes, lignes, list(range(1, len(lignes) + 1)), False
+        return [], entetes, lignes, list(range(1, len(lignes) + 1)), False, None
 
     entete = list(lignes[idx_entete])
     debut = idx_entete + 1
@@ -196,6 +200,13 @@ def structurer_tableau(lignes_brutes, est_mot_cle, precedent=None):
                 entete[j] = entetes_precedentes[j]
                 heritee = True
 
+    groupe = None
+    if idx_entete > 0 and sum(1 for c in lignes[idx_entete - 1] if c and est_mot_cle(c)) >= 2:
+        groupe, courant = [], ''
+        for c in lignes[idx_entete - 1]:
+            courant = c or courant
+            groupe.append(courant)
+
     titres = []
     for ligne in lignes[:idx_entete]:
         texte = ' '.join(c for c in ligne if c)
@@ -211,14 +222,15 @@ def structurer_tableau(lignes_brutes, est_mot_cle, precedent=None):
             continue
         donnees.append(ligne)
         numeros.append(k)
-    return titres, entetes, donnees, numeros, heritee
+    return titres, entetes, donnees, numeros, heritee, groupe
 
 
-def _retirer_colonnes_vides(entetes, lignes):
+def _retirer_colonnes_vides(entetes, lignes, groupe=None):
     """Colonnes sans intitulé ni donnée (bordures, cellules fusionnées)."""
     utiles = [j for j, nom in enumerate(entetes)
               if not re.fullmatch(r'Colonne \d+', nom) or any(l[j] for l in lignes)]
-    return [entetes[j] for j in utiles], [[l[j] for j in utiles] for l in lignes]
+    return ([entetes[j] for j in utiles], [[l[j] for j in utiles] for l in lignes],
+            [groupe[j] for j in utiles] if groupe else None)
 
 
 def _filtrer_lignes(lignes, numeros):
@@ -399,7 +411,7 @@ def _titre_utile(textes):
         n = normaliser(texte)
         if not n or len(texte) > 120:
             continue
-        if re.search(r'\b(liste|classe|eleves?|effectif|promotion|niveau|section|salle)\b', n):
+        if re.search(r'\b(liste|classe|eleves?|effectif|promotion|niveau|section|salle|emploi|emplois)\b', n):
             return texte
     return ''
 
@@ -530,11 +542,11 @@ def construire_blocs(nom_fichier, base, sources, est_mot_cle):
     blocs = []
     precedent = None
     for source, textes_avant, brut in sources:
-        titres, entetes_brutes, lignes, numeros, heritee = structurer_tableau(brut, est_mot_cle, precedent)
+        titres, entetes_brutes, lignes, numeros, heritee, groupe = structurer_tableau(brut, est_mot_cle, precedent)
         lignes, numeros = _filtrer_lignes(lignes, numeros)
         if not lignes:
             continue
-        entetes, lignes = _retirer_colonnes_vides(entetes_brutes, lignes)
+        entetes, lignes, groupe = _retirer_colonnes_vides(entetes_brutes, lignes, groupe)
         # Noms de feuille par défaut (« Feuil1 », « Sheet1 ») : non significatifs.
         textes_avant = [t for t in textes_avant if not re.fullmatch(r'(feuil|sheet|feuille)\s*\d*', normaliser(t))]
         contexte = _titre_utile(titres) or _titre_utile(textes_avant) \
@@ -550,6 +562,8 @@ def construire_blocs(nom_fichier, base, sources, est_mot_cle):
             'entete_heritee': heritee,
             '_entetes_brutes': entetes_brutes,
         }
+        if groupe:
+            bloc['entetes_groupe'] = groupe
         blocs.append(bloc)
         precedent = bloc
     for bloc in blocs:
