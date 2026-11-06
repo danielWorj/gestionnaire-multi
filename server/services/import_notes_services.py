@@ -177,8 +177,11 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
     if erreur:
         return {'erreur': erreur}, 400
     contexte = contexte or {}
-    profil = resolve_enseignant_profil(contexte.get('user_id'))
-    if profil is None:
+    # SuperAdmin : saisie pour le compte de l'établissement choisi, sur toutes
+    # ses matières-classe ; Enseignant : ses seules matières-classe.
+    superadmin = contexte.get('role') == 'SuperAdmin'
+    profil = None if superadmin else resolve_enseignant_profil(contexte.get('user_id'))
+    if profil is None and not superadmin:
         return {'erreur': "Aucun profil enseignant n'est relié à ce compte. "
                           "Contactez l'administration de votre établissement."}, 400
     blocs = payload['blocs']
@@ -193,12 +196,13 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
     for col in colonnes:
         col['champ'] = mapping.get(col['cle'], '')
 
-    # --- Périmètre de l'enseignant -------------------------------------------
+    # --- Périmètre : matières de l'enseignant, ou tout l'établissement --------
     mes_mc = (MatiereClasse.query
               .join(Classe, Classe.id == MatiereClasse.classe_id)
-              .filter(MatiereClasse.id.in_(resolve_enseignant_matiere_classe_ids(profil.id) or {0}),
-                      Classe.etablissement_id == etablissement_id)
-              .all())
+              .filter(Classe.etablissement_id == etablissement_id))
+    if not superadmin:
+        mes_mc = mes_mc.filter(MatiereClasse.id.in_(resolve_enseignant_matiere_classe_ids(profil.id) or {0}))
+    mes_mc = mes_mc.all()
     mc_par_id = {mc.id: mc for mc in mes_mc}
 
     def libelle_mc(mc):

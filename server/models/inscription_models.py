@@ -1,4 +1,5 @@
 from extensions import db
+from models.audit_models import Versionne
 
 # Statuts d'une Inscription (cf. web/src/pages/InscriptionsPage.jsx).
 STATUTS_INSCRIPTION = ('Actif', 'Suspendu', 'Radié', 'Transféré')
@@ -22,7 +23,7 @@ STATUTS_INSCRIPTION_EN_COURS = ('Actif', 'Suspendu')
 # ---------------------------------------------------------------------------
 
 
-class Parent(db.Model):
+class Parent(db.Model, Versionne):
     """Représente le parent/tuteur d'un ou plusieurs élèves (cf. relation
     'enfants' ci-dessous). email est unique AU SEIN de l'établissement
     (uq_parent_email_etablissement) : un parent ayant des enfants dans deux
@@ -46,10 +47,10 @@ class Parent(db.Model):
 
     def to_dict(self):
         return {k: getattr(self, k) for k in
-                ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email']}
+                ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'version']}
 
 
-class Eleve(db.Model):
+class Eleve(db.Model, Versionne):
     """uq_eleve_matricule_etablissement garantit l'unicité du matricule au
     sein d'un même établissement (deux établissements peuvent réutiliser le
     même matricule, ce sont deux élèves distincts).
@@ -87,12 +88,12 @@ class Eleve(db.Model):
     def to_dict(self):
         data = {k: getattr(self, k) for k in
                 ['id', 'etablissement_id', 'matricule', 'nom', 'prenom', 'sexe',
-                 'lieu_naissance', 'parent_id', 'statut']}
+                 'lieu_naissance', 'parent_id', 'statut', 'version']}
         data['date_naissance'] = self.date_naissance.isoformat() if self.date_naissance else None
         return data
 
 
-class Inscription(db.Model):
+class Inscription(db.Model, Versionne):
     """Une case d'inscription : un Eleve inscrit dans une Classe pour une
     AnneeScolaire donnée. Un élève n'a qu'UNE inscription par année
     scolaire (vérifié côté service, cf.
@@ -123,6 +124,6 @@ class Inscription(db.Model):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in
-             ['id', 'eleve_id', 'classe_id', 'annee_scolaire_id', 'statut']}
+             ['id', 'eleve_id', 'classe_id', 'annee_scolaire_id', 'statut', 'version']}
         d['date_inscription'] = self.date_inscription.isoformat() if self.date_inscription else None
         return d

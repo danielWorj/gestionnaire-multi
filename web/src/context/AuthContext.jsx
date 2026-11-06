@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { apiRequest, ROLE_REVOQUE_EVENT, setActiveEtablissementId } from '../lib/api';
+import { apiRequest, estHorsLigne, getActiveEtablissementId, ROLE_REVOQUE_EVENT, setActiveEtablissementId } from '../lib/api';
+import { idProprietaire, lireAttente, lireSession, memoriserSession, oublierSession, setUtilisateurAttente, synchroniser } from '../lib/offline';
 import { memoriserDernierRole } from '../lib/espaces';
 import { viderCacheEspaces } from '../components/Espace';
 
@@ -17,12 +18,18 @@ function extractList(payload) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Compte ouvert depuis la session locale (serveur injoignable) : données
+  // de la dernière connexion, notes saisies gardées en attente.
+  const [horsLigne, setHorsLigne] = useState(false);
   // SuperAdmin uniquement : établissements de la plateforme + celui consulté.
   const [etablissements, setEtablissements] = useState([]);
   const [activeEtablissementId, setActiveEtablissementIdState] = useState(null);
 
   const selectEtablissement = useCallback((id) => {
     const value = id ? Number(id) : null;
+    // Données « espace » (classes, matières…) de l'ancien établissement :
+    // à ne pas réafficher, même brièvement, sous le nouveau.
+    if (value !== getActiveEtablissementId()) viderCacheEspaces();
     setActiveEtablissementId(value);
     setActiveEtablissementIdState(value);
     if (value) {
@@ -50,9 +57,23 @@ export function AuthProvider({ children }) {
         setActiveEtablissementIdState(null);
       }
 
+      memoriserSession(data);
+      setUtilisateurAttente(idProprietaire(data));
+      setHorsLigne(false);
       setUser(data);
       return data;
-    } catch {
+    } catch (error) {
+      // Pas de réseau : session locale si la dernière connexion au serveur
+      // date de moins de 30 jours (cf. lib/offline.js).
+      const session = estHorsLigne(error) ? lireSession() : null;
+      if (session) {
+        setUtilisateurAttente(idProprietaire(session.user));
+        setHorsLigne(true);
+        setUser(session.user);
+        return session.user;
+      }
+      if (error?.status === 401) oublierSession();
+      setHorsLigne(false);
       setUser(null);
       return null;
     } finally {
@@ -63,6 +84,16 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     refreshUser();
   }, [refreshUser]);
+
+  // Retour du réseau après une ouverture hors connexion : on revalide le
+  // compte auprès du serveur (session expirée → écran de connexion, les
+  // notes en attente restent gardées et partiront après reconnexion).
+  useEffect(() => {
+    if (!horsLigne) return undefined;
+    const onLine = () => refreshUser();
+    window.addEventListener('online', onLine);
+    return () => window.removeEventListener('online', onLine);
+  }, [horsLigne, refreshUser]);
 
   // Rôle actif retiré (ou compte désactivé) pendant la session : le serveur
   // répond 403 'role_revoque' ; on relit le compte, ce qui renvoie au choix
@@ -99,6 +130,14 @@ export function AuthProvider({ children }) {
   }, [refreshUser]);
 
   const logout = useCallback(async () => {
+    // Notes saisies hors connexion pas encore envoyées : dernière tentative,
+    // puis confirmation (elles restent gardées pour ce compte sur l'appareil).
+    if (Object.keys(lireAttente()).length) {
+      const { restantes } = await synchroniser();
+      if (restantes && !window.confirm(`${restantes} saisie(s) ne sont pas encore enregistrées sur le serveur (connexion absente ou conflit à trancher). Elles restent gardées sur cet appareil et partiront à votre prochaine connexion. Se déconnecter quand même ?`)) {
+        return;
+      }
+    }
     try {
       await apiRequest('/auth/logout', { method: 'POST' });
     } catch (error) {
@@ -106,6 +145,8 @@ export function AuthProvider({ children }) {
     } finally {
       setActiveEtablissementId(null);
       viderCacheEspaces();
+      oublierSession();
+      setHorsLigne(false);
       setUser(null);
     }
   }, []);
@@ -143,6 +184,7 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       loading,
+      horsLigne,
       login,
       logout,
       refreshUser,
@@ -154,7 +196,7 @@ export function AuthProvider({ children }) {
       selectEtablissement,
       reloadEtablissements,
     }),
-    [user, loading, login, logout, refreshUser, changePassword, choisirRole, etablissements, activeEtablissementId, selectEtablissement, reloadEtablissements],
+    [user, loading, horsLigne, login, logout, refreshUser, changePassword, choisirRole, etablissements, activeEtablissementId, selectEtablissement, reloadEtablissements],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

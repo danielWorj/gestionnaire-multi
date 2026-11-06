@@ -82,9 +82,10 @@ def save_logo_file(file_storage, nom_etablissement):
 # Utilitaires génériques
 # ---------------------------------------------------------------------------
 
-def _filter_valid_columns(model_class, data, exclude=('id',)):
+def _filter_valid_columns(model_class, data, exclude=('id', 'version')):
     """Ne garde que les clés correspondant à de vraies colonnes du modèle,
-    en excluant systématiquement la clé primaire (jamais modifiable par payload)."""
+    en excluant systématiquement la clé primaire et `version` (tenue par le
+    serveur, cf. audit_services : jamais modifiable par payload)."""
     colonnes = model_class.__table__.columns
     valid_keys = {c.name for c in colonnes} - set(exclude)
     clean = {k: v for k, v in data.items() if k in valid_keys}

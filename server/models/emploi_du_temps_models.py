@@ -1,4 +1,5 @@
 from extensions import db
+from models.audit_models import Versionne
 
 JOURS_SEMAINE = ('Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi')
 
@@ -32,7 +33,7 @@ class CreneauHoraire(db.Model):
         return d
 
 
-class Horaire(db.Model):
+class Horaire(db.Model, Versionne):
     """Une case de l'emploi du temps : la MatiereClasse (couple
     classe/matière/enseignant, cf. pedagogie_models.py) programmée un jour
     donné, sur un créneau donné, pour une année scolaire donnée.
@@ -77,4 +78,4 @@ class Horaire(db.Model):
     def to_dict(self):
         return {k: getattr(self, k) for k in
                 ['id', 'matiere_classe_id', 'annee_scolaire_id', 'jour_semaine',
-                 'creneau_id', 'salle']}
+                 'creneau_id', 'salle', 'version']}

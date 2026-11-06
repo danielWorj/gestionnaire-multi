@@ -1,5 +1,6 @@
 from datetime import datetime
 from extensions import db
+from models.audit_models import Versionne
 
 
 # ---------------------------------------------------------------------------
@@ -31,7 +32,7 @@ from extensions import db
 # ---------------------------------------------------------------------------
 
 
-class Note(db.Model):
+class Note(db.Model, Versionne):
     """Une note attribuée à un élève inscrit (Inscription), pour une
     MatiereClasse (couple classe/matière/enseignant) donnée, sur une
     Sequence donnée. uq_note garantit qu'un élève n'a qu'une seule note par
@@ -64,13 +65,13 @@ class Note(db.Model):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in
-             ['id', 'inscription_id', 'matiere_classe_id', 'sequence_id', 'absent']}
+             ['id', 'inscription_id', 'matiere_classe_id', 'sequence_id', 'absent', 'version']}
         d['valeur'] = float(self.valeur) if self.valeur is not None else None
         d['saisie_le'] = self.saisie_le.isoformat() if self.saisie_le else None
         return d
 
 
-class Discipline(db.Model):
+class Discipline(db.Model, Versionne):
     """Le suivi disciplinaire d'un élève inscrit (Inscription), pour une
     Sequence donnée : absences (justifiées / non justifiées), retards,
     exclusions, observation libre. uq_discipline garantit une seule fiche
@@ -105,4 +106,4 @@ class Discipline(db.Model):
     def to_dict(self):
         return {k: getattr(self, k) for k in
                 ['id', 'inscription_id', 'sequence_id', 'absences_justifiees',
-                 'absences_non_justifiees', 'retards', 'exclusions', 'observation']}
+                 'absences_non_justifiees', 'retards', 'exclusions', 'observation', 'version']}

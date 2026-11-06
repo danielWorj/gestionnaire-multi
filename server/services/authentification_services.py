@@ -15,6 +15,7 @@ from datetime import datetime
 import math
 import bcrypt
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import joinedload
 
 # NB : les durées de vie des tokens (ACCESS/REFRESH) ne sont plus codées en
 # dur ici pour éviter toute divergence avec config.py (source unique de
@@ -495,9 +496,11 @@ def logout(user_id, access_jti=None, access_exp_timestamp=None, sid=None):
 
 def get_all_utilisateurs(etablissement_id=None, role=None):
     """
-    Récupère tous les utilisateurs avec filtres optionnels
+    Récupère tous les utilisateurs avec filtres optionnels. L'établissement
+    est chargé avec eux (nom affiché par to_dict) : une seule requête au
+    lieu d'une par compte sur la liste globale du SuperAdmin.
     """
-    query = Utilisateur.query
+    query = Utilisateur.query.options(joinedload(Utilisateur.etablissement))
 
     if etablissement_id:
         query = query.filter_by(etablissement_id=etablissement_id)
@@ -676,6 +679,17 @@ def reset_temp_password(user_id):
 # SUPERADMIN
 # ============================================================================
 
+def _superadmin_par_email(email):
+    """Recherche insensible à la casse et aux espaces : les emails SuperAdmin
+    sont enregistrés en minuscules (superadmin_services), mais un compte plus
+    ancien ou une saisie « Jean@... » doivent être retrouvés quel que soit le
+    moteur de base (MySQL l'est déjà, SQLite/PostgreSQL non)."""
+    email = (email or '').strip().lower()
+    if not email:
+        return None
+    return SuperAdmin.query.filter(db.func.lower(SuperAdmin.email) == email).first()
+
+
 def create_superadmin(data):
     """
     Crée un compte SuperAdmin (compte global, hors établissement).
@@ -684,7 +698,7 @@ def create_superadmin(data):
     ne devrait permettre à un tiers non authentifié de créer un SuperAdmin.
     """
     try:
-        existing = SuperAdmin.query.filter_by(email=data['email']).first()
+        existing = _superadmin_par_email(data.get('email'))
         if existing:
             return {"erreur": "Un SuperAdmin avec cet email existe déjà"}, 409
 
@@ -694,7 +708,7 @@ def create_superadmin(data):
 
         superadmin = SuperAdmin(
             nom=data['nom'],
-            email=data['email'],
+            email=data['email'].strip().lower(),
             actif=True
         )
         superadmin.set_password(data['password'])
@@ -716,7 +730,7 @@ def login_superadmin(email, password):
     """
     Authentifie un SuperAdmin et ouvre une session (un appareil de plus).
     """
-    superadmin = SuperAdmin.query.filter_by(email=email).first()
+    superadmin = _superadmin_par_email(email)
 
     if not superadmin or not superadmin.check_password(password):
         return {"erreur": "Email ou mot de passe incorrect"}, 401

@@ -1,13 +1,12 @@
 from flask import Blueprint, request, jsonify
-from datetime import date
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
-from sqlalchemy import func, or_
 
 from services.evaluation_services import (
     get_all_notes_scoped, get_note_scoped, create_note_scoped, update_note_scoped, delete_note_scoped,
     resolve_enseignant_matiere_classe_ids,
     get_all_disciplines_scoped, get_discipline_scoped, create_discipline_scoped,
     update_discipline_scoped, delete_discipline_scoped,
+    notes_saisies_par_mc as _notes_saisies_par_mc,
 )
 # resolve_classe_ids_restriction : réutilisé pour note_bp/discipline_bp (restriction
 # Censeur/Surveillant) — même résolution que pour TitulaireClasse/MatiereClasse
@@ -21,7 +20,10 @@ from services.pedagogie_services import resolve_classe_ids_restriction, resolve_
 # (« mon espace » : classes/matières-classe, années/trimestres/séquences,
 # liste des élèves). Enseignant : utilisé par censeur_espace_bp pour
 # enrichir matieres_classe avec le nom de l'enseignant titulaire.
-from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes
+from models.structure_models import (
+    Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes,
+    annee_active as annee_active_etablissement, sequence_courante as _sequence_courante,
+)
 from models.pedagogie_models import Matiere, MatiereClasse, Enseignant
 from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN_COURS
 # CreneauHoraire/Horaire : nécessaires UNIQUEMENT à enseignant_horaire()
@@ -31,10 +33,8 @@ from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN
 # Censeur/Surveillant), d'où ce point d'entrée dédié, pré-filtré et
 # pré-enrichi côté serveur, sur le même modèle que enseignant_mon_espace.
 from models.emploi_du_temps_models import CreneauHoraire, Horaire
-# Note : comptage agrégé des notes saisies (avancement affiché sur les cartes
-# de classes des espaces Enseignant et Censeur, cf. _notes_saisies_par_mc).
-from models.evaluation_models import Note
-from extensions import db
+# Comptage des notes saisies (avancement des cartes de classes) : règle
+# commune, cf. evaluation_services.notes_saisies_par_mc.
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +45,14 @@ from extensions import db
 # Accès en LECTURE (GET) pour Admin, SuperAdmin, Censeur, Surveillant ET
 # Enseignant.
 #
-# Accès en ÉCRITURE (POST/PUT/DELETE) réservé au SEUL Enseignant, et
-# uniquement sur les MatiereClasse qui LUI ont été attribuées par l'Admin
-# (cf. resolve_enseignant_matiere_classe_ids) : ni l'Admin, ni le SuperAdmin,
-# ni le Censeur, ni le Surveillant ne peuvent saisir ou modifier une note —
-# ce module reste la responsabilité exclusive de l'enseignant titulaire de
-# la matière-classe concernée.
+# Accès en ÉCRITURE (POST/PUT/DELETE) :
+# - Enseignant : uniquement sur les MatiereClasse qui LUI ont été attribuées
+#   par l'Admin (cf. resolve_enseignant_matiere_classe_ids) ;
+# - SuperAdmin : toutes les matières-classe de l'établissement qu'il a
+#   choisi (?etablissement_id=), pour saisir à la place d'un établissement
+#   qui le demande (zone sans réseau mobile, par exemple). Chaque saisie est
+#   tracée à son nom dans le journal d'audit.
+# Ni l'Admin, ni le Censeur, ni le Surveillant ne peuvent saisir une note.
 #
 # Censeur/Surveillant sont en outre restreints en LECTURE aux classes qui
 # leur ont été assignées (classe_ids_restriction), comme pour
@@ -66,6 +68,7 @@ from extensions import db
 # ---------------------------------------------------------------------------
 
 ROLES_LECTURE_NOTE = ("Admin", "SuperAdmin", "Censeur", "Surveillant", "Enseignant")
+ROLES_ECRITURE_NOTE = ("Enseignant", "SuperAdmin")
 
 note_bp = Blueprint('note_api', __name__, url_prefix='/api/notes')
 
@@ -76,10 +79,9 @@ def _require_role_note():
     role = get_jwt().get("role")
     if role not in ROLES_LECTURE_NOTE:
         return jsonify({"erreur": "Accès non autorisé"}), 403
-    # Écriture réservée à l'Enseignant : Admin/SuperAdmin/Censeur/Surveillant
-    # restent strictement en lecture seule sur ce blueprint (cf. docstring
-    # ci-dessus).
-    if request.method != "GET" and role != "Enseignant":
+    # Écriture : Enseignant (ses matières) et SuperAdmin (tout l'établissement
+    # choisi) ; Admin/Censeur/Surveillant restent en lecture seule.
+    if request.method != "GET" and role not in ROLES_ECRITURE_NOTE:
         return jsonify({"erreur": "Seul l'enseignant titulaire peut saisir ou modifier une note"}), 403
 
 
@@ -139,9 +141,9 @@ def note_create():
     etab_id = _resolve_etablissement_id_note()
     if not etab_id:
         return jsonify({"erreur": "etablissement_id requis"}), 400
-    # before_request garantit ici role == "Enseignant" (seul rôle passé pour
-    # un verbe autre que GET) : matiere_classe_ids_restriction est donc
-    # toujours un set() concret (potentiellement vide), jamais None.
+    # before_request garantit ici role in ROLES_ECRITURE_NOTE : restriction =
+    # set() concret (potentiellement vide) pour l'Enseignant, None pour le
+    # SuperAdmin (tout l'établissement choisi).
     result, status = create_note_scoped((request.get_json(silent=True) or {}), etab_id, _current_matiere_classe_restriction())
     return jsonify(result), status
 
@@ -366,30 +368,6 @@ def _est_active(annee):
                               "is_active", defaut=False))
 
 
-def _sequence_courante(annee):
-    """Séquence « en cours » de l'année (celle dont les dates encadrent
-    aujourd'hui ; à défaut la dernière commencée ; à défaut la première), ou
-    None si l'année n'a encore aucune séquence. Sert de référence à
-    l'avancement de la saisie des notes affiché sur les cartes de classes."""
-    if annee is None:
-        return None
-    sequences = (
-        Sequence.query
-        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-        .filter(Trimestre.annee_scolaire_id == annee.id)
-        .order_by(Trimestre.id, Sequence.id)
-        .all()
-    )
-    if not sequences:
-        return None
-    aujourdhui = date.today()
-    for sequence in sequences:
-        if sequence.date_debut and sequence.date_fin and sequence.date_debut <= aujourdhui <= sequence.date_fin:
-            return sequence
-    commencees = [s for s in sequences if s.date_debut and s.date_debut <= aujourdhui]
-    return commencees[-1] if commencees else sequences[0]
-
-
 def _sequence_json(sequence):
     if sequence is None:
         return None
@@ -399,26 +377,6 @@ def _sequence_json(sequence):
         "trimestre_id": sequence.trimestre_id,
         "trimestre_libelle": _libelle(sequence.trimestre, None) if sequence.trimestre else None,
     }
-
-
-def _notes_saisies_par_mc(mc_ids, sequence, annee):
-    """{matiere_classe_id: nombre de notes saisies} pour la séquence et
-    l'année données, en une seule requête agrégée. Une note compte comme
-    saisie dès qu'elle porte une valeur ou que l'élève est marqué absent."""
-    if not mc_ids or sequence is None or annee is None:
-        return {}
-    return dict(
-        db.session.query(Note.matiere_classe_id, func.count(Note.id))
-        .join(Inscription, Inscription.id == Note.inscription_id)
-        .filter(
-            Note.matiere_classe_id.in_(mc_ids),
-            Note.sequence_id == sequence.id,
-            Inscription.annee_scolaire_id == annee.id,
-            or_(Note.valeur.isnot(None), Note.absent.is_(True)),
-        )
-        .group_by(Note.matiere_classe_id)
-        .all()
-    )
 
 
 def _etablissement_id_enseignant():
@@ -483,7 +441,7 @@ def enseignant_mon_espace():
         .order_by(AnneeScolaire.id.desc())
         .all()
     )
-    annee_active = next((a for a in annees if _est_active(a)), annees[0] if annees else None)
+    annee_active = annee_active_etablissement(etab_id)
 
     classe_ids = {lien.classe_id for lien in liens}
     matiere_ids = {lien.matiere_id for lien in liens}
@@ -806,7 +764,7 @@ def censeur_mon_espace():
         .order_by(AnneeScolaire.id.desc())
         .all()
     )
-    annee_active = next((a for a in annees if _est_active(a)), annees[0] if annees else None)
+    annee_active = annee_active_etablissement(etab_id)
     annees_json = [
         {"id": annee.id, "libelle": _libelle(annee, f"Année #{annee.id}"), "active": _est_active(annee)}
         for annee in annees

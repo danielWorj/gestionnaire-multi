@@ -1,5 +1,5 @@
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from flask import current_app
 from sqlalchemy.exc import IntegrityError
@@ -9,6 +9,8 @@ from models.inscription_models import Inscription, Parent
 from models.structure_models import Classe, AnneeScolaire
 from models.authentification_models import Utilisateur
 from extensions import db
+from services.audit_services import heure_saisie_hors_ligne
+from services.conflits_services import extraire_controle, reponse_conflit
 
 # Les opérations CRUD "brutes" génériques (create_entity, get_all_entities,
 # get_entity_by_id, update_entity, delete_entity) restent réutilisées pour
@@ -482,6 +484,17 @@ def create_paiement_scoped(data, etablissement_id):
      mode_paiement, reference_transaction?, lignes: [{tranche_classe_id,
      montant_verse}, ...]}."""
     data = dict(data or {})
+    controle = extraire_controle(data)
+
+    # Renvoi d'un paiement déjà enregistré (saisie hors connexion dont la
+    # réponse s'est perdue) : on renvoie l'existant, JAMAIS un second encaissement.
+    cle_idempotence = str(data.get('cle_idempotence') or '').strip()[:40] or None
+    if cle_idempotence:
+        deja = Paiement.query.filter_by(cle_idempotence=cle_idempotence).first()
+        if deja:
+            if get_etablissement_id_of_paiement(deja) != etablissement_id:
+                return {"erreur": "Accès non autorisé à cette ressource"}, 403
+            return deja.to_dict(with_lignes=True), 200
 
     # numero_recu facultatif : généré ici s'il n'est pas saisi (unique
     # globalement, cf. docstring de Paiement).
@@ -514,6 +527,28 @@ def create_paiement_scoped(data, etablissement_id):
     if error:
         return {"erreur": error}, 400
 
+    # Paiement saisi hors connexion : daté de l'encaissement réel sur
+    # l'appareil, pas de son arrivée au serveur.
+    date_paiement = heure_saisie_hors_ligne() or datetime.utcnow()
+
+    # Doublon probable (même élève, même montant, même jour, déjà validé) :
+    # l'utilisateur confirme (« enregistrer quand même ») ou abandonne.
+    if controle.fourni and not controle.forcer:
+        debut = datetime.combine(date_paiement.date(), datetime.min.time())
+        probable = (Paiement.query
+                    .filter(Paiement.inscription_id == data['inscription_id'],
+                            Paiement.statut == 'VALIDE',
+                            Paiement.montant_total == data['montant_total'],
+                            Paiement.date_paiement >= debut,
+                            Paiement.date_paiement < debut + timedelta(days=1))
+                    .order_by(Paiement.id.desc()).first())
+        if probable:
+            return reponse_conflit(
+                probable, 'doublon',
+                "Un paiement du même montant a déjà été enregistré ce jour-là pour cet élève.",
+                serveur=probable.to_dict(with_lignes=True),
+            )
+
     try:
         paiement = Paiement(
             inscription_id=data['inscription_id'],
@@ -524,6 +559,8 @@ def create_paiement_scoped(data, etablissement_id):
             mode_paiement=data['mode_paiement'],
             reference_transaction=data.get('reference_transaction'),
             statut='VALIDE',
+            date_paiement=date_paiement,
+            cle_idempotence=cle_idempotence,
         )
         db.session.add(paiement)
         db.session.flush()  # pour obtenir paiement.id avant d'insérer les lignes

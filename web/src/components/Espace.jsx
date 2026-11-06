@@ -212,7 +212,9 @@ export function ClassesGrille({ items, loading, vide, rechercheDes = 8 }) {
 // ── Choix de classe (Censeur / Surveillant) ──────────────────────────────
 // Sans ?classe= dans l'URL : grille des classes assignées. Avec : barre de
 // la classe choisie (et retour à la grille), puis la page elle-même.
-export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true, children }) {
+const VIDE_CLASSES = "Aucune classe ne vous a été assignée pour le moment. Contactez l'administration de votre établissement.";
+
+export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true, vide = VIDE_CLASSES, children }) {
   const espace = useMonEspace('/censeur');
   const [params, setParams] = useSearchParams();
   const classeId = params.get('classe');
@@ -234,7 +236,11 @@ export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true,
       <>
         <EspaceTitre titre={titre} sousTitre={sousTitre || 'Choisissez une classe'} icon={icon} />
         {espace.error && !espace.data && <div className="alert alert-danger">{espace.error.message}</div>}
-        <ClassesGrille items={items} loading={espace.loading} vide="Aucune classe ne vous a été assignée pour le moment. Contactez l'administration de votre établissement." />
+        <ClassesGrille
+          items={items}
+          loading={espace.loading}
+          vide={vide}
+        />
       </>
     );
   }

@@ -1,3 +1,5 @@
+import { ecrireCache, estCacheable, lireCache } from './stockageLocal';
+
 // Par défaut '/api' (même origine, via le proxy Vite — cf. vite.config.js) :
 // les cookies JWT/CSRF sont alors posés sur l'origine du front, quel que soit
 // l'hôte utilisé (localhost ou 127.0.0.1). Avec une URL absolue vers un autre
@@ -141,6 +143,15 @@ export function getActiveEtablissementId() {
   return activeEtablissementId;
 }
 
+// URL figée sur l'établissement ACTUELLEMENT consulté par le SuperAdmin (sans
+// effet pour un compte d'établissement) : pour une écriture qui peut partir
+// plus tard (file hors connexion, cf. lib/offline.js), afin qu'elle vise
+// toujours l'établissement de la saisie, même si le sélecteur a changé.
+export function avecEtablissement(url) {
+  if (!activeEtablissementId || /[?&]etablissement_id=/.test(url)) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}etablissement_id=${activeEtablissementId}`;
+}
+
 // Appliqué à toutes les méthodes : les blueprints cloisonnés lisent aussi
 // ?etablissement_id= sur PUT/DELETE quand l'appelant est SuperAdmin.
 function withEtablissementScope(normalizedPath) {
@@ -165,8 +176,49 @@ async function sendOrExplain(normalizedPath, options, csrfCookie) {
   }
 }
 
-export async function apiRequest(path, { responseType, ...options } = {}) {
+// Réseau absent, trop lent ou serveur indisponible : cas où l'on peut servir
+// la copie locale (mode hors connexion) ou garder une note en attente.
+export const estHorsLigne = (error) => error instanceof ApiError && (error.status === 0 || error.status >= 502);
+
+// Délai maximal des GET disposant d'une copie locale : sur une connexion
+// très faible, mieux vaut afficher les données enregistrées que d'attendre.
+const DELAI_GET_CACHE_MS = 12000;
+
+// `sansCopieLocale` : la réponse est mise en cache mais jamais lue depuis le
+// cache (préchargement : il doit échouer si le réseau manque).
+export async function apiRequest(path, { sansCopieLocale = false, ...options } = {}) {
+  const method = (options.method || 'GET').toUpperCase();
   const normalizedPath = withEtablissementScope(normalizeApiPath(path));
+  const basePath = normalizedPath.split('?')[0];
+
+  if (method !== 'GET' || options.responseType === 'blob' || !estCacheable(basePath)) {
+    return requeteReseau(normalizedPath, options);
+  }
+
+  // Délai maximal seulement si une copie locale peut prendre le relais :
+  // sans elle, mieux vaut attendre une réponse lente que d'échouer.
+  const copieDisponible = !sansCopieLocale && Boolean(await lireCache(normalizedPath));
+  const controleur = new AbortController();
+  const minuterie = copieDisponible ? setTimeout(() => controleur.abort(), DELAI_GET_CACHE_MS) : null;
+  try {
+    const data = await requeteReseau(normalizedPath, { ...options, signal: controleur.signal });
+    ecrireCache(normalizedPath, data);
+    return data;
+  } catch (erreur) {
+    // Délai dépassé pendant la lecture du corps : équivaut à une coupure.
+    const error = erreur?.name === 'AbortError'
+      ? new ApiError('Impossible de joindre le serveur (connexion trop lente).', 0, null) : erreur;
+    if (estHorsLigne(error) && !sansCopieLocale) {
+      const copie = await lireCache(normalizedPath);
+      if (copie) return copie.data;
+    }
+    throw error;
+  } finally {
+    if (minuterie) clearTimeout(minuterie);
+  }
+}
+
+async function requeteReseau(normalizedPath, { responseType, ...options }) {
   const basePath = normalizedPath.split('?')[0];
 
   let response = await sendOrExplain(normalizedPath, options);
@@ -186,9 +238,14 @@ export async function apiRequest(path, { responseType, ...options } = {}) {
     if (response.status === 403 && payload?.code === 'role_revoque') {
       window.dispatchEvent(new Event(ROLE_REVOQUE_EVENT));
     }
+    // Page HTML (502/503/504 de Cloudflare ou nginx) : ne jamais l'afficher brute.
+    const estPageHtml = typeof payload === 'string' && /^\s*<(!doctype|html)/i.test(payload);
     const message = typeof payload === 'object' && payload !== null
       ? payload.erreur || payload.error || payload.message || payload.msg || 'La requête a échoué.'
-      : String(payload || 'La requête a échoué.');
+      : response.status >= 502 && response.status <= 504
+        ? 'Le serveur est momentanément indisponible. Réessayez dans quelques minutes.'
+        : estPageHtml ? `La requête a échoué (erreur ${response.status}).`
+          : String(payload || 'La requête a échoué.');
     throw new ApiError(message, response.status, payload);
   }
 
@@ -216,6 +273,15 @@ export const api = {
   patch: (path, body) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }),
   del: (path) => apiRequest(path, { method: 'DELETE' }),
   blob: (path) => apiRequest(path, { responseType: 'blob' }),
+  // Écriture générique (file d'attente hors connexion, cf. offline.js).
+  envoyer: (method, path, body, headers) => apiRequest(path, {
+    method,
+    headers,
+    body: JSON.stringify(method === 'POST' ? withEtablissementBody(body ?? {}) : (body ?? {})),
+  }),
 };
+
+// Clé de la copie locale d'un GET (même normalisation que apiRequest).
+export const cleCache = (path) => withEtablissementScope(normalizeApiPath(path));
 
 export { API_BASE };

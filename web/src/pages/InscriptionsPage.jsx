@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
+import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro } from '../lib/offline';
+import OperationsEnAttente from '../components/OperationsEnAttente';
 import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +15,9 @@ import Select from '../components/Select';
 // Portage de server/static/templates/inscription.html : registre des
 // inscriptions, analyses, générateur de listes de classe imprimables et
 // formulaire (élève existant ou créé à la volée, avec son parent).
+// Hors connexion : l'inscription (dossier parent + élève + inscription) est
+// gardée sur l'appareil et envoyée au retour du réseau ; un doublon (parent,
+// matricule, élève déjà inscrit) est soumis à l'utilisateur.
 
 const PRIMARY = '#696cff';
 const INFO = '#03c3ec';
@@ -39,6 +44,8 @@ function StatutBadge({ statut }) {
   const v = statut || 'Actif';
   return <span className={`badge ${STATUT_BADGES[v] || 'bg-label-secondary'}`}>{v}</span>;
 }
+
+const MODULES_INSCRIPTION = ['dossier_inscription', 'inscription', 'eleve', 'parent'];
 
 export default function InscriptionsPage() {
   const toast = useToast();
@@ -84,6 +91,7 @@ export default function InscriptionsPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll, activeEtablissementId]);
+  useApresSynchro(MODULES_INSCRIPTION, loadAll);
 
   const { inscriptions, eleves, parents, classes, cycles, annees } = data;
   const eleveById = useMemo(() => Object.fromEntries(eleves.map((e) => [e.id, e])), [eleves]);
@@ -452,6 +460,7 @@ export default function InscriptionsPage() {
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Inscrire un élève</button>
       </PageHeader>
+      <OperationsEnAttente modules={MODULES_INSCRIPTION} titre="Inscriptions pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
         <StatCard label={`Inscriptions ${anneeLabel(annee)}`} value={loading ? null : stats.total} sub={`${stats.distincts} élèves distincts`} icon="bx-clipboard" color="primary" />
@@ -767,27 +776,31 @@ function InscriptionModal({ data, defaultAnnee, eleves, parents, classes, annees
   };
   const eleveReconnu = eleveMode === 'exist' && !isEdit ? eleveDepuisSaisie() : null;
 
-  const resoudreEleveId = async () => {
+  // Dossier envoyé en une requête (parent + élève + inscription, cf.
+  // /dossiers-inscription/) : rien n'a besoin d'exister déjà sur le serveur,
+  // ce qui permet de l'enregistrer hors connexion.
+  const construireDossier = () => {
     if (eleveMode === 'exist') {
       const e = eleveDepuisSaisie();
       if (!e) throw new Error('Choisissez un élève dans la liste (tapez son matricule ou son nom).');
-      return { eleve_id: e.id, label: `${e.prenom || ''} ${e.nom || ''}` };
+      const label = `${e.prenom || ''} ${e.nom || ''}`.trim();
+      return { dossier: { eleve_id: e.id, eleve_label: `${e.nom || ''} ${e.prenom || ''} (${e.matricule || '—'})` }, label };
     }
     const ep = { matricule: ne.matricule.trim(), nom: ne.nom.trim(), prenom: ne.prenom.trim(), sexe: ne.sexe, lieu_naissance: ne.lieu_naissance.trim(), statut: ne.statut };
     if (ne.date_naissance) ep.date_naissance = ne.date_naissance;
     for (const [k, label] of [['matricule', 'matricule'], ['nom', 'nom'], ['prenom', 'prénom'], ['sexe', 'sexe'], ['lieu_naissance', 'lieu de naissance']]) {
       if (!ep[k]) throw new Error(`Renseignez le ${label} de l'élève.`);
     }
+    const dossier = { eleve: ep };
     if (parentMode === 'new') {
       const parent = { nom: np.nom.trim(), prenom: np.prenom.trim(), telephone: np.telephone.trim(), email: np.email.trim() };
       if (!parent.nom || !parent.prenom || !parent.telephone || !parent.email) throw new Error("Le nouveau parent a besoin d'un nom, d'un prénom, d'un téléphone et d'un e-mail.");
-      ep.parent_id = (await api.post('/parents/', parent)).id;
+      dossier.parent = parent;
     } else {
-      ep.parent_id = Number(parentId) || null;
-      if (!ep.parent_id) throw new Error("Choisissez le parent de l'élève, ou créez-en un nouveau.");
+      dossier.parent_id = Number(parentId) || null;
+      if (!dossier.parent_id) throw new Error("Choisissez le parent de l'élève, ou créez-en un nouveau.");
     }
-    const created = await api.post('/eleves/', ep);
-    return { eleve_id: created.id, label: `${ep.prenom || ''} ${ep.nom || ''}` };
+    return { dossier, label: `${ep.prenom} ${ep.nom}` };
   };
 
   const submit = async () => {
@@ -803,13 +816,29 @@ function InscriptionModal({ data, defaultAnnee, eleves, parents, classes, annees
     if (!payload.date_inscription) return setError("Indiquez la date d'inscription.");
     setSaving(true);
     try {
+      const classeTexte = classeLabel(payload.classe_id);
       if (isEdit) {
-        await api.put(`/inscriptions/${data.id}`, payload);
-        await onSaved('Inscription mise à jour');
+        const res = await enregistrer({
+          cle: `inscription|${data.id}`,
+          module: 'inscription',
+          methode: 'PUT',
+          url: `/inscriptions/${data.id}`,
+          body: payload,
+          versionBase: data.version ?? undefined,
+          libelle: `Inscription de ${eleveEdit ? `${eleveEdit.nom || ''} ${eleveEdit.prenom || ''}`.trim() : `l'élève n°${data.eleve_id}`} — ${classeTexte}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: 'Inscription mise à jour' });
       } else {
-        const resolu = await resoudreEleveId();
-        await api.post('/inscriptions/', { ...payload, eleve_id: resolu.eleve_id });
-        await onSaved(`${resolu.label.trim()} inscrit(e) en ${classeLabel(payload.classe_id)}`);
+        const { dossier, label } = construireDossier();
+        const res = await enregistrer({
+          cle: nouvelleCle('dossier'),
+          module: 'dossier_inscription',
+          methode: 'POST',
+          url: '/dossiers-inscription/',
+          body: { ...dossier, inscription: { ...payload, classe_label: classeTexte } },
+          libelle: `${label} → ${classeTexte}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: `${label} inscrit(e) en ${classeTexte}` });
       }
     } catch (err) {
       setError(/unicit/i.test(err.message) ? 'Cet élève est déjà inscrit dans cette classe pour cette année scolaire.' : err.message);

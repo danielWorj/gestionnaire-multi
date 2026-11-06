@@ -10,6 +10,14 @@ from extensions import db
 from services.structure_services import (
     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
 )
+from services.conflits_services import extraire_controle, memes_valeurs, verifier
+
+CHAMPS_REQUIS = {
+    Parent: ('nom', 'prenom', 'telephone', 'email'),
+    Eleve: ('matricule', 'nom', 'prenom', 'sexe', 'lieu_naissance', 'parent_id'),
+    Inscription: ('eleve_id', 'classe_id', 'annee_scolaire_id', 'date_inscription'),
+}
+LIBELLES = {Parent: 'parent', Eleve: 'élève', Inscription: 'inscription'}
 
 
 # ---------------------------------------------------------------------------
@@ -138,20 +146,9 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
     if model_class in DIRECT_SCOPE_MODELS:
         data['etablissement_id'] = etablissement_id
 
-    if model_class is Parent:
-        for champ in ('nom', 'prenom', 'telephone', 'email'):
-            if not data.get(champ):
-                return {"erreur": f"{champ} requis"}, 400
-
-    if model_class is Eleve:
-        for champ in ('matricule', 'nom', 'prenom', 'sexe', 'lieu_naissance', 'parent_id'):
-            if data.get(champ) in (None, ''):
-                return {"erreur": f"{champ} requis"}, 400
-
-    if model_class is Inscription:
-        for champ in ('eleve_id', 'classe_id', 'annee_scolaire_id', 'date_inscription'):
-            if data.get(champ) in (None, ''):
-                return {"erreur": f"{champ} requis"}, 400
+    for champ in CHAMPS_REQUIS.get(model_class, ()):
+        if data.get(champ) in (None, ''):
+            return {"erreur": f"{champ} requis"}, 400
 
     error = _validate_foreign_keys_scoped(model_class, data, etablissement_id)
     if error:
@@ -179,6 +176,7 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
 
     data = dict(data or {})
     data.pop('etablissement_id', None)  # non modifiable, même par erreur de payload
+    controle = extraire_controle(data)
 
     if isinstance(entity, Inscription) and classe_ids_restriction is not None:
         # L'entité existante est déjà dans le périmètre (garanti par
@@ -199,6 +197,17 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
                                             entity.id)
         if error:
             return {"erreur": error}, 409
+
+    # Modification concurrente (saisie hors connexion, autre poste) : 409,
+    # l'utilisateur tranche (cf. conflits_services).
+    valeurs = {k: v for k, v in data.items() if k in type(entity).__table__.columns and k not in ('id', 'version')}
+    conflit = verifier(entity, controle, valeurs,
+                       message_conflit=f"Cette fiche ({LIBELLES[type(entity)]}) a été modifiée par quelqu'un "
+                                       "d'autre depuis votre saisie.")
+    if conflit:
+        return conflit
+    if valeurs and memes_valeurs(entity, valeurs):
+        return entity.to_dict(), 200
 
     return update_entity(entity, data)
 

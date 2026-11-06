@@ -158,3 +158,16 @@
   .print-signature { break-inside: avoid; }
   .print-page-break { break-after: page; }
 }
+
+/* Journal des modifications (components/Historique.jsx) */
+.audit-liste .audit-entree { padding: .75rem 0; border-bottom: 1px solid rgba(67, 89, 113, .1); }
+.audit-liste .audit-entree:last-child { border-bottom: 0; }
+.audit-changements { padding-left: 1.1rem; margin-top: .25rem; }
+.audit-changements li { word-break: break-word; }
+
+/* Conflits de synchronisation (components/ConflitsSynchro.jsx) */
+.conflit-carte { border: 1px solid rgba(67, 89, 113, .15); border-radius: .5rem; padding: .85rem; }
+.conflit-version { border-radius: .4rem; padding: .6rem .75rem; height: 100%; }
+.conflit-mienne { background: rgba(105, 108, 255, .08); }
+.conflit-serveur { background: rgba(133, 146, 163, .1); }
+.conflit-valeur { font-size: 1.1rem; font-weight: 600; }

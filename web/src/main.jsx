@@ -23,3 +23,11 @@ createRoot(document.getElementById('root')).render(
     </BrowserRouter>
   </StrictMode>,
 );
+
+// Mode hors connexion : l'application s'ouvre sans réseau (cf. sw-source.js).
+// Uniquement en production : en dev, Vite sert des modules non hashés.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

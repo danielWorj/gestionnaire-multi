@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiRequest } from '../lib/api';
-import { ROLES_SANS_ESPACE, roleInfo } from '../lib/espaces';
+import { roleInfo } from '../lib/espaces';
+import CompteFormModal from './CompteFormModal';
 import Modal from './Modal';
 import { IdentifiantsModal, useConfirm, useToast } from './ui';
 
@@ -9,14 +10,14 @@ import { IdentifiantsModal, useConfirm, useToast } from './ui';
 // facultatif, rôles cumulés), réinitialisation du PIN, désactivation /
 // réactivation. Chaque compte se connecte avec son code + son PIN.
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-// Rôles qui ouvrent un espace lié à une fiche métier : la fiche se crée côté
-// établissement (en indiquant le code de ce compte), sinon l'espace reste vide.
-const ROLES_AVEC_FICHE = {
-  Enseignant: 'la fiche enseignant (page Enseignants)',
-  Censeur: 'la fiche censeur (page Configuration)',
-  Surveillant: 'la fiche surveillant (page Configuration)',
+const LIBELLES_ADMIN = {
+  ajout: 'Ajouter un administrateur',
+  modification: "Modifier l'administrateur",
+  ajoute: 'Administrateur ajouté.',
+  modifie: 'Administrateur modifié.',
+  titreIdentifiants: 'Administrateur créé',
+  existant: (nom) => `${nom} avait déjà un compte dans cet établissement : il devient administrateur et garde son code et son PIN.`,
+  exempleCode: "Ex : un enseignant que l'on nomme administrateur. Son compte reçoit le rôle et il garde son code et son PIN.",
 };
 
 function formatDateHeure(iso) {
@@ -197,11 +198,13 @@ export default function AdministrateursModal({ etab, onClose }) {
       </Modal>
 
       {formulaire && (
-        <AdminFormModal
+        <CompteFormModal
           etab={etab}
-          admin={formulaire.admin}
+          compte={formulaire.admin}
           roles={roles}
-          estDernierActif={formulaire.admin ? dernierActif(formulaire.admin) : false}
+          roleImpose="Admin"
+          libelles={LIBELLES_ADMIN}
+          estDernierAdminActif={formulaire.admin ? dernierActif(formulaire.admin) : false}
           onClose={() => setFormulaire(null)}
           onSaved={async ({ message, identifiants: ids }) => {
             setFormulaire(null);
@@ -221,161 +224,6 @@ export default function AdministrateursModal({ etab, onClose }) {
           onClose={() => setIdentifiants(null)}
         />
       )}
-      {confirmNode}
-    </>
-  );
-}
-
-function AdminFormModal({ etab, admin, roles, estDernierActif, onClose, onSaved }) {
-  const toast = useToast();
-  const [confirm, confirmNode] = useConfirm();
-  const creation = !admin;
-  const roleAdmin = roles.find((r) => r.libelle === 'Admin');
-  const [form, setForm] = useState(() => ({
-    nom: admin?.nom || '',
-    email: admin?.email || '',
-    codeExistant: '',
-    roleIds: new Set(admin ? admin.roles.map((r) => r.id) : roleAdmin ? [roleAdmin.id] : []),
-  }));
-  const [erreurs, setErreurs] = useState({});
-  const [enregistrement, setEnregistrement] = useState(false);
-
-  const basculerRole = (id) => setForm((f) => {
-    const roleIds = new Set(f.roleIds);
-    if (roleIds.has(id)) roleIds.delete(id);
-    else roleIds.add(id);
-    return { ...f, roleIds };
-  });
-
-  const rolesCoches = roles.filter((r) => form.roleIds.has(r.id));
-  const ficheRequise = rolesCoches.filter((r) => ROLES_AVEC_FICHE[r.libelle] && !admin?.roles.some((x) => x.id === r.id));
-  const retireAdmin = !creation && roleAdmin && !form.roleIds.has(roleAdmin.id);
-
-  const valider = () => {
-    const e = {};
-    if (!form.nom.trim() && !form.codeExistant) e.nom = 'Le nom est requis.';
-    if (form.email.trim() && !EMAIL_RE.test(form.email.trim())) e.email = 'Saisissez un email valide, ou laissez le champ vide.';
-    if (form.codeExistant && form.codeExistant.length !== 4) e.codeExistant = 'Le code comporte 4 caractères.';
-    if (!form.roleIds.size) e.roles = 'Au moins un rôle est requis.';
-    setErreurs(e);
-    return !Object.keys(e).length;
-  };
-
-  const enregistrer = async () => {
-    if (!valider()) return;
-    if (retireAdmin) {
-      const ok = await confirm(<>Retirer le rôle Administrateur à <strong>{admin.nom}</strong> ?</>, {
-        title: 'Retirer le rôle Administrateur', icon: 'bx-shield-x', confirmLabel: 'Retirer', confirmIcon: 'bx-shield-x',
-        details: estDernierActif
-          ? "C'est le dernier administrateur actif de cet établissement. Il disparaîtra de cette liste et gardera seulement ses autres rôles."
-          : 'Il disparaîtra de cette liste et gardera seulement ses autres rôles.',
-      });
-      if (!ok) return;
-    }
-    setEnregistrement(true);
-    const payload = { nom: form.nom.trim(), email: form.email.trim() || null, role_ids: [...form.roleIds] };
-    try {
-      if (creation) {
-        const r = await apiRequest('/auth/utilisateurs', {
-          method: 'POST',
-          body: JSON.stringify({ ...payload, etablissement_id: etab.id, code_existant: form.codeExistant || undefined }),
-        });
-        if (r.compte_existant) {
-          await onSaved({ message: `${r.nom} avait déjà un compte dans cet établissement : il devient administrateur et garde son code et son PIN.` });
-        } else {
-          await onSaved({ message: 'Administrateur ajouté.', identifiants: { nom: r.nom, code: r.code_connexion, pin: r.pin_temporaire, titre: 'Administrateur créé' } });
-        }
-      } else {
-        await apiRequest(`/auth/utilisateurs/${admin.id}`, { method: 'PUT', body: JSON.stringify(payload) });
-        await onSaved({ message: 'Administrateur modifié.' });
-      }
-    } catch (e) {
-      if (e.status === 409) setErreurs({ email: e.message });
-      else if (form.codeExistant && e.status === 400) setErreurs({ codeExistant: e.message });
-      else toast(e.message, 'error');
-      setEnregistrement(false);
-    }
-  };
-
-  return (
-    <>
-      <Modal
-        size=""
-        title={creation ? 'Ajouter un administrateur' : "Modifier l'administrateur"}
-        subtitle={etab.nom}
-        onClose={onClose}
-        onSubmit={enregistrer}
-        footer={(
-          <>
-            <button type="button" className="btn btn-outline-secondary" onClick={onClose}>Annuler</button>
-            <button type="submit" className="btn btn-primary" disabled={enregistrement}>
-              {enregistrement ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-check me-1" />}
-              {creation ? 'Ajouter' : 'Enregistrer'}
-            </button>
-          </>
-        )}
-      >
-        {creation && (
-          <div className="mb-3">
-            <label className="form-label" htmlFor="admin-code">A déjà un compte dans l'établissement ? <span className="text-muted fw-normal">(facultatif)</span></label>
-            <input
-              id="admin-code"
-              type="text"
-              className={`form-control font-monospace text-uppercase ${erreurs.codeExistant ? 'is-invalid' : ''}`}
-              placeholder="Son code de connexion, ex : K7TB"
-              maxLength={4}
-              value={form.codeExistant}
-              onChange={(e) => setForm((f) => ({ ...f, codeExistant: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) }))}
-              autoComplete="off"
-            />
-            {erreurs.codeExistant && <div className="invalid-feedback">{erreurs.codeExistant}</div>}
-            <div className="form-text">Ex : un enseignant que l'on nomme administrateur. Son compte reçoit le rôle et il garde son code et son PIN.</div>
-          </div>
-        )}
-        <div className="mb-3">
-          <label className="form-label" htmlFor="admin-nom">Nom complet {form.codeExistant ? '' : '*'}</label>
-          <input id="admin-nom" type="text" className={`form-control ${erreurs.nom ? 'is-invalid' : ''}`} value={form.nom} onChange={(e) => setForm((f) => ({ ...f, nom: e.target.value }))} autoFocus />
-          {erreurs.nom && <div className="invalid-feedback">{erreurs.nom}</div>}
-        </div>
-        <div className="mb-3">
-          <label className="form-label" htmlFor="admin-email">Email <span className="text-muted fw-normal">(facultatif)</span></label>
-          <input id="admin-email" type="email" className={`form-control ${erreurs.email ? 'is-invalid' : ''}`} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} autoComplete="off" />
-          {erreurs.email && <div className="invalid-feedback">{erreurs.email}</div>}
-          <div className="form-text">{creation ? 'La connexion se fait par code + PIN, générés automatiquement.' : 'La connexion se fait par code + PIN : l\'email est seulement informatif.'}</div>
-        </div>
-
-        <label className="form-label d-block">Rôles</label>
-        <div className="admin-roles">
-          {roles.filter((r) => !ROLES_SANS_ESPACE.includes(r.libelle) || form.roleIds.has(r.id)).map((r) => {
-            const info = roleInfo(r.libelle);
-            const verrouille = creation && r.libelle === 'Admin';
-            return (
-              <label key={r.id} className={`admin-role ${form.roleIds.has(r.id) ? 'coche' : ''} ${verrouille ? 'verrouille' : ''}`}>
-                <input type="checkbox" className="form-check-input" checked={form.roleIds.has(r.id)} disabled={verrouille} onChange={() => basculerRole(r.id)} />
-                <i className={`bx ${info.icon}`} />
-                <span>{r.libelle === 'Admin' ? 'Administrateur' : info.label}</span>
-              </label>
-            );
-          })}
-        </div>
-        {erreurs.roles && <div className="text-danger small mt-1">{erreurs.roles}</div>}
-
-        {ficheRequise.length > 0 && (
-          <div className="alert alert-info d-flex gap-2 small mt-3 mb-0">
-            <i className="bx bx-info-circle mt-1" />
-            <div>
-              {ficheRequise.map((r) => roleInfo(r.libelle).label).join(', ')} : le rôle donne accès à l'espace, mais il restera vide tant que {ficheRequise.map((r) => ROLES_AVEC_FICHE[r.libelle]).join(' et ')} n'est pas créée pour ce compte.
-              {' '}Plus simple : créer directement cette fiche depuis l'établissement en indiquant le code de connexion de ce compte, le rôle est alors ajouté automatiquement.
-            </div>
-          </div>
-        )}
-        {retireAdmin && (
-          <div className="alert alert-warning d-flex gap-2 small mt-3 mb-0">
-            <i className="bx bx-error mt-1" />
-            <div>Le rôle Administrateur sera retiré : ce compte ne pourra plus gérer l'établissement.</div>
-          </div>
-        )}
-      </Modal>
       {confirmNode}
     </>
   );

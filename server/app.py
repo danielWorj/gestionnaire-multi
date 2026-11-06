@@ -22,7 +22,7 @@ from api.pedagogie_api import (
     censeur_classe_bp, surveillant_classe_bp
 )
 from api.emploi_du_temps_api import creneau_horaire_bp, horaire_bp
-from api.inscription_api import parent_bp, eleve_bp, inscription_bp
+from api.inscription_api import parent_bp, eleve_bp, inscription_bp, dossier_inscription_bp
 from api.import_api import import_bp
 # tranche_classe_bp / paiement_bp : suivi financier (échéancier par classe +
 # année scolaire, versements), réservé à Admin/SuperAdmin/Comptable — cf.
@@ -43,6 +43,12 @@ from api.paiements_api import tranche_classe_bp, paiement_bp
 # templates/censeur/notes.html et templates/censeur/bulletin.html.
 from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
 from api.bulletin_api import bulletin_bp
+# audit_bp : consultation du journal d'audit (qui a modifié quoi, quand),
+# alimenté automatiquement par services/audit_services.activer_audit().
+from api.audit_api import audit_bp
+# Supervision du réseau et comptes SuperAdmin (cf. api/superadmin_api.py).
+from api.superadmin_api import superadmin_supervision_bp
+from services.audit_services import activer_audit
 from api.authentification_api import authentification_bp, superadmin_bp, enforce_password_change, enforce_role_actif
 
 def create_app(env=None):
@@ -77,6 +83,9 @@ def create_app(env=None):
 
     # --- Initialisation des extensions ---
     db.init_app(app)
+    # Journal d'audit de toutes les écritures, dans la même transaction que
+    # la donnée (cf. services/audit_services.py).
+    activer_audit()
     migrate.init_app(app, db)
     ma.init_app(app)
     jwt.init_app(app)
@@ -174,6 +183,7 @@ def create_app(env=None):
     app.register_blueprint(parent_bp)
     app.register_blueprint(eleve_bp)
     app.register_blueprint(inscription_bp)
+    app.register_blueprint(dossier_inscription_bp)
     # Import de masse des archives (CSV, Excel, Word) — cf. api/import_api.py.
     app.register_blueprint(import_bp)
     # Module Paiements : échéancier par classe (TrancheClasse) et versements
@@ -200,8 +210,10 @@ def create_app(env=None):
     app.register_blueprint(censeur_espace_bp)
     # Bulletins séquentiels / trimestriels / annuels (aperçu HTML + PDF).
     app.register_blueprint(bulletin_bp)
+    app.register_blueprint(audit_bp)
     app.register_blueprint(authentification_bp)
     app.register_blueprint(superadmin_bp)
+    app.register_blueprint(superadmin_supervision_bp)
 
     # Doit être enregistré ici (niveau app, pas blueprint) pour couvrir TOUTES
     # les routes API (structure_api.py compris) : tant qu'un Utilisateur a

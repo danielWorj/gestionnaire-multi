@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro } from '../lib/offline';
+import OperationsEnAttente from '../components/OperationsEnAttente';
 import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +25,8 @@ const EMPTY_FILTERS = { q: '', classe: '', sexe: '', statut: '', scolarite: '', 
 const SCOLARITE_LABELS = { inscrit: 'Inscrits cette année', 'non-inscrit': 'Non inscrits cette année', 'sans-parent': 'Sans parent rattaché' };
 
 const fullName = (e) => `${e.prenom || ''} ${e.nom || ''}`.trim();
+
+const MODULES_FICHES = ['dossier_inscription', 'eleve', 'parent', 'inscription'];
 
 export default function ElevesPage() {
   const toast = useToast();
@@ -66,6 +70,7 @@ export default function ElevesPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll, activeEtablissementId]);
+  useApresSynchro(MODULES_FICHES, loadAll);
 
   const { eleves, parents, inscriptions, classes, cycles, annees } = data;
   const parentById = useMemo(() => Object.fromEntries(parents.map((p) => [p.id, p])), [parents]);
@@ -294,6 +299,7 @@ export default function ElevesPage() {
         <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>
       </PageHeader>
+      <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
         <StatCard label="Élèves au répertoire" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.actifs} actifs · ${stats.total - stats.actifs} inactifs`} icon="bx-face" color="primary" />
@@ -557,23 +563,49 @@ function EleveModal({ data, parents, onClose, onSaved }) {
     }
     setSaving(true);
     try {
+      let nouveauParent = null;
       if (parentMode === 'new') {
-        const parent = { nom: np.nom.trim(), prenom: np.prenom.trim(), telephone: np.telephone.trim(), email: np.email.trim() };
-        if (!parent.nom || !parent.prenom || !parent.telephone || !parent.email) {
+        nouveauParent = { nom: np.nom.trim(), prenom: np.prenom.trim(), telephone: np.telephone.trim(), email: np.email.trim() };
+        if (!nouveauParent.nom || !nouveauParent.prenom || !nouveauParent.telephone || !nouveauParent.email) {
           throw new Error("Le nouveau parent a besoin d'un nom, d'un prénom, d'un téléphone et d'un e-mail.");
         }
-        const created = await api.post('/parents/', parent);
-        payload.parent_id = created.id;
       } else {
         payload.parent_id = Number(form.parent_id) || null;
         if (!payload.parent_id) throw new Error("Choisissez le parent de l'élève.");
       }
+      const nomEleve = `${payload.prenom} ${payload.nom}`;
       if (data) {
-        await api.put(`/eleves/${data.id}`, payload);
-        await onSaved(`Fiche de ${payload.prenom} ${payload.nom} mise à jour`);
+        // Nouveau parent pour un élève existant : le parent doit d'abord
+        // exister sur le serveur (son identifiant est rattaché à la fiche).
+        if (nouveauParent) {
+          if (navigator.onLine === false) {
+            throw new Error('Sans connexion, choisissez un parent déjà enregistré (la création d\'un parent lors de la modification d\'un élève demande la connexion).');
+          }
+          payload.parent_id = (await api.post('/parents/', nouveauParent)).id;
+        }
+        const res = await enregistrer({
+          cle: `eleve|${data.id}`,
+          module: 'eleve',
+          methode: 'PUT',
+          url: `/eleves/${data.id}`,
+          body: payload,
+          versionBase: data.version ?? undefined,
+          libelle: `Fiche de ${nomEleve}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: `Fiche de ${nomEleve} mise à jour` });
       } else {
-        await api.post('/eleves/', payload);
-        await onSaved(`${payload.prenom} ${payload.nom} a été ajouté`);
+        // Création : dossier (parent éventuel + élève) en une requête, ce qui
+        // fonctionne aussi hors connexion.
+        const { parent_id: parentId, ...eleve } = payload;
+        const res = await enregistrer({
+          cle: nouvelleCle('dossier'),
+          module: 'dossier_inscription',
+          methode: 'POST',
+          url: '/dossiers-inscription/',
+          body: nouveauParent ? { parent: nouveauParent, eleve } : { parent_id: parentId, eleve },
+          libelle: `Nouvel élève : ${nomEleve}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: `${nomEleve} a été ajouté` });
       }
     } catch (err) {
       setError(err.message);

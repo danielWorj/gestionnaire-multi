@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import event
 from extensions import db
 from models.authentification_models import CODE_LENGTH, generer_code_unique
@@ -142,9 +144,35 @@ class Sequence(db.Model):
 
 def annee_active(etablissement_id):
     """Année scolaire active de l'établissement ; à défaut la plus récente
-    (libellé le plus grand, ex. '2025-2026'), ou None."""
+    (libellé le plus grand, ex. '2025-2026'), ou None. Règle UNIQUE de
+    l'application (espaces enseignant/censeur, effectifs, imports, vue
+    réseau du SuperAdmin) : ne pas la redéfinir ailleurs."""
     annees = AnneeScolaire.query.filter_by(etablissement_id=etablissement_id).all()
     return next((a for a in annees if a.active), None) or max(annees, key=lambda a: a.libelle, default=None)
+
+
+def sequence_courante(annee):
+    """Séquence « en cours » de l'année (celle dont les dates encadrent
+    aujourd'hui ; à défaut la dernière commencée ; à défaut la première), ou
+    None si l'année n'a encore aucune séquence. Référence de l'avancement de
+    la saisie des notes (espaces enseignant/censeur, vue réseau)."""
+    if annee is None:
+        return None
+    sequences = (
+        Sequence.query
+        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
+        .filter(Trimestre.annee_scolaire_id == annee.id)
+        .order_by(Trimestre.id, Sequence.id)
+        .all()
+    )
+    if not sequences:
+        return None
+    aujourdhui = date.today()
+    for sequence in sequences:
+        if sequence.date_debut and sequence.date_fin and sequence.date_debut <= aujourdhui <= sequence.date_fin:
+            return sequence
+    commencees = [s for s in sequences if s.date_debut and s.date_debut <= aujourdhui]
+    return commencees[-1] if commencees else sequences[0]
 
 
 def effectifs_classes(etablissement_id, classe_ids=None, annee_scolaire_id=None):

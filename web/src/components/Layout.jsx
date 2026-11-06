@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { NAV_COURTE, NAV_MOBILE, roleInfo } from '../lib/espaces';
 import { useTableauxMobiles } from '../lib/tableauxMobiles';
 import BottomSheet from './BottomSheet';
+import HorsLigne from './HorsLigne';
 import './espace.css';
 import './app-mobile.css';
 import Select from './Select';
@@ -18,13 +19,19 @@ export const MENU_SECTIONS = [
   {
     header: null,
     items: [
-      { to: '/', label: 'Tableau de bord', icon: 'bx-home-circle', roles: [...ADMIN] },
+      { to: '/', label: 'Tableau de bord', icon: 'bx-home-circle', roles: ['Admin'] },
+      { to: '/', label: 'Vue réseau', icon: 'bx-network-chart', roles: ['SuperAdmin'] },
       { to: '/', label: 'Accueil', icon: 'bx-home-circle', roles: [...CENSEUR, 'Enseignant'] },
     ],
   },
   {
     header: 'Super administration',
-    items: [{ to: '/etablissements', label: 'Établissements', icon: 'bx-buildings', roles: ['SuperAdmin'] }],
+    items: [
+      { to: '/etablissements', label: 'Établissements', icon: 'bx-buildings', roles: ['SuperAdmin'] },
+      { to: '/etablissement', label: "Tableau de bord de l'école", icon: 'bx-line-chart', roles: ['SuperAdmin'] },
+      { to: '/utilisateurs', label: 'Comptes utilisateurs', icon: 'bx-id-card', roles: ['SuperAdmin'] },
+      { to: '/super-admins', label: 'Comptes SuperAdmin', icon: 'bx-shield-quarter', roles: ['SuperAdmin'] },
+    ],
   },
   {
     header: 'Pédagogie',
@@ -54,7 +61,7 @@ export const MENU_SECTIONS = [
   {
     header: 'Notes',
     items: [
-      { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: CENSEUR },
+      { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: [...CENSEUR, 'SuperAdmin'] },
       { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: [...CENSEUR, ...ADMIN] },
     ],
   },
@@ -64,7 +71,10 @@ export const MENU_SECTIONS = [
   },
   {
     header: 'Configuration',
-    items: [{ to: '/configuration', label: 'Configuration', icon: 'bx-cog', roles: ADMIN }],
+    items: [
+      { to: '/configuration', label: 'Configuration', icon: 'bx-cog', roles: ADMIN },
+      { to: '/journal', label: 'Journal des modifications', icon: 'bx-history', roles: [...ADMIN, 'Censeur'] },
+    ],
   },
 ];
 
@@ -274,6 +284,7 @@ export default function Layout() {
 
           <div className="content-wrapper">
             <div className="container-xxl flex-grow-1 container-p-y app-content" ref={contenuRef}>
+              <HorsLigne role={role} />
               <Outlet />
             </div>
 

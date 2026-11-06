@@ -1,24 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
 import ChartCanvas from '../components/ChartCanvas';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
-import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
+import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, Pastilles, useMonEspace } from '../components/Espace';
 import { useToast } from '../components/ui';
 import ImportModal from '../components/importConfigs';
+import { cleNote, useOperationsEnAttente } from '../lib/offline';
+import { focusSuivant, NoteLigne, parseNote, useEnregistrementNotes } from '../components/SaisieNote';
 import {
-  appreciationInfo, calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
+  calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
   noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
 } from '../components/NotesCommun';
 
 // Saisie des notes de l'enseignant, pensée d'abord pour le téléphone :
 // 1. cartes « classe · matière » avec l'avancement de la séquence en cours ;
 // 2. liste des élèves, une note par ligne (clavier numérique, Entrée = élève
-//    suivant, enregistrement automatique, notes gardées en attente si la
-//    connexion coupe), puis statistiques et relevé imprimable.
+//    suivant, enregistrement automatique, notes gardées sur l'appareil sans
+//    connexion et envoyées à son retour — cf. lib/offline.js), puis
+//    statistiques et relevé imprimable ;
+// 3. « Relevé de l'année » : toutes les notes de la matière-classe, séquence
+//    par séquence, pour revoir et corriger après coup (même enregistrement,
+//    y compris hors connexion).
 
 const PRIMARY = '#696cff';
-const ATTENTE_KEY = 'notesEnAttente';
 
 export default function EnseignantNotesPage() {
   const [params, setParams] = useSearchParams();
@@ -49,34 +53,6 @@ function ChoixMatiereClasse({ onChoisir }) {
   );
 }
 
-// ── Notes en attente (connexion perdue) ───────────────────────────────────
-function lireAttente() {
-  try {
-    return JSON.parse(localStorage.getItem(ATTENTE_KEY) || '{}') || {};
-  } catch {
-    return {};
-  }
-}
-
-function ecrireAttente(attente) {
-  try {
-    localStorage.setItem(ATTENTE_KEY, JSON.stringify(attente));
-  } catch {
-    // Stockage indisponible : la note reste en attente en mémoire seulement.
-  }
-}
-
-const cleNote = (body) => `${body.inscription_id}|${body.matiere_classe_id}|${body.sequence_id}`;
-const estCoupure = (e) => e?.status === 0;
-
-function parseNote(texte) {
-  const t = String(texte).trim().replace(',', '.');
-  if (t === '') return { ok: true, valeur: null };
-  if (!/^\d{1,2}(\.\d{1,2})?$/.test(t)) return { ok: false };
-  const v = Number(t);
-  return v >= 0 && v <= 20 ? { ok: true, valeur: v } : { ok: false };
-}
-
 function SaisieNotes({ mcId: mcParam, onRetour }) {
   const toast = useToast();
   const etablissement = useEtablissementCourant();
@@ -89,24 +65,32 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
   }, []);
   const ctx = useNotesContexte({ base: '/enseignant', toast, classesDepuis, mcImpose: mcParam });
   const { espace, classeId, mcId, sequenceId, mcActive, roster, notes, setNotes, notesIndex, sequenceLibelle, sequencesTree } = ctx;
+  const { envoyer, saveStates } = useEnregistrementNotes({ notes, setNotes, roster, mcActive, classeId, sequencesTree, toast });
 
   const [recherche, setRecherche] = useState('');
   const [statsOuvertes, setStatsOuvertes] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 992);
-  const [saveStates, setSaveStates] = useState({});
   const [imprimer, setImprimer] = useState(false);
-  const [attente, setAttente] = useState(lireAttente);
+  const attente = useOperationsEnAttente('notes');
   const [importOuvert, setImportOuvert] = useState(false);
+  const [vue, setVue] = useState('saisie');
 
   const classe = espace.classes.find((c) => String(c.id) === String(classeId)) || null;
   const introuvable = !espace.loading && espace.matieresClasse.length > 0 && !espace.matieresClasse.some((m) => String(m.id) === String(mcParam));
   const pret = Boolean(classeId && mcId && sequenceId);
   const eleves = useMemo(() => filtrerRoster(roster, recherche), [roster, recherche]);
-  const stats = useMemo(() => calculerStatistiques(roster, notesIndex), [roster, notesIndex]);
+  // Notes de la séquence affichée, y compris celles saisies hors connexion
+  // et pas encore envoyées (statistiques et relevé imprimé à jour).
+  const notesAffichees = useMemo(() => {
+    const idx = { ...notesIndex };
+    Object.values(attente).forEach(({ body: b }) => {
+      if (String(b.matiere_classe_id) === String(mcId) && String(b.sequence_id) === String(sequenceId)) {
+        idx[b.inscription_id] = { ...idx[b.inscription_id], ...b };
+      }
+    });
+    return idx;
+  }, [notesIndex, attente, mcId, sequenceId]);
+  const stats = useMemo(() => calculerStatistiques(roster, notesAffichees), [roster, notesAffichees]);
   const lignes = useMemo(() => lignesStatistiques(stats), [stats]);
-
-  // Lu par envoyer() (renvois différés) : toujours la dernière version.
-  const notesIndexRef = useRef(notesIndex);
-  useEffect(() => { notesIndexRef.current = notesIndex; }, [notesIndex]);
 
   // Évolution : moyenne de la classe sur chaque séquence de l'année.
   const evolution = useMemo(() => {
@@ -151,87 +135,13 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', after); };
   }, [imprimer]);
 
-  const majAttente = useCallback((fn) => {
-    setAttente((prev) => {
-      const next = fn({ ...prev });
-      ecrireAttente(next);
-      return next;
-    });
-  }, []);
-
-  const envoyer = useCallback(async (body) => {
-    const id = String(body.inscription_id);
-    setSaveStates((s) => ({ ...s, [id]: 'saving' }));
-    const existante = String(body.matiere_classe_id) === String(mcId) && String(body.sequence_id) === String(sequenceId)
-      ? notesIndexRef.current[body.inscription_id] : null;
-    try {
-      const result = existante?.id ? await api.put(`/notes/${existante.id}`, body) : await api.post('/notes/', body);
-      setNotes((list) => {
-        const i = list.findIndex((n) => n.id === result.id);
-        if (i < 0) return [...list, result];
-        const next = [...list];
-        next[i] = result;
-        return next;
-      });
-      majAttente((a) => { delete a[cleNote(body)]; return a; });
-      setSaveStates((s) => ({ ...s, [id]: 'ok' }));
-      return true;
-    } catch (e) {
-      if (estCoupure(e)) {
-        // Connexion perdue : la note est gardée sur l'appareil et renvoyée
-        // dès que le réseau revient.
-        majAttente((a) => { a[cleNote(body)] = body; return a; });
-        setSaveStates((s) => ({ ...s, [id]: 'pending' }));
-      } else {
-        // Refus du serveur (note invalide, droits…) : inutile de la renvoyer.
-        majAttente((a) => { delete a[cleNote(body)]; return a; });
-        setSaveStates((s) => ({ ...s, [id]: 'error' }));
-        toast(`Enregistrement impossible : ${e.message}`, 'error');
-      }
-      return false;
-    }
-  }, [mcId, sequenceId, setNotes, majAttente, toast]);
-
-  const sauvegarderNote = (inscriptionId, { valeur, absent }) => envoyer({
+  const sauvegarderNote = (inscriptionId, { valeur, absent }, seqId = sequenceId) => envoyer({
     inscription_id: Number(inscriptionId),
     matiere_classe_id: Number(mcId),
-    sequence_id: Number(sequenceId),
+    sequence_id: Number(seqId),
     valeur: absent ? null : valeur,
     absent: Boolean(absent),
   });
-
-  // Notes en attente de cette matière-classe (toutes séquences).
-  const enAttente = Object.values(attente).filter((b) => String(b.matiere_classe_id) === String(mcId));
-  // Un seul renvoi à la fois : l'événement « online » et le bouton
-  // « Réessayer » peuvent se déclencher ensemble (sinon doublon refusé en 409).
-  const renvoiEnCours = useRef(false);
-  const renvoyer = useCallback(async () => {
-    if (renvoiEnCours.current) return;
-    renvoiEnCours.current = true;
-    try {
-      for (const body of Object.values(lireAttente()).filter((b) => String(b.matiere_classe_id) === String(mcId))) {
-        // Séquentiel : évite de saturer une connexion qui revient à peine.
-        // eslint-disable-next-line no-await-in-loop
-        if (!(await envoyer(body))) break;
-      }
-    } finally {
-      renvoiEnCours.current = false;
-    }
-  }, [envoyer, mcId]);
-
-  useEffect(() => {
-    window.addEventListener('online', renvoyer);
-    return () => window.removeEventListener('online', renvoyer);
-  }, [renvoyer]);
-
-  // Saisie enchaînée : Entrée valide la note et passe à l'élève suivant.
-  const focusSuivant = (index) => {
-    const suivant = document.querySelector(`[data-saisie-index="${index + 1}"]`);
-    if (suivant) {
-      suivant.focus();
-      suivant.select?.();
-    }
-  };
 
   const saisies = stats.classe.notesSaisies;
 
@@ -256,6 +166,37 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
         changerLabel="Mes matières"
       />
 
+      <div className="d-flex mb-3">
+        <Pastilles
+          ariaLabel="Affichage"
+          value={vue}
+          onChange={setVue}
+          options={[{ value: 'saisie', label: 'Saisie par séquence' }, { value: 'releve', label: "Relevé de l'année" }]}
+        />
+      </div>
+
+      {vue === 'releve' ? (
+        <>
+          <div className="card mb-3"><div className="card-body py-2">
+            <div className="esp-recherche">
+              <i className="bx bx-search" />
+              <input type="search" className="form-control" placeholder="Rechercher un élève…" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
+            </div>
+          </div></div>
+          <ReleveAnnee
+            eleves={eleves}
+            sequencesTree={sequencesTree}
+            notes={notes}
+            mcId={mcId}
+            attente={attente}
+            saveStates={saveStates}
+            chargement={ctx.chargement && !roster.length}
+            onSave={(inscriptionId, payload, seqId) => sauvegarderNote(inscriptionId, payload, seqId)}
+            onInvalid={() => toast('Saisissez une note entre 0 et 20 (ex : 12,5), ou « abs » pour absent.', 'error')}
+          />
+        </>
+      ) : (
+      <>
       <NotesFiltres ctx={ctx} recherche={recherche} setRecherche={setRecherche} masquerClasse masquerMatiere />
 
       {pret && (
@@ -268,17 +209,6 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
             <button type="button" className="btn btn-icon btn-outline-primary" title="Imprimer / PDF" aria-label="Imprimer le relevé" onClick={() => setImprimer(true)}><i className="bx bx-printer" /></button>
             <button type="button" className="btn btn-icon btn-outline-primary" title="Importer des notes (Excel, CSV, Word)" aria-label="Importer des notes" onClick={() => setImportOuvert(true)}><i className="bx bx-import" /></button>
           </div>
-        </div>
-      )}
-
-      {enAttente.length > 0 && (
-        <div className="alert alert-warning d-flex align-items-center gap-2 saisie-attente">
-          <i className="bx bx-wifi-off fs-4" />
-          <div className="flex-grow-1">
-            <strong>{enAttente.length} note{enAttente.length > 1 ? 's' : ''} en attente d'envoi.</strong>
-            <div className="small">Elles sont gardées sur cet appareil et seront envoyées dès le retour de la connexion.</div>
-          </div>
-          <button type="button" className="btn btn-sm btn-warning" onClick={renvoyer}>Réessayer</button>
         </div>
       )}
 
@@ -298,8 +228,8 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
             index={idx}
             eleve={eleve}
             note={notesIndex[eleve.inscription_id]}
-            attente={attente[`${eleve.inscription_id}|${mcId}|${sequenceId}`]}
-            saveState={saveStates[eleve.inscription_id]}
+            attente={attente[cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: sequenceId })]}
+            saveState={saveStates[cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: sequenceId })]}
             onSave={(payload) => sauvegarderNote(eleve.inscription_id, payload)}
             onInvalid={() => toast('La note doit être un nombre entre 0 et 20 (ex : 12,5).', 'error')}
             onSuivant={() => focusSuivant(idx)}
@@ -326,6 +256,9 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
         </div>
       )}
 
+      </>
+      )}
+
       {importOuvert && (
         <ImportModal
           module="notes"
@@ -346,76 +279,138 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
           effectif={roster.length}
           lignes={lignes}
           eleves={eleves}
-          notesIndex={notesIndex}
+          notesIndex={notesAffichees}
         />
       )}
     </>
   );
 }
 
-function NoteLigne({ index, eleve, note, attente, saveState, onSave, onInvalid, onSuivant }) {
-  // Une note en attente d'envoi prime sur celle connue du serveur.
-  const source = attente || note;
-  const absent = Boolean(source?.absent);
-  const initial = attente ? attente.valeur : noteValeur(note);
-  const texteInitial = initial === null || initial === undefined ? '' : String(initial).replace('.', ',');
-  const [valeur, setValeur] = useState(texteInitial);
-  const appr = appreciationInfo(source);
-  const parsed = parseNote(valeur);
-  const v = parsed.ok ? parsed.valeur : null;
-  const noteCls = v === null ? '' : v < 10 ? 'note-faible' : v >= 14 ? 'note-forte' : '';
+// ── Relevé de l'année : élèves × séquences, chaque note modifiable ─────────
+// Toucher une note l'ouvre en saisie (Entrée ou sortie du champ : enregistrée ;
+// Échap : annulée). « abs » (ou « a ») marque l'élève absent.
+function parseCellule(texte) {
+  const t = String(texte).trim().toLowerCase();
+  if (t === 'a' || t === 'abs' || t === 'absent') return { ok: true, valeur: null, absent: true };
+  const p = parseNote(t);
+  return p.ok ? { ok: true, valeur: p.valeur, absent: false } : { ok: false };
+}
 
-  // Lit le champ lui-même (et non l'état) : Entrée peut arriver avant que
-  // React n'ait rendu la dernière frappe.
-  const commit = (e) => {
-    const texte = e.target.value;
-    const p = parseNote(texte);
+const texteNote = (n) => {
+  if (!n) return '';
+  if (n.absent) return 'abs';
+  return n.valeur === null || n.valeur === undefined ? '' : String(Number(n.valeur)).replace('.', ',');
+};
+
+function CelluleNote({ note, operation, etat, onSave, onInvalid, libelle }) {
+  const source = operation?.body || note;
+  const [edition, setEdition] = useState(null);
+  const texte = texteNote(source);
+  const v = noteValeur(source);
+  const cls = source?.absent ? 'releve-absent' : v === null ? 'releve-vide' : v < 10 ? 'note-faible' : v >= 14 ? 'note-forte' : '';
+  const marque = operation?.conflit ? 'conflit' : operation ? 'pending' : etat === 'saving' || etat === 'error' ? etat : null;
+
+  const valider = (valeur) => {
+    setEdition(null);
+    if (valeur.trim() === texte) return;
+    const p = parseCellule(valeur);
     if (!p.ok) {
       onInvalid();
-      setValeur(texteInitial);
       return;
     }
-    if (texte.trim() === texteInitial) return;
-    onSave({ valeur: p.valeur, absent: false });
+    onSave({ valeur: p.valeur, absent: p.absent });
   };
 
-  const toggleAbsent = () => {
-    const nouvelEtat = !absent;
-    if (nouvelEtat) setValeur('');
-    onSave({ valeur: null, absent: nouvelEtat });
-  };
-
-  return (
-    <div className={`saisie-ligne ${saveState === 'ok' ? 'row-saved-flash' : ''} ${absent ? 'est-absent' : ''}`}>
-      <span className="saisie-num">{index + 1}</span>
-      <div className="saisie-eleve">
-        <EleveIdentite eleve={eleve} />
-        <span className={`appreciation-badge ${appr.classe} saisie-appr`}>{appr.label}</span>
-      </div>
-      <div className="saisie-note">
+  if (edition !== null) {
+    return (
+      <td className="releve-cellule en-edition">
         <input
+          // eslint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus
           type="text"
           inputMode="decimal"
-          autoComplete="off"
-          enterKeyHint="next"
-          className={`note-input saisie-input ${noteCls}`}
-          placeholder="—"
-          aria-label={`Note de ${eleve.nom} ${eleve.prenom}`}
-          data-saisie-index={index}
-          disabled={absent}
-          value={valeur}
-          onChange={(e) => setValeur(e.target.value)}
-          onBlur={commit}
+          enterKeyHint="done"
+          className="note-input releve-input"
+          aria-label={libelle}
+          value={edition}
+          onChange={(e) => setEdition(e.target.value)}
+          onBlur={(e) => valider(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              e.currentTarget.blur();
-              onSuivant();
-            }
+            if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); }
+            if (e.key === 'Escape') setEdition(null);
           }}
         />
-        <button type="button" className={`note-abs-toggle saisie-abs ${absent ? 'is-absent' : ''}`} aria-pressed={absent} title="Marquer absent" onClick={toggleAbsent}>ABS</button>
-        <SaveState state={saveState || (attente ? 'pending' : null)} />
+      </td>
+    );
+  }
+  return (
+    <td className="releve-cellule">
+      <button type="button" className={`releve-note ${cls}`} title={`${libelle} — toucher pour modifier`} onClick={() => setEdition(texte)}>
+        {source?.absent ? 'Abs.' : v === null ? '—' : v.toFixed(2).replace('.', ',')}
+        {marque && <SaveState state={marque} />}
+      </button>
+    </td>
+  );
+}
+
+function ReleveAnnee({ eleves, sequencesTree, notes, mcId, attente, saveStates, chargement, onSave, onInvalid }) {
+  const sequences = useMemo(() => sequencesTree.flatMap((t) => (t.sequences || []).map((s) => ({ ...s, trimestre_libelle: t.trimestre_libelle }))), [sequencesTree]);
+  const index = useMemo(() => {
+    const idx = {};
+    notes.filter((n) => String(n.matiere_classe_id) === String(mcId)).forEach((n) => { idx[`${n.inscription_id}|${n.sequence_id}`] = n; });
+    return idx;
+  }, [notes, mcId]);
+
+  if (chargement) return <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>;
+  if (!sequences.length) return <div className="saisie-vide"><i className="bx bx-info-circle me-1" />Aucune séquence pour cette année scolaire.</div>;
+  if (!eleves.length) return <div className="saisie-vide"><i className="bx bx-user-x me-1" />Aucun élève à afficher.</div>;
+
+  return (
+    <div className="card mb-4">
+      <div className="table-responsive releve-conteneur">
+        <table className="table table-sm releve-table mb-0">
+          <thead>
+            <tr>
+              <th className="releve-eleve">Élève</th>
+              {sequences.map((s) => <th key={s.id} className="text-center" title={`${s.trimestre_libelle} — ${s.libelle}`}>{s.libelle}</th>)}
+              <th className="text-center">Moy.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {eleves.map((eleve) => {
+              const valeurs = [];
+              const cellules = sequences.map((s) => {
+                const cle = cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: s.id });
+                const operation = attente[cle];
+                const note = index[`${eleve.inscription_id}|${s.id}`];
+                const val = noteValeur(operation?.body || note);
+                if (val !== null) valeurs.push(val);
+                return (
+                  <CelluleNote
+                    key={s.id}
+                    note={note}
+                    operation={operation}
+                    etat={saveStates[cle]}
+                    libelle={`${eleve.nom} ${eleve.prenom} — ${s.libelle}`}
+                    onSave={(payload) => onSave(eleve.inscription_id, payload, s.id)}
+                    onInvalid={onInvalid}
+                  />
+                );
+              });
+              const moy = valeurs.length ? valeurs.reduce((a, b) => a + b, 0) / valeurs.length : null;
+              return (
+                <tr key={eleve.inscription_id}>
+                  <th scope="row" className="releve-eleve"><EleveIdentite eleve={eleve} /></th>
+                  {cellules}
+                  <td className={`text-center fw-semibold ${moy === null ? 'text-muted' : moy < 10 ? 'note-faible' : moy >= 14 ? 'note-forte' : ''}`}>{moy === null ? '—' : moy.toFixed(2).replace('.', ',')}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="card-footer small text-muted py-2">
+        <i className="bx bx-info-circle me-1" />Touchez une note pour la modifier ; « abs » pour absent. Moyenne simple des séquences notées (indicative).
       </div>
     </div>
   );

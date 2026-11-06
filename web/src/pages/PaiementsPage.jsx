@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro, useOperationsEnAttente } from '../lib/offline';
+import OperationsEnAttente from '../components/OperationsEnAttente';
 import Modal from '../components/Modal';
 import ChartCanvas from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
@@ -67,6 +69,27 @@ const donutOptions = (cutout) => ({
   },
 });
 
+const MODULES_PAIEMENT = ['paiement'];
+
+// Échéancier d'une inscription calculé sur l'appareil (copies locales des
+// tranches et des paiements), quand le serveur est injoignable : même
+// résultat que GET /paiements/etat/<id> à la dernière synchronisation près.
+function etatLocal(insc, tranches, paiements) {
+  const lignes = paiements
+    .filter((p) => p.inscription_id === insc.id && p.statut === 'VALIDE')
+    .flatMap((p) => p.lignes || []);
+  return tranches
+    .filter((t) => t.classe_id === insc.classe_id && t.annee_scolaire_id === insc.annee_scolaire_id)
+    .sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0))
+    .map((t) => {
+      const verse = lignes.filter((l) => l.tranche_classe_id === t.id).reduce((somme, l) => somme + Number(l.montant_verse || 0), 0);
+      return {
+        tranche_classe_id: t.id, libelle: t.libelle, ordre: t.ordre, montant_attendu: Number(t.montant_attendu),
+        date_limite: t.date_limite, montant_verse: verse, reste_du: Math.round((Number(t.montant_attendu) - verse) * 100) / 100, en_retard: false,
+      };
+    });
+}
+
 export default function PaiementsPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
@@ -129,6 +152,8 @@ export default function PaiementsPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll, activeEtablissementId]);
+  // Paiements saisis hors connexion, arrivés sur le serveur : listes et soldes à jour.
+  useApresSynchro(MODULES_PAIEMENT, loadTranchesEtPaiements);
 
   const { classes, cycles, inscriptions, eleves, parents } = ref;
   const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]));
@@ -439,6 +464,7 @@ export default function PaiementsPage() {
         {/* Le SuperAdmin n'est pas un compte utilisateur d'établissement : il ne peut pas être agent encaisseur (cf. paiements_api.paiement_create). */}
         {!isSuperAdmin && <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'paiement' })}><i className="bx bx-plus me-1" /> Enregistrer un paiement</button>}
       </PageHeader>
+      <OperationsEnAttente modules={MODULES_PAIEMENT} titre="Paiements pas encore enregistrés sur le serveur" />
 
       <div className="card mb-3">
         <div className="card-body py-3">
@@ -731,6 +757,9 @@ export default function PaiementsPage() {
           inscriptionsById={inscriptionsById}
           elevesById={elevesById}
           parentLabel={parentLabel}
+          tranches={tranches}
+          paiements={paiements}
+          eleveLabel={eleveLabel}
           onClose={() => setModal(null)}
           onSaved={afterSave}
         />
@@ -877,7 +906,7 @@ function DupliquerModal({ classes, classeLabel, annees, defaultClasse, defaultCi
   );
 }
 
-function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, parentLabel, onClose, onSaved }) {
+function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, parentLabel, tranches, paiements, eleveLabel, onClose, onSaved }) {
   const [inscriptionId, setInscriptionId] = useState('');
   const [etat, setEtat] = useState({ loading: false, error: '', tranches: null });
   const [lignes, setLignes] = useState({}); // { trancheId: { checked, montant } }
@@ -890,27 +919,48 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
   const insc = inscriptionsById[inscriptionId];
   const parentId = insc ? elevesById[insc.eleve_id]?.parent_id : null;
 
+  // Encaissements de cet élève saisis hors connexion et pas encore envoyés :
+  // déduits du reste dû, pour ne jamais encaisser deux fois la même tranche.
+  const attente = useOperationsEnAttente('paiement');
+  const enAttenteParTranche = useMemo(() => {
+    const res = {};
+    Object.values(attente).filter((op) => !op.refus && String(op.body.inscription_id) === String(inscriptionId))
+      .forEach((op) => (op.body.lignes || []).forEach((l) => { res[l.tranche_classe_id] = (res[l.tranche_classe_id] || 0) + Number(l.montant_verse || 0); }));
+    return res;
+  }, [attente, inscriptionId]);
+  const resteEffectif = (t) => Math.max(Number(t.reste_du || 0) - (enAttenteParTranche[t.tranche_classe_id] || 0), 0);
+
   const choisirInscription = async (id) => {
     setInscriptionId(id);
     setLignes({});
     setEtat({ loading: Boolean(id), error: '', tranches: null });
     if (!id) return;
+    let tr;
+    let horsLigne = false;
     try {
-      const res = await api.get(`/paiements/etat/${id}`);
-      const tr = res?.tranches || [];
-      setEtat({ loading: false, error: '', tranches: tr });
-      setLignes(Object.fromEntries(tr.map((t) => {
-        const reste = Math.max(Number(t.reste_du || 0), 0);
-        return [t.tranche_classe_id, { checked: false, montant: reste > 0 ? String(reste) : '' }];
-      })));
+      tr = (await api.get(`/paiements/etat/${id}`))?.tranches || [];
     } catch (err) {
-      setEtat({ loading: false, error: err.message, tranches: null });
+      const inscription = inscriptionsById[id];
+      if (err.status !== 0 || !inscription) {
+        setEtat({ loading: false, error: err.message, tranches: null });
+        return;
+      }
+      tr = etatLocal(inscription, tranches, paiements);
+      horsLigne = true;
     }
+    setEtat({ loading: false, error: '', tranches: tr, horsLigne });
+    setLignes(Object.fromEntries(tr.map((t) => {
+      const reste = resteEffectif(t);
+      return [t.tranche_classe_id, { checked: false, montant: reste > 0 ? String(reste) : '' }];
+    })));
   };
 
   const montantTotal = Object.values(lignes).reduce((s, l) => s + (l.checked ? Number(l.montant || 0) : 0), 0);
   const setLigne = (id, patch) => setLignes((ls) => ({ ...ls, [id]: { ...ls[id], ...patch } }));
-  const resteDu = (trancheId) => Math.max(Number(etat.tranches?.find((t) => t.tranche_classe_id === trancheId)?.reste_du || 0), 0);
+  const resteDu = (trancheId) => {
+    const t = etat.tranches?.find((x) => x.tranche_classe_id === trancheId);
+    return t ? resteEffectif(t) : 0;
+  };
 
   const submit = async () => {
     setError('');
@@ -923,16 +973,33 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
     if (!form.mode_paiement) return setError('Veuillez choisir le mode de paiement.');
     setSaving(true);
     try {
-      await api.post('/paiements/', {
-        inscription_id: Number(inscriptionId),
-        parent_id: Number(parentId),
-        numero_recu: form.numero_recu.trim() || null,
-        montant_total: montantTotal,
-        mode_paiement: form.mode_paiement,
-        reference_transaction: form.reference_transaction.trim() || null,
-        lignes: selection,
+      // Clé d'idempotence : un renvoi (réponse perdue, synchronisation
+      // rejouée) ne peut jamais encaisser deux fois ce paiement.
+      const cle = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : nouvelleCle('p');
+      const nom = insc ? eleveLabel(insc.eleve_id) : `Inscription n°${inscriptionId}`;
+      const res = await enregistrer({
+        cle: `paiement|${cle}`,
+        module: 'paiement',
+        methode: 'POST',
+        url: '/paiements/',
+        body: {
+          inscription_id: Number(inscriptionId),
+          parent_id: Number(parentId),
+          numero_recu: form.numero_recu.trim() || null,
+          montant_total: montantTotal,
+          mode_paiement: form.mode_paiement,
+          reference_transaction: form.reference_transaction.trim() || null,
+          lignes: selection,
+          cle_idempotence: cle,
+          eleve_label: nom,
+        },
+        // Participe au contrôle des doublons probables (même élève, même
+        // montant, même jour) : l'utilisateur confirme ou abandonne.
+        versionBase: null,
+        libelle: `${nom} — ${formatMontant(montantTotal)} (${MODES_LABELS[form.mode_paiement] || form.mode_paiement})`,
+        conserverSiRefus: true,
       });
-      await onSaved('Paiement enregistré avec succès.');
+      await terminerEnregistrement(res, { onSaved, ok: 'Paiement enregistré avec succès.' });
     } catch (e) {
       setError(e.message);
       setSaving(false);
@@ -948,6 +1015,7 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
         <div className="col-md-5"><label className="form-label">Parent payeur</label><input type="text" className="form-control" disabled placeholder="—" value={parentId ? parentLabel(parentId) : ''} /></div>
         <div className="col-12">
           <label className="form-label">Tranches à régler *</label>
+          {etat.horsLigne && <div className="small text-warning mb-1"><i className="bx bx-wifi-off me-1" />Hors connexion : échéancier calculé à partir des données enregistrées sur l'appareil (dernière synchronisation).</div>}
           <div className="border rounded p-2" style={{ maxHeight: 220, overflow: 'auto' }}>
             {!inscriptionId ? (
               <div className="text-muted text-center py-3 small">Choisissez d'abord un élève pour voir son échéancier.</div>
@@ -958,7 +1026,8 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
             ) : !etat.tranches?.length ? (
               <div className="text-muted text-center py-3 small">Aucune tranche définie pour la classe/année de cet élève.</div>
             ) : etat.tranches.map((t) => {
-              const reste = Math.max(Number(t.reste_du || 0), 0);
+              const reste = resteEffectif(t);
+              const enAttente = enAttenteParTranche[t.tranche_classe_id] || 0;
               const l = lignes[t.tranche_classe_id] || {};
               return (
                 <div key={t.tranche_classe_id} className="d-flex align-items-center gap-2 py-1">
@@ -968,7 +1037,7 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
                   <div className="flex-grow-1">
                     <div><strong>{t.libelle}</strong>{t.en_retard && <EnRetard />}</div>
                     <small className="text-muted">
-                      Attendu {formatMontant(t.montant_attendu)} · Déjà versé {formatMontant(t.montant_verse)} · Reste dû {formatMontant(reste)}
+                      Attendu {formatMontant(t.montant_attendu)} · Déjà versé {formatMontant(t.montant_verse)}{enAttente > 0 && ` (+ ${formatMontant(enAttente)} en attente d'envoi)`} · Reste dû {formatMontant(reste)}
                       {t.date_limite && ` · Échéance ${formatDateCourt(t.date_limite)}`}
                     </small>
                   </div>
@@ -981,7 +1050,7 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
           </div>
         </div>
         <div className="col-md-4"><label className="form-label">Montant total (FCFA) *</label><input type="number" className="form-control" readOnly value={montantTotal || ''} /></div>
-        <div className="col-md-4"><label className="form-label">N° de reçu</label><input type="text" className="form-control" maxLength={20} placeholder="Généré automatiquement" value={form.numero_recu} onChange={(e) => setForm((f) => ({ ...f, numero_recu: e.target.value }))} /></div>
+        <div className="col-md-4"><label className="form-label">N° de reçu</label><input type="text" className="form-control" maxLength={20} placeholder={navigator.onLine === false ? 'Attribué à la synchronisation' : 'Généré automatiquement'} value={form.numero_recu} onChange={(e) => setForm((f) => ({ ...f, numero_recu: e.target.value }))} /></div>
         <div className="col-md-4"><label className="form-label">Date du paiement</label><input type="text" className="form-control" disabled value={dateAffichee} /></div>
         <div className="col-md-6">
           <label className="form-label">Mode de paiement *</label>

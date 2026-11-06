@@ -1,5 +1,6 @@
 from datetime import datetime
 from extensions import db
+from models.audit_models import Versionne
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +78,7 @@ class TrancheClasse(db.Model):
         return d
 
 
-class Paiement(db.Model):
+class Paiement(db.Model, Versionne):
     """En-tête d'un versement effectué par un Parent au titre d'une
     Inscription. Un enregistrement = un versement = un reçu : numero_recu
     est unique GLOBALEMENT (pas seulement par établissement), comme
@@ -109,6 +110,10 @@ class Paiement(db.Model):
     reference_transaction = db.Column(db.String(50), nullable=True)
     statut = db.Column(db.String(15), nullable=False, default='VALIDE')
     motif_annulation = db.Column(db.String(255), nullable=True)
+    # Identifiant unique généré par l'appareil pour un paiement saisi hors
+    # connexion : un renvoi (réponse perdue) retrouve le paiement déjà
+    # enregistré au lieu d'encaisser deux fois (cf. create_paiement_scoped).
+    cle_idempotence = db.Column(db.String(40), nullable=True)
 
     __table_args__ = (
         db.CheckConstraint('montant_total > 0', name='ck_paiement_montant_positif'),
@@ -121,6 +126,7 @@ class Paiement(db.Model):
         db.CheckConstraint(
             "statut <> 'ANNULE' OR motif_annulation IS NOT NULL",
             name='ck_paiement_annulation'),
+        db.UniqueConstraint('cle_idempotence', name='uq_paiement_cle_idempotence'),
     )
 
     inscription = db.relationship('Inscription', backref='paiements', lazy=True)
@@ -130,7 +136,7 @@ class Paiement(db.Model):
     def to_dict(self, with_lignes=False):
         d = {k: getattr(self, k) for k in
              ['id', 'inscription_id', 'parent_id', 'encaisse_par_id', 'numero_recu',
-              'mode_paiement', 'reference_transaction', 'statut', 'motif_annulation']}
+              'mode_paiement', 'reference_transaction', 'statut', 'motif_annulation', 'version']}
         d['montant_total'] = float(self.montant_total) if self.montant_total is not None else None
         # date_paiement est stockée en UTC naïf (datetime.utcnow) : le 'Z'
         # évite que le navigateur l'interprète comme une heure locale.

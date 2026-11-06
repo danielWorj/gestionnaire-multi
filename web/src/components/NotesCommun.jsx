@@ -436,6 +436,7 @@ export function EleveIdentite({ eleve }) {
 }
 
 export function SaveState({ state }) {
-  const icons = { saving: 'bx-loader-alt bx-spin', error: 'bx-error', ok: 'bx-check', pending: 'bx-time-five' };
-  return <span className={`save-state ${state || ''}`}>{state && <i className={`bx ${icons[state]}`} />}</span>;
+  const icons = { saving: 'bx-loader-alt bx-spin', error: 'bx-error', ok: 'bx-check', pending: 'bx-time-five', conflit: 'bx-git-compare' };
+  const titres = { pending: "En attente d'envoi", conflit: 'Conflit à trancher', error: 'Non enregistrée' };
+  return <span className={`save-state ${state || ''}`} title={titres[state]}>{state && <i className={`bx ${icons[state]}`} />}</span>;
 }

@@ -26,6 +26,9 @@ import EnseignantClassesPage from './pages/EnseignantClassesPage';
 import EspaceAccueilPage from './pages/EspaceAccueilPage';
 import ChoixEspacePage from './pages/ChoixEspacePage';
 import AccesRefusePage from './pages/AccesRefusePage';
+import JournalPage from './pages/JournalPage';
+import UtilisateursPage from './pages/UtilisateursPage';
+import SuperAdminsPage from './pages/SuperAdminsPage';
 
 function AucunRole() {
   const { logout } = useAuth();
@@ -100,6 +103,11 @@ function EmploiDuTempsSelonRole() {
 // avec les rôles autorisés (cf. menu de components/Layout.jsx).
 const PAGES = [
   { path: 'etablissements', element: <EtablissementsPage />, roles: ['SuperAdmin'] },
+  // Tableau de bord de l'établissement choisi dans la barre du haut (le même
+  // que celui de l'Admin) ; l'accueil du SuperAdmin est la vue réseau.
+  { path: 'etablissement', element: <EtablissementDashboardPage />, roles: ['SuperAdmin'] },
+  { path: 'utilisateurs', element: <UtilisateursPage />, roles: ['SuperAdmin'] },
+  { path: 'super-admins', element: <SuperAdminsPage />, roles: ['SuperAdmin'] },
   { path: 'matieres', element: <MatieresPage />, roles: ADMIN },
   { path: 'enseignants', element: <EnseignantsPage />, roles: ADMIN },
   { path: 'eleves', element: <ElevesPage />, roles: SCOLARITE },
@@ -109,11 +117,13 @@ const PAGES = [
   { path: 'paiements', element: <PaiementsPage />, roles: [...ADMIN, 'Comptable'] },
   { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR] },
   { path: 'pedagogie', element: <PedagogiePage />, roles: CENSEUR },
-  { path: 'notes', element: <CenseurNotesPage />, roles: CENSEUR },
+  // SuperAdmin : lecture ET saisie des notes de l'établissement choisi.
+  { path: 'notes', element: <CenseurNotesPage />, roles: [...CENSEUR, 'SuperAdmin'] },
   { path: 'bulletins', element: <BulletinsPage />, roles: [...CENSEUR, ...ADMIN] },
   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
+  { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur'] },
 ];
 
 // Page d'accueil propre à chaque rôle : tableau de bord pour l'administration,

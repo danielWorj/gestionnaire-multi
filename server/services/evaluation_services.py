@@ -1,10 +1,13 @@
 from datetime import datetime
 
+from sqlalchemy import func, or_
+
 from models.evaluation_models import Note, Discipline
 from models.pedagogie_models import MatiereClasse
 from models.inscription_models import Inscription
 from models.structure_models import Classe, Sequence
 from extensions import db
+from services.conflits_services import extraire_controle, memes_valeurs, verifier
 
 # Les opérations CRUD "brutes" (create_entity, get_all_entities,
 # get_entity_by_id, update_entity, delete_entity) sont 100% génériques : on
@@ -60,6 +63,27 @@ def resolve_enseignant_matiere_classe_ids(enseignant_id):
     if not enseignant_id:
         return set()
     return {mc.id for mc in MatiereClasse.query.filter_by(enseignant_id=enseignant_id).all()}
+
+
+def notes_saisies_par_mc(mc_ids, sequence, annee):
+    """{matiere_classe_id: nombre de notes saisies} pour la séquence et
+    l'année données, en une seule requête agrégée. Une note compte comme
+    saisie dès qu'elle porte une valeur ou que l'élève est marqué absent.
+    Règle unique : espaces enseignant/censeur et vue réseau du SuperAdmin."""
+    if not mc_ids or sequence is None or annee is None:
+        return {}
+    return dict(
+        db.session.query(Note.matiere_classe_id, func.count(Note.id))
+        .join(Inscription, Inscription.id == Note.inscription_id)
+        .filter(
+            Note.matiere_classe_id.in_(list(mc_ids)),
+            Note.sequence_id == sequence.id,
+            Inscription.annee_scolaire_id == annee.id,
+            or_(Note.valeur.isnot(None), Note.absent.is_(True)),
+        )
+        .group_by(Note.matiere_classe_id)
+        .all()
+    )
 
 
 def _note_query(etablissement_id, classe_ids_restriction=None, matiere_classe_ids_restriction=None):
@@ -184,13 +208,24 @@ def get_note_scoped(note_id, etablissement_id, classe_ids_restriction=None, mati
     return entity
 
 
+def _hors_perimetre(matiere_classe_id, matiere_classe_ids_restriction):
+    """Écriture : Enseignant -> set() de SES matières-classe (vide s'il n'a
+    pas de profil relié ou aucune matière : tout est alors refusé) ; SuperAdmin
+    (saisie pour le compte d'un établissement, ex. zone sans réseau) -> None,
+    toutes les matières-classe de l'établissement choisi. evaluation_api
+    garantit qu'aucun autre rôle n'arrive jusqu'ici."""
+    return matiere_classe_ids_restriction is not None and int(matiere_classe_id) not in matiere_classe_ids_restriction
+
+
 def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
-    """Réservé au SEUL Enseignant (cf. evaluation_api.py) : contrairement à
-    get_note_scoped ci-dessus, matiere_classe_ids_restriction n'est donc
-    jamais None ici — un Enseignant sans profil relié ou sans matière
-    attribuée reçoit un set() vide, ce qui bloque toute création plutôt que
-    de l'ouvrir par erreur."""
+    """Réservé à l'Enseignant (ses matières-classe) et au SuperAdmin (tout
+    l'établissement choisi), cf. evaluation_api.py et _hors_perimetre.
+
+    Conflits (cf. conflits_services) : si la note existe déjà, elle n'est
+    mise à jour que si le client annonce la version qu'il a vue et qu'elle
+    est toujours d'actualité (ou s'il force l'écrasement) ; sinon 409."""
     data = dict(data or {})
+    controle = extraire_controle(data)
 
     for champ in ('inscription_id', 'matiere_classe_id', 'sequence_id'):
         if data.get(champ) in (None, ''):
@@ -200,13 +235,37 @@ def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
     if error:
         return {"erreur": error}, 400
 
-    if int(data['matiere_classe_id']) not in matiere_classe_ids_restriction:
+    if _hors_perimetre(data['matiere_classe_id'], matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
     _normaliser_absence(data)
     error = _validate_valeur(data)
     if error:
         return {"erreur": error}, 400
+
+    # Idempotent (upsert sur uq_note) : la saisie hors connexion renvoie les
+    # notes en attente sans connaître leur id, et un même envoi peut être
+    # rejoué (réseau coupé après l'écriture). La note existante est alors
+    # mise à jour au lieu d'un 409.
+    existante = Note.query.filter_by(
+        inscription_id=int(data['inscription_id']),
+        matiere_classe_id=int(data['matiere_classe_id']),
+        sequence_id=int(data['sequence_id']),
+    ).first()
+    if existante:
+        maj = {k: data[k] for k in ('valeur', 'absent') if k in data}
+        conflit = verifier(
+            existante, controle, maj, creation=True,
+            message_doublon="Une note a déjà été saisie pour cet élève, cette matière et cette séquence.",
+            message_conflit="Cette note a été modifiée par quelqu'un d'autre depuis votre saisie.",
+        )
+        if conflit:
+            return conflit
+        # Renvoi d'une saisie déjà enregistrée : rien à écrire.
+        if memes_valeurs(existante, maj):
+            return existante.to_dict(), 200
+        maj['saisie_le'] = datetime.utcnow()
+        return update_entity(existante, maj)
 
     return create_entity(Note, data)
 
@@ -215,10 +274,11 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
     if get_etablissement_id_of_note(entity) != etablissement_id:
         return {"erreur": "Accès non autorisé à cette ressource"}, 403
 
-    if entity.matiere_classe_id not in matiere_classe_ids_restriction:
+    if _hors_perimetre(entity.matiere_classe_id, matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
     data = dict(data or {})
+    controle = extraire_controle(data)
 
     # PUT potentiellement partiel : on fusionne avec les valeurs actuelles de
     # l'entité pour revalider l'état final, pas seulement les champs fournis
@@ -235,7 +295,7 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
     if error:
         return {"erreur": error}, 400
 
-    if 'matiere_classe_id' in data and int(data['matiere_classe_id']) not in matiere_classe_ids_restriction:
+    if 'matiere_classe_id' in data and _hors_perimetre(data['matiere_classe_id'], matiere_classe_ids_restriction):
         # Empêche également de DÉPLACER la note vers une MatiereClasse hors
         # périmètre (même logique que emploi_du_temps_services.update_entity_scoped).
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
@@ -244,6 +304,18 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
     error = _validate_valeur(data)
     if error:
         return {"erreur": error}, 400
+
+    valeurs = {k: data[k] for k in ('valeur', 'absent') if k in data}
+    conflit = verifier(
+        entity, controle, valeurs,
+        message_conflit="Cette note a été modifiée par quelqu'un d'autre depuis votre saisie.",
+    )
+    if conflit:
+        return conflit
+    # Rien ne change (renvoi d'une saisie déjà enregistrée) : rien à écrire.
+    champs = ('valeur', 'absent', 'inscription_id', 'matiere_classe_id', 'sequence_id')
+    if valeurs and memes_valeurs(entity, {k: v for k, v in data.items() if k in champs}):
+        return entity.to_dict(), 200
 
     # Une correction se fait sur la ligne existante (uq_note) : on rafraîchit
     # saisie_le à chaque modification pour tracer la dernière écriture.
@@ -255,7 +327,7 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
 def delete_note_scoped(entity, etablissement_id, matiere_classe_ids_restriction):
     if get_etablissement_id_of_note(entity) != etablissement_id:
         return {"erreur": "Accès non autorisé à cette ressource"}, 403
-    if entity.matiere_classe_id not in matiere_classe_ids_restriction:
+    if _hors_perimetre(entity.matiere_classe_id, matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
     return delete_entity(entity)
 
@@ -336,8 +408,16 @@ def get_discipline_scoped(discipline_id, etablissement_id, classe_ids_restrictio
     return entity
 
 
+CHAMPS_DISCIPLINE = ('absences_justifiees', 'absences_non_justifiees', 'retards', 'exclusions', 'observation')
+MESSAGE_CONFLIT_DISCIPLINE = "Cette fiche de discipline a été modifiée par quelqu'un d'autre depuis votre saisie."
+
+
 def create_discipline_scoped(data, etablissement_id, classe_ids_restriction=None):
+    """Une seule fiche par inscription et séquence (uq_discipline) : si elle
+    existe déjà, elle est mise à jour (synchronisation hors connexion), sous
+    contrôle de conflit (cf. conflits_services) — même logique que les notes."""
     data = dict(data or {})
+    controle = extraire_controle(data)
 
     for champ in ('inscription_id', 'sequence_id'):
         if data.get(champ) in (None, ''):
@@ -358,6 +438,22 @@ def create_discipline_scoped(data, etablissement_id, classe_ids_restriction=None
     if error:
         return {"erreur": error}, 400
 
+    existante = Discipline.query.filter_by(
+        inscription_id=int(data['inscription_id']), sequence_id=int(data['sequence_id'])
+    ).first()
+    if existante:
+        maj = {k: data[k] for k in CHAMPS_DISCIPLINE if k in data}
+        conflit = verifier(
+            existante, controle, maj, creation=True,
+            message_doublon="Une fiche de discipline existe déjà pour cet élève et cette séquence.",
+            message_conflit=MESSAGE_CONFLIT_DISCIPLINE,
+        )
+        if conflit:
+            return conflit
+        if memes_valeurs(existante, maj):
+            return existante.to_dict(), 200
+        return update_entity(existante, maj)
+
     return create_entity(Discipline, data)
 
 
@@ -368,6 +464,7 @@ def update_discipline_scoped(entity, data, etablissement_id, classe_ids_restrict
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     data = dict(data or {})
+    controle = extraire_controle(data)
 
     if 'inscription_id' in data and classe_ids_restriction is not None:
         # Empêche également de DÉPLACER la fiche vers une Inscription d'une
@@ -387,6 +484,14 @@ def update_discipline_scoped(entity, data, etablissement_id, classe_ids_restrict
     error = _validate_compteurs_discipline(data)
     if error:
         return {"erreur": error}, 400
+
+    valeurs = {k: data[k] for k in CHAMPS_DISCIPLINE if k in data}
+    conflit = verifier(entity, controle, valeurs, message_conflit=MESSAGE_CONFLIT_DISCIPLINE)
+    if conflit:
+        return conflit
+    autres = {k: v for k, v in data.items() if k in ('inscription_id', 'sequence_id')}
+    if memes_valeurs(entity, {**valeurs, **autres}):
+        return entity.to_dict(), 200
 
     return update_entity(entity, data)
 

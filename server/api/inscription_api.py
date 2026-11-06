@@ -163,3 +163,35 @@ inscription_bp = make_inscription_scoped_blueprint(
     read_only_roles=("Censeur", "Surveillant"),
     classe_scoped=True,
 )
+
+# ---------------------------------------------------------------------------
+# Dossier d'inscription : parent + élève + inscription en une transaction
+# (saisie hors connexion notamment), avec détection des doublons — cf.
+# services/dossier_inscription_services.py. Mêmes rôles que la création
+# d'une inscription (Admin, SuperAdmin, Secretaire).
+# ---------------------------------------------------------------------------
+
+from services.dossier_inscription_services import enregistrer_dossier  # noqa: E402
+
+ROLES_DOSSIER = ("Admin", "SuperAdmin", "Secretaire")
+
+dossier_inscription_bp = Blueprint('dossier_inscription_api', __name__, url_prefix='/api/dossiers-inscription')
+
+
+@dossier_inscription_bp.before_request
+@jwt_required()
+def _require_role_dossier():
+    if get_jwt().get("role") not in ROLES_DOSSIER:
+        return jsonify({"erreur": "Accès non autorisé"}), 403
+    return None
+
+
+@dossier_inscription_bp.route('/', methods=['POST'])
+def dossier_create():
+    claims = get_jwt()
+    data = request.get_json(silent=True) or {}
+    etab_id = data.get("etablissement_id") if claims.get("role") == "SuperAdmin" else claims.get("etablissement_id")
+    if not etab_id:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+    result, status = enregistrer_dossier(data, int(etab_id))
+    return jsonify(result), status

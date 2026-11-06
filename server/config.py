@@ -58,6 +58,12 @@ class Config:
     # toujours avec "Missing cookie").
     JWT_REFRESH_COOKIE_PATH = "/api/auth/"
     JWT_COOKIE_DOMAIN = os.environ.get("JWT_COOKIE_DOMAIN") or None
+    # Cookies persistants (Max-Age = durée du token) et non « de session » :
+    # fermer le navigateur ou l'application installée ne déconnecte pas.
+    # Indispensable à la saisie hors connexion (session locale de 30 jours,
+    # cf. web/src/lib/offline.js) : au retour du réseau, le refresh token
+    # doit encore être présent pour envoyer les notes en attente.
+    JWT_SESSION_COOKIE = False
     JWT_BLOCKLIST_ENABLED = True
     JWT_BLOCKLIST_TOKEN_CHECKS = ["access", "refresh"]
 
@@ -95,6 +101,11 @@ class Config:
     # Le SuperAdmin (email + mot de passe, sans verrouillage de compte) garde
     # une limite stricte.
     RATELIMIT_LOGIN_SUPERADMIN = os.environ.get("RATELIMIT_LOGIN_SUPERADMIN", "5 per minute")
+
+    # Décalage de l'heure locale des établissements sur UTC (Cameroun : UTC+1,
+    # sans heure d'été). Les dates sont stockées en UTC ; ce décalage sert à
+    # découper l'activité par JOUR LOCAL (vue réseau du SuperAdmin).
+    DECALAGE_HORAIRE_HEURES = int(os.environ.get("DECALAGE_HORAIRE_HEURES", "1"))
     # Comptée par SESSION (cookie de refresh), pas par IP : un refresh toutes
     # les 15 min par session, la limite ne sert qu'à couper une boucle folle.
     RATELIMIT_REFRESH = os.environ.get("RATELIMIT_REFRESH", "20 per minute")

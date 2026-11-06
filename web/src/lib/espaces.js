@@ -41,6 +41,10 @@ export const RUBRIQUES = {
 export const NAV_COURTE = {
   '/': 'Accueil',
   '/etablissements': 'Écoles',
+  '/etablissement': 'École',
+  '/utilisateurs': 'Comptes',
+  '/super-admins': 'SuperAdmins',
+  '/journal': 'Journal',
   '/matieres': 'Matières',
   '/enseignants': 'Profs',
   '/eleves': 'Élèves',
@@ -61,7 +65,7 @@ export const NAV_COURTE = {
 // toujours « Menu », qui donne accès à tout le reste). Un rôle absent prend
 // les premières entrées de son menu.
 export const NAV_MOBILE = {
-  SuperAdmin: ['/', '/etablissements', '/eleves', '/paiements'],
+  SuperAdmin: ['/', '/etablissements', '/utilisateurs', '/etablissement'],
   Admin: ['/', '/eleves', '/inscriptions', '/paiements'],
   Censeur: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
   Surveillant: ['/', '/notes', '/bulletins', '/emploi-du-temps'],

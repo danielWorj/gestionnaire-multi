@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro } from '../lib/offline';
+import OperationsEnAttente from '../components/OperationsEnAttente';
 import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
@@ -27,6 +29,8 @@ const barOptions = (rotate) => ({
   plugins: { legend: { display: false } },
   scales: { x: { grid: { display: false }, ticks: rotate ? { maxRotation: 60 } : {} }, y: { beginAtZero: true, grid: GRID, ticks: { precision: 0 } } },
 });
+
+const MODULES_FICHES = ['dossier_inscription', 'eleve', 'parent', 'inscription'];
 
 export default function ParentsPage() {
   const toast = useToast();
@@ -73,6 +77,7 @@ export default function ParentsPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll, activeEtablissementId]);
+  useApresSynchro(MODULES_FICHES, loadAll);
 
   const { parents, eleves, inscriptions, classes, cycles, annees } = data;
   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
@@ -292,6 +297,7 @@ export default function ParentsPage() {
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un parent</button>
       </PageHeader>
+      <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
         <StatCard label="Familles enregistrées" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.avecEnfants} avec au moins un enfant`} icon="bx-home-heart" color="primary" />
@@ -496,12 +502,30 @@ function ParentModal({ data, onClose, onSaved }) {
     }
     setSaving(true);
     try {
+      const nomParent = `${payload.nom} ${payload.prenom}`;
       if (data) {
-        await api.put(`/parents/${data.id}`, payload);
-        await onSaved(`Fiche de ${payload.nom} ${payload.prenom} mise à jour`);
+        const res = await enregistrer({
+          cle: `parent|${data.id}`,
+          module: 'parent',
+          methode: 'PUT',
+          url: `/parents/${data.id}`,
+          body: payload,
+          versionBase: data.version ?? undefined,
+          libelle: `Fiche de ${nomParent}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: `Fiche de ${nomParent} mise à jour` });
       } else {
-        await api.post('/parents/', payload);
-        await onSaved(`${payload.nom} ${payload.prenom} a été ajouté au carnet`);
+        // Création en dossier : fonctionne hors connexion, et un e-mail déjà
+        // utilisé est signalé comme doublon (garder l'existant ou le mettre à jour).
+        const res = await enregistrer({
+          cle: nouvelleCle('dossier'),
+          module: 'dossier_inscription',
+          methode: 'POST',
+          url: '/dossiers-inscription/',
+          body: { parent: payload },
+          libelle: `Nouveau parent : ${nomParent}`,
+        });
+        await terminerEnregistrement(res, { onSaved, ok: `${nomParent} a été ajouté au carnet` });
       }
     } catch (err) {
       setError(/unicit/i.test(err.message) ? 'Cet e-mail est déjà utilisé par une autre famille.' : err.message);
