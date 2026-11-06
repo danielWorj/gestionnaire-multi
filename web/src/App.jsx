@@ -14,6 +14,7 @@ import EnseignantsPage from './pages/EnseignantsPage';
 import ElevesPage from './pages/ElevesPage';
 import ParentsPage from './pages/ParentsPage';
 import InscriptionsPage from './pages/InscriptionsPage';
+import ListesClassesPage from './pages/ListesClassesPage';
 import ConfigurationPage from './pages/ConfigurationPage';
 import PaiementsPage from './pages/PaiementsPage';
 import HorairePage from './pages/HorairePage';
@@ -83,6 +84,9 @@ const CENSEUR = ['Censeur', 'Surveillant'];
 // Secrétariat : élèves, parents et inscriptions (mêmes droits API que l'Admin
 // sur ces trois ressources, cf. server/api/inscription_api.py).
 const SCOLARITE = [...ADMIN, 'Secretaire'];
+// Listes de classe : tous les profils (chacun sur ses classes, cf.
+// server/services/liste_classe_services.py).
+const TOUS_LES_PROFILS = [...ADMIN, ...CENSEUR, 'Enseignant', 'Secretaire', 'Comptable'];
 
 function EmploiDuTempsSelonRole() {
   const { user } = useAuth();
@@ -113,6 +117,7 @@ const PAGES = [
   { path: 'eleves', element: <ElevesPage />, roles: SCOLARITE },
   { path: 'parents', element: <ParentsPage />, roles: SCOLARITE },
   { path: 'inscriptions', element: <InscriptionsPage />, roles: SCOLARITE },
+  { path: 'listes-classes', element: <ListesClassesPage />, roles: TOUS_LES_PROFILS },
   { path: 'configuration', element: <ConfigurationPage />, roles: ADMIN },
   { path: 'paiements', element: <PaiementsPage />, roles: [...ADMIN, 'Comptable'] },
   { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR] },

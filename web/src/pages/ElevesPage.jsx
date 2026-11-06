@@ -11,6 +11,7 @@ import {
 } from '../components/ui';
 import Select from '../components/Select';
 import ImportElevesModal from '../components/ImportElevesModal';
+import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
 
 // Portage de server/static/templates/eleve.html : répertoire des élèves
 // (inscription_api.py) avec filtres, analyses, fiche et formulaire
@@ -27,6 +28,21 @@ const SCOLARITE_LABELS = { inscrit: 'Inscrits cette année', 'non-inscrit': 'Non
 const fullName = (e) => `${e.prenom || ''} ${e.nom || ''}`.trim();
 
 const MODULES_FICHES = ['dossier_inscription', 'eleve', 'parent', 'inscription'];
+
+// Photo d'identité si l'élève en a une (repli sur les initiales si elle ne
+// se charge pas, hors connexion par exemple), sinon ses initiales.
+function AvatarEleve({ e, taille = '' }) {
+  const src = photoEleveSrc(e);
+  // URL qui n'a pas pu se charger : une nouvelle photo (autre URL) est retentée.
+  const [srcEnEchec, setSrcEnEchec] = useState(null);
+  return (
+    <div className={`avatar flex-shrink-0 ${taille}`}>
+      {src && src !== srcEnEchec
+        ? <img src={src} alt={`Photo de ${fullName(e)}`} className="rounded-circle" style={{ objectFit: 'cover' }} loading="lazy" onError={() => setSrcEnEchec(src)} />
+        : <span className={`avatar-initial rounded-circle ${e.sexe === 'F' ? 'bg-label-danger' : 'bg-label-info'}`}>{initiales(e.nom, e.prenom)}</span>}
+    </div>
+  );
+}
 
 export default function ElevesPage() {
   const toast = useToast();
@@ -419,6 +435,7 @@ export default function ElevesPage() {
                 <tr key={e.id}>
                   <td>
                     <div className="d-flex align-items-center gap-2">
+                      <AvatarEleve e={e} taille="avatar-sm" />
                       <div><div className="fw-semibold">{fullName(e)}</div><small className="text-muted">{e.lieu_naissance || '—'}</small></div>
                     </div>
                   </td>
@@ -446,7 +463,7 @@ export default function ElevesPage() {
           data={formModal.data}
           parents={parents}
           onClose={() => setFormModal(null)}
-          onSaved={async (msg) => { setFormModal(null); toast(msg); await loadAll(); }}
+          onSaved={async (msg, type) => { setFormModal(null); toast(msg, type); await loadAll(); }}
         />
       )}
 
@@ -488,7 +505,7 @@ function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, annee
   return (
     <>
       <div className="d-flex align-items-center gap-3 mb-3">
-        <div className="avatar avatar-lg"><span className={`avatar-initial rounded-circle ${e.sexe === 'F' ? 'bg-label-danger' : 'bg-label-info'}`}>{initiales(e.nom, e.prenom)}</span></div>
+        <AvatarEleve e={e} taille="avatar-xl" />
         <div>
           <div className="fw-bold fs-6">{fullName(e)}</div>
           <div className="text-muted">Matricule {e.matricule || '—'} · {e.sexe === 'M' ? 'Garçon' : e.sexe === 'F' ? 'Fille' : 'Sexe non renseigné'}</div>
@@ -541,8 +558,54 @@ function EleveModal({ data, parents, onClose, onSaved }) {
   const [np, setNp] = useState({ nom: '', prenom: '', telephone: '', email: '' });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  // Photo : `fichier` = nouvelle photo (déjà redimensionnée) à envoyer après
+  // l'enregistrement de la fiche ; `retirer` = supprimer la photo existante.
+  const [photo, setPhoto] = useState({ fichier: null, apercu: photoEleveSrc(data), retirer: false });
+  const [preparationPhoto, setPreparationPhoto] = useState(false);
   const set = (name) => (e) => setForm((f) => ({ ...f, [name]: e.target.value }));
   const setP = (name) => (e) => setNp((f) => ({ ...f, [name]: e.target.value }));
+
+  useEffect(() => () => {
+    if (photo.apercu?.startsWith('blob:')) URL.revokeObjectURL(photo.apercu);
+  }, [photo.apercu]);
+
+  const choisirPhoto = async (event) => {
+    const fichier = event.target.files?.[0];
+    event.target.value = ''; // permet de re-choisir le même fichier
+    if (!fichier) return;
+    setError('');
+    setPreparationPhoto(true);
+    try {
+      const prete = await preparerPhoto(fichier);
+      setPhoto({ fichier: prete, apercu: URL.createObjectURL(prete), retirer: false });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPreparationPhoto(false);
+    }
+  };
+
+  const retirerPhoto = () => setPhoto({ fichier: null, apercu: null, retirer: Boolean(data?.photo_url) });
+
+  // La photo part en multipart, hors de la file hors connexion (JSON) : elle
+  // n'est envoyée que si la fiche a bien été enregistrée en ligne.
+  const finaliser = async (res, eleveId, ok) => {
+    if (!photo.fichier && !photo.retirer) return terminerEnregistrement(res, { onSaved, ok });
+    if (res.statut === 'refus') throw new Error(res.message);
+    if (!eleveId || res.statut === 'attente') {
+      return terminerEnregistrement(res, {
+        onSaved,
+        ok: `${ok} (photo non envoyée : ajoutez-la depuis « Modifier » une fois la connexion revenue)`,
+      });
+    }
+    try {
+      if (photo.fichier) await envoyerPhotoEleve(eleveId, photo.fichier);
+      else await retirerPhotoEleve(eleveId);
+    } catch (err) {
+      return onSaved(`${ok}, mais la photo n'a pas pu être enregistrée : ${err.message}`, 'error');
+    }
+    return terminerEnregistrement(res, { onSaved, ok });
+  };
 
   const submit = async () => {
     setError('');
@@ -592,7 +655,7 @@ function EleveModal({ data, parents, onClose, onSaved }) {
           versionBase: data.version ?? undefined,
           libelle: `Fiche de ${nomEleve}`,
         });
-        await terminerEnregistrement(res, { onSaved, ok: `Fiche de ${nomEleve} mise à jour` });
+        await finaliser(res, data.id, `Fiche de ${nomEleve} mise à jour`);
       } else {
         // Création : dossier (parent éventuel + élève) en une requête, ce qui
         // fonctionne aussi hors connexion.
@@ -605,7 +668,7 @@ function EleveModal({ data, parents, onClose, onSaved }) {
           body: nouveauParent ? { parent: nouveauParent, eleve } : { parent_id: parentId, eleve },
           libelle: `Nouvel élève : ${nomEleve}`,
         });
-        await terminerEnregistrement(res, { onSaved, ok: `${nomEleve} a été ajouté` });
+        await finaliser(res, res.resultat?.eleve?.id, `${nomEleve} a été ajouté`);
       }
     } catch (err) {
       setError(err.message);
@@ -623,7 +686,7 @@ function EleveModal({ data, parents, onClose, onSaved }) {
       footer={(
         <>
           <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose} disabled={saving}>Annuler</button>
-          <button type="submit" className="btn btn-primary btn-sm" disabled={saving}>{saving ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-save me-1" />} Enregistrer</button>
+          <button type="submit" className="btn btn-primary btn-sm" disabled={saving || preparationPhoto}>{saving ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-save me-1" />} Enregistrer</button>
         </>
       )}
     >
@@ -644,6 +707,30 @@ function EleveModal({ data, parents, onClose, onSaved }) {
         <div className="col-md-3">
           <label className="form-label">Statut</label>
           <Select className="form-select" value={form.statut} onChange={set('statut')}><option value="Actif">Actif</option><option value="Inactif">Inactif</option></Select>
+        </div>
+        <div className="col-12">
+          <label className="form-label" htmlFor="photoEleve">Photo d'identité</label>
+          <div className="d-flex align-items-center gap-3">
+            <div
+              className="rounded border bg-lighter d-flex align-items-center justify-content-center overflow-hidden flex-shrink-0"
+              style={{ width: 84, height: 105 }}
+            >
+              {preparationPhoto
+                ? <span className="spinner-border spinner-border-sm text-secondary" />
+                : photo.apercu
+                  ? <img src={photo.apercu} alt="Photo de l'élève" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <i className="bx bx-user text-muted" style={{ fontSize: 36 }} />}
+            </div>
+            <div>
+              <input id="photoEleve" type="file" accept="image/*" className="form-control form-control-sm" onChange={choisirPhoto} disabled={saving || preparationPhoto} />
+              <div className="form-text">Photo de face, format portrait. Elle apparaît sur la fiche et en en-tête du bulletin de l'élève.</div>
+              {photo.apercu && (
+                <button type="button" className="btn btn-outline-danger btn-sm mt-1" onClick={retirerPhoto} disabled={saving || preparationPhoto}>
+                  <i className="bx bx-trash me-1" /> Retirer la photo
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 

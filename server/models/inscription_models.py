@@ -74,6 +74,13 @@ class Eleve(db.Model, Versionne):
     lieu_naissance = db.Column(db.String(100), nullable=False)
     parent_id = db.Column(db.Integer, db.ForeignKey('parent.id'), nullable=True)
     statut = db.Column(db.String(10), nullable=False, default='Actif')
+    # Photo d'identité (fiche élève, en-tête du bulletin) : NOM du fichier
+    # stocké dans storage/photos_eleves/<etablissement_id>/, toujours dérivé
+    # de l'upload (cf. inscription_services.save_photo_eleve), jamais d'un
+    # payload JSON. Contrairement au logo d'établissement, ces photos de
+    # mineurs ne sont PAS publiques : servies uniquement par des routes
+    # protégées par JWT et cloisonnées (cf. inscription_api / bulletin_api).
+    photo = db.Column(db.String(255), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('etablissement_id', 'matricule', name='uq_eleve_matricule_etablissement'),
@@ -90,6 +97,9 @@ class Eleve(db.Model, Versionne):
                 ['id', 'etablissement_id', 'matricule', 'nom', 'prenom', 'sexe',
                  'lieu_naissance', 'parent_id', 'statut', 'version']}
         data['date_naissance'] = self.date_naissance.isoformat() if self.date_naissance else None
+        # URL protégée (cookie JWT envoyé par le <img>) ; ?v= change à chaque
+        # nouvel upload (nom de fichier aléatoire), ce qui invalide le cache.
+        data['photo_url'] = f"/api/eleves/{self.id}/photo?v={self.photo.split('.')[0]}" if self.photo else None
         return data
 
 

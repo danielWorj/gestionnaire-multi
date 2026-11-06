@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro } from '../lib/offline';
 import OperationsEnAttente from '../components/OperationsEnAttente';
@@ -9,8 +9,9 @@ import {
   classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, IconBtn, PageHeader, Pager, SortTh, StatCard,
   TableCard, TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
-import EnteteEtablissement, { useEtablissementCourant } from '../components/EnteteEtablissement';
+import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import Select from '../components/Select';
+import GenerateurListeClasse from '../components/ListeClasse';
 
 // Portage de server/static/templates/inscription.html : registre des
 // inscriptions, analyses, générateur de listes de classe imprimables et
@@ -28,16 +29,8 @@ const MOIS_SCOLAIRES = [8, 9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7];
 const MOIS_NOMS = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 const STATUTS = ['Actif', 'Suspendu', 'Radié', 'Transféré'];
 const STATUT_BADGES = { Actif: 'bg-label-success', Suspendu: 'bg-label-warning', Radié: 'bg-label-danger', Transféré: 'bg-label-info' };
-const COLONNES = [
-  ['naissance', 'Date et lieu de naissance'],
-  ['parent', 'Parent et téléphone'],
-  ['date', "Date d'inscription"],
-  ['statut', 'Statut'],
-  ['emargement', "Colonne d'émargement"],
-];
 
 const iso = (d) => d.toISOString().slice(0, 10);
-const eleveNom = (e) => (e ? `${(e.nom || '').toUpperCase()} ${e.prenom || ''}`.trim() : '—');
 const EMPTY_FILTERS = { q: '', cycle: '', classe: '', statut: '', sexe: '', du: '', au: '', raccourci: '' };
 
 function StatutBadge({ statut }) {
@@ -61,10 +54,8 @@ export default function InscriptionsPage() {
   const [sort, setSort] = useState({ key: 'nom', asc: true });
   const [panels, setPanels] = useState({ classe: true, annee: false, mois: false });
   const [ch, setCh] = useState({ anneeClasse: '', cycleClasse: '', detailClasse: 'total', compareClasse: '', classeAnnee: '', cycleAnnee: '', detailAnnee: 'total', anneeMois: '', classeMois: '', vueMois: 'mois', compareMois: '' });
-  const [liste, setListe] = useState({ annee: '', classe: '', mode: 'arret', debut: '', fin: iso(new Date()), statut: 'Actif', tri: 'nom', colonnes: ['naissance', 'parent', 'date'] });
-  const [derniereListe, setDerniereListe] = useState(null);
+  const [anneeListe, setAnneeListe] = useState('');
   const [formModal, setFormModal] = useState(null);
-  const apercuRef = useRef(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -79,7 +70,7 @@ export default function InscriptionsPage() {
       const def = String((annees.find((a) => a.active) || annees[0])?.id ?? '');
       setAnnee((prev) => prev || def);
       setCh((prev) => ({ ...prev, anneeClasse: prev.anneeClasse || def, anneeMois: prev.anneeMois || def }));
-      setListe((prev) => ({ ...prev, annee: prev.annee || def }));
+      setAnneeListe((prev) => prev || def);
     } catch (err) {
       setError(err.message);
       toast(err.message, 'error');
@@ -191,7 +182,7 @@ export default function InscriptionsPage() {
   const changeAnnee = (value) => {
     setAnnee(value);
     setCh((c) => ({ ...c, anneeClasse: value, anneeMois: value }));
-    setListe((l) => ({ ...l, annee: value }));
+    setAnneeListe(value);
     pagination.reset();
   };
 
@@ -350,70 +341,18 @@ export default function InscriptionsPage() {
   const allOpen = Object.values(panels).every(Boolean);
   const togglePanel = (key) => setPanels((p) => ({ ...p, [key]: !p[key] }));
   const setChField = (name) => (e) => setCh((c) => ({ ...c, [name]: e.target.value }));
-  const setListeField = (name) => (e) => setListe((l) => ({ ...l, [name]: e.target.value }));
 
-  /* ── Générateur de listes ── */
-  const genererListe = () => {
-    const anneeId = Number(liste.annee) || null;
-    const classeId = Number(liste.classe) || null;
-    const { mode, debut, fin, statut, tri } = liste;
-    const lignes = inscriptions.filter((i) => {
-      if (anneeId && i.annee_scolaire_id !== anneeId) return false;
-      if (classeId && i.classe_id !== classeId) return false;
-      if (statut && (i.statut || 'Actif') !== statut) return false;
-      if (mode === 'arret' && fin && (!i.date_inscription || i.date_inscription > fin)) return false;
-      if (mode === 'entre') {
-        if (debut && (!i.date_inscription || i.date_inscription < debut)) return false;
-        if (fin && (!i.date_inscription || i.date_inscription > fin)) return false;
-      }
-      return true;
-    });
-    lignes.sort((a, b) => {
-      const ea = eleveById[a.eleve_id] || {};
-      const eb = eleveById[b.eleve_id] || {};
-      if (tri === 'matricule') return String(ea.matricule || '').localeCompare(String(eb.matricule || ''));
-      if (tri === 'date') return String(a.date_inscription || '').localeCompare(String(b.date_inscription || ''));
-      if (tri === 'sexe') {
-        const s = String(ea.sexe || 'Z').localeCompare(String(eb.sexe || 'Z'));
-        if (s !== 0) return s;
-      }
-      return `${ea.nom || ''} ${ea.prenom || ''}`.localeCompare(`${eb.nom || ''} ${eb.prenom || ''}`);
-    });
-    const parClasse = {};
-    lignes.forEach((i) => { (parClasse[i.classe_id] ||= []).push(i); });
-    const sections = Object.keys(parClasse).map(Number)
-      .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])))
-      .map((id) => ({ classeId: id, lignes: parClasse[id] }));
-    const periode = mode === 'tout' ? "Toute l'année scolaire" : mode === 'arret' ? `Situation arrêtée au ${formatDate(fin)}` : `Inscriptions du ${formatDate(debut)} au ${formatDate(fin)}`;
-    setDerniereListe({ anneeId, classeId, sections, cols: liste.colonnes, periode, statut, total: lignes.length });
-    setTimeout(() => apercuRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
-    toast(lignes.length ? `${lignes.length} élève(s) dans ${sections.length} classe(s)` : 'Aucun élève ne correspond à ces critères', lignes.length ? undefined : 'error');
-  };
-
-  const exportListeCsv = () => {
-    if (!derniereListe) return;
-    const { cols } = derniereListe;
-    const head = ['Classe', 'N°', 'Matricule', 'Nom et prénoms', 'Sexe'];
-    if (cols.includes('naissance')) head.push('Date de naissance', 'Lieu de naissance');
-    if (cols.includes('parent')) head.push('Parent', 'Téléphone');
-    if (cols.includes('date')) head.push("Date d'inscription");
-    if (cols.includes('statut')) head.push('Statut');
-    const rows = [head];
-    derniereListe.sections.forEach((sec) => {
-      sec.lignes.forEach((i, idx) => {
-        const e = eleveById[i.eleve_id] || {};
-        const p = parentById[e.parent_id];
-        const r = [classeLabel(classeById[sec.classeId]), idx + 1, e.matricule || '', eleveNom(e), e.sexe || ''];
-        if (cols.includes('naissance')) r.push(e.date_naissance || '', e.lieu_naissance || '');
-        if (cols.includes('parent')) r.push(p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '');
-        if (cols.includes('date')) r.push(i.date_inscription || '');
-        if (cols.includes('statut')) r.push(i.statut || 'Actif');
-        rows.push(r);
-      });
-    });
-    const nom = `liste-${String(anneeLabel(derniereListe.anneeId)).replace(/[^\w-]/g, '_')}${derniereListe.classeId ? `-${classeLabel(classeById[derniereListe.classeId]).replace(/[^\w-]/g, '_')}` : ''}.csv`;
-    downloadCsv(nom, rows);
-  };
+  /* ── Listes de classe : lignes au format de GET /api/listes-classes/eleves ── */
+  const lignesListe = useMemo(() => inscriptions.map((i) => {
+    const e = eleveById[i.eleve_id] || {};
+    const p = parentById[e.parent_id];
+    return {
+      id: i.id, classe_id: i.classe_id, annee_scolaire_id: i.annee_scolaire_id, date_inscription: i.date_inscription,
+      statut: i.statut || 'Actif', eleve_id: i.eleve_id, matricule: e.matricule, nom: e.nom, prenom: e.prenom, sexe: e.sexe,
+      date_naissance: e.date_naissance, lieu_naissance: e.lieu_naissance,
+      parent_nom: p ? `${p.nom} ${p.prenom}` : null, parent_telephone: p ? p.telephone : null,
+    };
+  }), [inscriptions, eleveById, parentById]);
 
   /* ── Actions ── */
   const supprimer = async (i) => {
@@ -547,49 +486,10 @@ export default function InscriptionsPage() {
       </ChartPanel>
 
       {/* Liste des élèves inscrits */}
-      <div className="card mb-4">
-        <div className="card-header d-flex align-items-center justify-content-between">
-          <h5 className="mb-0"><i className="bx bx-file me-2 text-primary" />Liste des élèves inscrits</h5>
-          <span className="badge bg-label-secondary">Par classe et par date</span>
-        </div>
-        <div className="card-body">
-          <div className="row g-2 align-items-end">
-            <div className="col-lg-2 col-md-4"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={liste.annee} onChange={setListeField('annee')}>{anneeOptions}</Select></div>
-            <div className="col-lg-3 col-md-4"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={liste.classe} onChange={setListeField('classe')}><option value="">Toutes les classes (une section par classe)</option>{classeOptions}</Select></div>
-            <div className="col-lg-2 col-md-4"><label className="form-label">Période</label><Select className="form-select form-select-sm" value={liste.mode} onChange={setListeField('mode')}><option value="arret">Arrêtée à une date</option><option value="entre">Entre deux dates</option><option value="tout">Toute l'année</option></Select></div>
-            {liste.mode === 'entre' && <div className="col-lg-2 col-md-4"><label className="form-label">Du</label><input type="date" className="form-control form-control-sm" value={liste.debut} onChange={setListeField('debut')} /></div>}
-            {liste.mode !== 'tout' && <div className="col-lg-2 col-md-4"><label className="form-label">{liste.mode === 'entre' ? 'au' : 'Arrêtée au'}</label><input type="date" className="form-control form-control-sm" value={liste.fin} onChange={setListeField('fin')} /></div>}
-            <div className="col-lg-2 col-md-4">
-              <label className="form-label">Statut</label>
-              <Select className="form-select form-select-sm" value={liste.statut} onChange={setListeField('statut')}>
-                <option value="Actif">Actives seulement</option><option value="">Tous statuts</option><option value="Suspendu">Suspendues</option><option value="Radié">Radiées</option><option value="Transféré">Transférées</option>
-              </Select>
-            </div>
-            <div className="col-lg-2 col-md-4">
-              <label className="form-label">Trier par</label>
-              <Select className="form-select form-select-sm" value={liste.tri} onChange={setListeField('tri')}>
-                <option value="nom">Ordre alphabétique</option><option value="matricule">Matricule</option><option value="date">Date d'inscription</option><option value="sexe">Sexe puis nom</option>
-              </Select>
-            </div>
-            <div className="col-lg-3 col-md-6">
-              <label className="form-label">Colonnes supplémentaires</label>
-              <Select className="form-select form-select-sm" multiple size={3} value={liste.colonnes} onChange={(e) => setListe((l) => ({ ...l, colonnes: Array.from(e.target.selectedOptions).map((o) => o.value) }))}>
-                {COLONNES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </Select>
-            </div>
-            <div className="col-12 d-flex flex-wrap gap-2 mt-2">
-              <button type="button" className="btn btn-primary btn-sm" onClick={genererListe}><i className="bx bx-list-check me-1" /> Générer la liste</button>
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={!derniereListe?.total} onClick={() => window.print()}><i className="bx bx-printer me-1" /> Imprimer</button>
-              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={!derniereListe?.total} onClick={exportListeCsv}><i className="bx bx-file me-1" /> Export CSV</button>
-            </div>
-          </div>
-        </div>
-        {derniereListe && (
-          <div className="card-body border-top bg-lighter print-area" ref={apercuRef}>
-            <ListeImprimable liste={derniereListe} etablissement={etablissement} eleveById={eleveById} parentById={parentById} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
-          </div>
-        )}
-      </div>
+      <GenerateurListeClasse
+        lignes={lignesListe} classes={classes} classeLabel={classeLabel} annees={annees}
+        annee={anneeListe} onAnneeChange={setAnneeListe} etablissement={etablissement}
+      />
 
       {/* Filtres */}
       <div className="card mb-3">
@@ -672,71 +572,6 @@ export default function InscriptionsPage() {
       )}
       {confirmNode}
     </>
-  );
-}
-
-function ListeImprimable({ liste: L, etablissement, eleveById, parentById, classeById, classeLabel, anneeLabel }) {
-  const { cols } = L;
-  return (
-    <div className="print-doc">
-      <EnteteEtablissement etablissement={etablissement} />
-      <div className="print-title">Liste des élèves inscrits</div>
-      <div className="print-subtitle">{anneeLabel(L.anneeId)} — {L.periode}{L.statut ? ` — inscriptions « ${L.statut} »` : ''}</div>
-      <div className="print-meta">
-        <span><b>Total :</b> {L.total} élève(s)</span>
-        <span><b>Classes :</b> {L.sections.length}</span>
-        <span><b>Éditée le :</b> {formatDate(new Date().toISOString())}</span>
-      </div>
-      {L.sections.length ? L.sections.map((sec) => {
-        const g = sec.lignes.filter((i) => eleveById[i.eleve_id]?.sexe === 'M').length;
-        const f = sec.lignes.filter((i) => eleveById[i.eleve_id]?.sexe === 'F').length;
-        return (
-          <div key={sec.classeId} style={{ marginTop: 18 }}>
-            <div className="print-meta">
-              <span><b>Classe :</b> {classeLabel(classeById[sec.classeId])}</span>
-              <span><b>Effectif :</b> {sec.lignes.length}</span>
-              <span><b>Garçons :</b> {g}</span>
-              <span><b>Filles :</b> {f}</span>
-            </div>
-            <table className="print-table">
-              <thead>
-                <tr>
-                  <th className="num">N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th>
-                  {cols.includes('naissance') && <><th>Né(e) le</th><th>À</th></>}
-                  {cols.includes('parent') && <><th>Parent</th><th>Téléphone</th></>}
-                  {cols.includes('date') && <th>Inscrit le</th>}
-                  {cols.includes('statut') && <th>Statut</th>}
-                  {cols.includes('emargement') && <th>Émargement</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {sec.lignes.map((i, idx) => {
-                  const e = eleveById[i.eleve_id] || {};
-                  const p = parentById[e.parent_id];
-                  return (
-                    <tr key={i.id}>
-                      <td className="num">{idx + 1}</td>
-                      <td>{e.matricule || '—'}</td>
-                      <td>{eleveNom(e)}</td>
-                      <td>{e.sexe || '—'}</td>
-                      {cols.includes('naissance') && <><td>{formatDate(e.date_naissance)}</td><td>{e.lieu_naissance || '—'}</td></>}
-                      {cols.includes('parent') && <><td>{p ? `${p.nom} ${p.prenom}` : '—'}</td><td>{p?.telephone || '—'}</td></>}
-                      {cols.includes('date') && <td>{formatDate(i.date_inscription)}</td>}
-                      {cols.includes('statut') && <td>{i.statut || 'Actif'}</td>}
-                      {cols.includes('emargement') && <td />}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        );
-      }) : <p style={{ marginTop: 20 }}>Aucun élève ne correspond à ces critères.</p>}
-      <div className="print-signature">
-        <div>Le Censeur<span /></div>
-        <div>Le Chef d'établissement<span /></div>
-      </div>
-    </div>
   );
 }
 

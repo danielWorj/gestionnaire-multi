@@ -1,9 +1,10 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from services.inscription_services import (
     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
     update_entity_scoped, delete_entity_scoped,
+    save_photo_eleve, delete_photo_eleve, photos_dir_of, chemin_photo_eleve,
 )
 from models.inscription_models import Parent, Eleve, Inscription
 # Réutilisé pour inscription_bp ci-dessous (classe_scoped=True) : un
@@ -143,7 +144,53 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
+    if model is Eleve:
+        # -------------------------------------------------------------------
+        # Photo d'identité (fiche élève, en-tête du bulletin), en
+        # multipart/form-data (champ « photo »), séparée du CRUD JSON pour ne
+        # pas toucher à la file hors connexion. Mêmes rôles et même
+        # cloisonnement que le reste de eleve_bp ; le Comptable (lecture
+        # seule) peut la voir mais pas la modifier (cf. _require_role). Pour
+        # le Censeur/Surveillant, cf. bulletin_api.bulletin_photo_eleve.
+        # -------------------------------------------------------------------
+
+        def _eleve_courant(id):
+            etab_id = _current_etablissement_id()
+            return get_entity_scoped(Eleve, id, etab_id) if etab_id else None
+
+        @bp.route('/<int:id>/photo', methods=['GET'])
+        def get_photo(id):
+            eleve = _eleve_courant(id)
+            if not chemin_photo_eleve(eleve):
+                return jsonify({"erreur": "Photo non trouvée"}), 404
+            return send_photo_eleve(eleve)
+
+        @bp.route('/<int:id>/photo', methods=['POST', 'PUT'])
+        def upload_photo(id):
+            eleve = _eleve_courant(id)
+            if not eleve:
+                return jsonify({"erreur": "eleve non trouvé"}), 404
+            result, status = save_photo_eleve(eleve, request.files.get('photo'))
+            return jsonify(result), status
+
+        @bp.route('/<int:id>/photo', methods=['DELETE'])
+        def remove_photo(id):
+            eleve = _eleve_courant(id)
+            if not eleve:
+                return jsonify({"erreur": "eleve non trouvé"}), 404
+            result, status = delete_photo_eleve(eleve)
+            return jsonify(result), status
+
     return bp
+
+
+def send_photo_eleve(eleve):
+    """Sert la photo d'un élève DÉJÀ autorisé par l'appelant. Cache privé
+    seulement (jamais par un proxy partagé) ; l'URL change à chaque upload."""
+    response = send_from_directory(photos_dir_of(eleve.etablissement_id), eleve.photo)
+    response.headers['Cache-Control'] = 'private, max-age=86400'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 # ---------------------------------------------------------------------------

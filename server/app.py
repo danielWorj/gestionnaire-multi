@@ -23,6 +23,7 @@ from api.pedagogie_api import (
 )
 from api.emploi_du_temps_api import creneau_horaire_bp, horaire_bp
 from api.inscription_api import parent_bp, eleve_bp, inscription_bp, dossier_inscription_bp
+from api.liste_classe_api import liste_classe_bp
 from api.import_api import import_bp
 # tranche_classe_bp / paiement_bp : suivi financier (échéancier par classe +
 # année scolaire, versements), réservé à Admin/SuperAdmin/Comptable — cf.
@@ -184,6 +185,9 @@ def create_app(env=None):
     app.register_blueprint(eleve_bp)
     app.register_blueprint(inscription_bp)
     app.register_blueprint(dossier_inscription_bp)
+    # Listes de classe (lecture seule) : tous les profils, chacun sur ses
+    # classes — cf. services/liste_classe_services.py.
+    app.register_blueprint(liste_classe_bp)
     # Import de masse des archives (CSV, Excel, Word) — cf. api/import_api.py.
     app.register_blueprint(import_bp)
     # Module Paiements : échéancier par classe (TrancheClasse) et versements

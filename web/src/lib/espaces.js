@@ -25,6 +25,7 @@ const RUBRIQUES_CENSEUR = [
   { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', color: 'success', description: 'Bulletins par séquence ou trimestre' },
   { to: '/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', color: 'warning', description: 'Grilles horaires de vos classes' },
   { to: '/pedagogie', label: 'Pédagogie', icon: 'bx-git-branch', color: 'info', description: 'Matières et enseignants par classe' },
+  { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', color: 'secondary', description: 'Imprimer ou télécharger la liste des élèves' },
 ];
 
 export const RUBRIQUES = {
@@ -32,6 +33,7 @@ export const RUBRIQUES = {
     { to: '/enseignant/notes', label: 'Saisie des notes', icon: 'bx-edit', color: 'primary', description: 'Vos notes, classe par classe' },
     { to: '/enseignant/classes', label: 'Mes classes', icon: 'bx-group', color: 'success', description: 'Listes des élèves de vos classes' },
     { to: '/enseignant/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', color: 'warning', description: 'Vos cours de la semaine' },
+    { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', color: 'info', description: 'Imprimer ou télécharger la liste de vos classes' },
   ],
   Censeur: RUBRIQUES_CENSEUR,
   Surveillant: RUBRIQUES_CENSEUR,
@@ -50,6 +52,7 @@ export const NAV_COURTE = {
   '/eleves': 'Élèves',
   '/parents': 'Parents',
   '/inscriptions': 'Inscriptions',
+  '/listes-classes': 'Listes',
   '/paiements': 'Paiements',
   '/configuration': 'Réglages',
   '/enseignant/notes': 'Notes',

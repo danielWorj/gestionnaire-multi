@@ -32,3 +32,6 @@ server/storage/bulletins/
 ui.zip
 *.log
 .DS_Store
+
+# --- Photos d'identité des élèves (données personnelles de mineurs) ---
+server/storage/photos_eleves/

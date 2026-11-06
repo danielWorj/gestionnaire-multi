@@ -7,8 +7,11 @@ from flask import Blueprint, Response, jsonify, render_template, request
 from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from extensions import db
+from api.inscription_api import send_photo_eleve
+from models.inscription_models import Eleve, Inscription
 from models.structure_models import AnneeScolaire, Etablissement
 from services.bulletin_services import BulletinErreur, construire_bulletins, periodes_disponibles
+from services.inscription_services import chemin_photo_eleve
 from services.pedagogie_services import resolve_classe_ids_restriction
 from services.structure_services import LOGOS_DIR
 
@@ -83,9 +86,32 @@ def _donnees():
     return etablissement, data
 
 
-def _rendu(data, logo_src):
-    return render_template("bulletins/bulletin.html", data=data, logo_src=logo_src,
+def _rendu(data, logo_src, photos=None):
+    return render_template("bulletins/bulletin.html", data=data, logo_src=logo_src, photos=photos or {},
                            date_edition=date.today().strftime('%d/%m/%Y'))
+
+
+def _eleves_avec_photo(data):
+    """Élèves des bulletins demandés dont la photo existe bien sur le disque."""
+    ids = [b["eleve"]["id"] for b in data["bulletins"]]
+    if not ids:
+        return []
+    return [e for e in Eleve.query.filter(Eleve.id.in_(ids), Eleve.photo.isnot(None)).all()
+            if chemin_photo_eleve(e)]
+
+
+def _photos_http(etablissement, data):
+    """{eleve_id: URL} pour l'aperçu HTML (même origine, cookie JWT envoyé
+    par le <img>), servies par bulletin_photo_eleve ci-dessous."""
+    suffixe = f"&etablissement_id={etablissement.id}" if get_jwt().get("role") == "SuperAdmin" else ""
+    return {e.id: f"/api/bulletins/photos/{e.id}?v={e.photo.split('.')[0]}{suffixe}"
+            for e in _eleves_avec_photo(data)}
+
+
+def _photos_fichiers(data):
+    """{eleve_id: file://...} pour WeasyPrint, qui lit les fichiers en local
+    (même principe que le logo)."""
+    return {e.id: Path(chemin_photo_eleve(e)).as_uri() for e in _eleves_avec_photo(data)}
 
 
 @bulletin_bp.errorhandler(BulletinErreur)
@@ -105,6 +131,29 @@ def bulletin_periodes():
     return jsonify(periodes_disponibles(annee.id)), 200
 
 
+@bulletin_bp.route('/photos/<int:eleve_id>', methods=['GET'])
+def bulletin_photo_eleve(eleve_id):
+    """Photo d'identité affichée dans l'aperçu HTML du bulletin. Admin/
+    SuperAdmin : tout élève de l'établissement ; Censeur/Surveillant :
+    uniquement un élève inscrit dans l'une de leurs classes assignées. 404
+    dans tous les cas de refus (on ne révèle pas l'existence de l'élève)."""
+    etablissement = _etablissement()
+    eleve = db.session.get(Eleve, eleve_id) if etablissement else None
+    if not eleve or eleve.etablissement_id != etablissement.id or not chemin_photo_eleve(eleve):
+        return jsonify({"erreur": "Photo non trouvée"}), 404
+
+    restriction = _classe_restriction()
+    if restriction is not None:
+        dans_mes_classes = bool(restriction) and db.session.query(
+            Inscription.query.filter(Inscription.eleve_id == eleve.id,
+                                     Inscription.classe_id.in_(restriction)).exists()
+        ).scalar()
+        if not dans_mes_classes:
+            return jsonify({"erreur": "Photo non trouvée"}), 404
+
+    return send_photo_eleve(eleve)
+
+
 @bulletin_bp.route('/', methods=['GET'])
 def bulletin_donnees():
     _, data = _donnees()
@@ -116,7 +165,7 @@ def bulletin_html():
     etablissement, data = _donnees()
     # Aperçu affiché dans la page (même origine) : URL HTTP du logo.
     logo_src = f"/api/etablissements/storage/logos/{etablissement.logo}" if etablissement.logo else None
-    return Response(_rendu(data, logo_src), mimetype='text/html')
+    return Response(_rendu(data, logo_src, _photos_http(etablissement, data)), mimetype='text/html')
 
 
 @bulletin_bp.route('/pdf', methods=['GET'])
@@ -133,7 +182,7 @@ def bulletin_pdf():
 
     logo = Path(LOGOS_DIR) / etablissement.logo if etablissement.logo else None
     logo_src = logo.as_uri() if logo and logo.is_file() else None
-    pdf = HTML(string=_rendu(data, logo_src)).write_pdf()
+    pdf = HTML(string=_rendu(data, logo_src, _photos_fichiers(data))).write_pdf()
 
     nom = f"bulletins_{data['classe']['label']}_{data['periode']['libelle']}"
     if len(data["bulletins"]) == 1:

@@ -35,6 +35,9 @@
   .identite td { padding: 0.6mm 1.5mm; font-size: 8.2pt; }
   .identite .lbl { color: #444; width: 17mm; }
   .identite .nom { font-weight: 700; font-size: 9.6pt; }
+  /* Photo d'identité (format portrait ~ 3,5 × 4,5), à droite du bloc. */
+  .identite td.photo { width: 22mm; padding: 0 0 0 2mm; vertical-align: middle; text-align: right; }
+  .identite td.photo img { width: 20mm; height: 25mm; object-fit: cover; border: 0.6pt solid #333; }
   .notes { margin-top: 2mm; }
   .notes th, .notes td { border: 0.6pt solid #333; padding: 0.7mm 1mm; }
   .notes th { background: #e6e6e6; font-size: 7.2pt; }
@@ -86,10 +89,14 @@
 
   <h1>{{ data.periode.titre }}</h1>
 
+  {%- set photo_src = photos.get(e.id) %}
   <table class="identite">
     <tr>
       <td class="lbl">Nom</td><td class="nom" colspan="3">{{ e.nom }} {{ e.prenom }}</td>
       <td class="lbl">Matricule</td><td><strong>{{ e.matricule }}</strong></td>
+      {%- if photo_src %}
+      <td class="photo" rowspan="4"><img src="{{ photo_src }}" alt="Photo de {{ e.nom }} {{ e.prenom }}"></td>
+      {%- endif %}
     </tr>
     <tr>
       <td class="lbl">Né(e) le</td><td>{{ e.date_naissance or '' }}</td><td class="lbl">à</td><td>{{ e.lieu_naissance or '' }}</td>

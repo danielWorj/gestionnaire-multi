@@ -49,6 +49,7 @@ export const MENU_SECTIONS = [
       { to: '/eleves', label: 'Élèves', icon: 'bx-user', roles: [...ADMIN, 'Secretaire'] },
       { to: '/parents', label: 'Parents', icon: 'bx-group', roles: [...ADMIN, 'Secretaire'] },
       { to: '/inscriptions', label: 'Inscriptions', icon: 'bx-user-plus', roles: [...ADMIN, 'Secretaire'] },
+      { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', roles: [...ADMIN, ...CENSEUR, 'Enseignant', 'Secretaire', 'Comptable'] },
     ],
   },
   {

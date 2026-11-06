@@ -1,3 +1,6 @@
+import os
+import uuid
+
 from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
 from models.structure_models import Classe, AnneeScolaire
 from extensions import db
@@ -9,8 +12,112 @@ from extensions import db
 # emploi_du_temps_services.py.
 from services.structure_services import (
     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
+    STORAGE_DIR,
 )
 from services.conflits_services import extraire_controle, memes_valeurs, verifier
+
+
+# ---------------------------------------------------------------------------
+# Photos d'identité des élèves
+#
+# Stockées dans storage/photos_eleves/<etablissement_id>/ (même volume Docker
+# persistant que les logos, cf. docker-compose.prod.yml : server-storage),
+# sous un nom ALÉATOIRE (uuid), jamais dérivé de l'identité de l'élève.
+# Servies uniquement par des routes protégées par JWT et cloisonnées
+# (inscription_api : secrétariat/admin ; bulletin_api : rôles du bulletin).
+#
+# Formats : JPEG, PNG, WEBP (pas de SVG, qui peut embarquer du script),
+# vérifiés sur la SIGNATURE binaire du fichier et non sur son extension.
+# ---------------------------------------------------------------------------
+
+PHOTOS_ELEVES_DIR = os.path.join(STORAGE_DIR, 'photos_eleves')
+os.makedirs(PHOTOS_ELEVES_DIR, exist_ok=True)
+
+PHOTO_TAILLE_MAX = 2 * 1024 * 1024  # 2 Mo
+
+
+def _format_image(entete):
+    if entete.startswith(b'\xff\xd8\xff'):
+        return 'jpg'
+    if entete.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    if entete[:4] == b'RIFF' and entete[8:12] == b'WEBP':
+        return 'webp'
+    return None
+
+
+def photos_dir_of(etablissement_id):
+    return os.path.join(PHOTOS_ELEVES_DIR, str(int(etablissement_id)))
+
+
+def chemin_photo_eleve(eleve):
+    """Chemin absolu du fichier photo de l'élève, ou None s'il n'en a pas
+    (ou si le fichier a disparu du disque)."""
+    if not eleve or not eleve.photo:
+        return None
+    chemin = os.path.join(photos_dir_of(eleve.etablissement_id), os.path.basename(eleve.photo))
+    return chemin if os.path.isfile(chemin) else None
+
+
+def delete_photo_file(etablissement_id, filename):
+    """Best-effort, ne lève jamais (même logique que delete_logo_file)."""
+    if not filename:
+        return
+    chemin = os.path.join(photos_dir_of(etablissement_id), os.path.basename(filename))
+    if os.path.isfile(chemin):
+        try:
+            os.remove(chemin)
+        except OSError:
+            pass
+
+
+def save_photo_eleve(eleve, file_storage):
+    """Enregistre la photo uploadée (werkzeug FileStorage), remplace
+    l'éventuelle ancienne et met à jour Eleve.photo."""
+    if not file_storage or not getattr(file_storage, 'filename', None):
+        return {"erreur": "Aucun fichier photo reçu"}, 400
+
+    contenu = file_storage.read(PHOTO_TAILLE_MAX + 1)
+    if len(contenu) > PHOTO_TAILLE_MAX:
+        return {"erreur": "Photo trop volumineuse (2 Mo maximum)"}, 400
+    ext = _format_image(contenu[:16])
+    if not ext:
+        return {"erreur": "Format de photo non pris en charge (JPEG, PNG ou WEBP uniquement)"}, 400
+
+    dossier = photos_dir_of(eleve.etablissement_id)
+    os.makedirs(dossier, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    with open(os.path.join(dossier, filename), 'wb') as f:
+        f.write(contenu)
+
+    ancienne = eleve.photo
+    eleve.photo = filename
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        delete_photo_file(eleve.etablissement_id, filename)
+        return {"erreur": "Impossible d'enregistrer la photo"}, 500
+
+    # Ancien fichier supprimé seulement APRÈS le commit réussi : un élève ne
+    # pointe jamais vers un fichier disparu.
+    if ancienne and ancienne != filename:
+        delete_photo_file(eleve.etablissement_id, ancienne)
+    return eleve.to_dict(), 200
+
+
+def delete_photo_eleve(eleve):
+    ancienne = eleve.photo
+    if not ancienne:
+        return eleve.to_dict(), 200
+    eleve.photo = None
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return {"erreur": "Impossible de retirer la photo"}, 500
+    delete_photo_file(eleve.etablissement_id, ancienne)
+    return eleve.to_dict(), 200
 
 CHAMPS_REQUIS = {
     Parent: ('nom', 'prenom', 'telephone', 'email'),
@@ -145,6 +252,7 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
     # réellement cette colonne).
     if model_class in DIRECT_SCOPE_MODELS:
         data['etablissement_id'] = etablissement_id
+    data.pop('photo', None)  # uniquement via save_photo_eleve (upload)
 
     for champ in CHAMPS_REQUIS.get(model_class, ()):
         if data.get(champ) in (None, ''):
@@ -176,6 +284,7 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
 
     data = dict(data or {})
     data.pop('etablissement_id', None)  # non modifiable, même par erreur de payload
+    data.pop('photo', None)  # uniquement via save_photo_eleve / delete_photo_eleve
     controle = extraire_controle(data)
 
     if isinstance(entity, Inscription) and classe_ids_restriction is not None:
@@ -218,4 +327,9 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
     if (isinstance(entity, Inscription) and classe_ids_restriction is not None
             and entity.classe_id not in classe_ids_restriction):
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
-    return delete_entity(entity)
+    photo = entity.photo if isinstance(entity, Eleve) else None
+    result, status = delete_entity(entity)
+    # Fichier retiré seulement si la suppression en base a réussi.
+    if photo and status < 300:
+        delete_photo_file(etablissement_id, photo)
+    return result, status
