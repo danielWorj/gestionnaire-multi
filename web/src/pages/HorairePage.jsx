@@ -8,6 +8,7 @@ import { Pastilles } from '../components/Espace';
 import './horaire.css';
 import Select from '../components/Select';
 import ImportModal from '../components/importConfigs';
+import { SkelLignesTableau } from '../components/Skeleton';
 
 // Portage de server/static/templates/horaire.html (Admin) et
 // censeur/horaire.html (Censeur / Surveillant) — même page, seuls quelques
@@ -293,7 +294,7 @@ export default function HorairePage({ variant = 'admin', classeImposee = null })
       )}
 
       <div className={`row g-3 mb-4 ${classeImposee ? 'd-none d-md-flex' : ''}`}>
-        {stats.map(([label, value, sub, icon, color]) => <StatCard key={label} label={label} value={loading ? null : value} sub={sub} icon={icon} color={color} />)}
+        {stats.map(([label, value, sub, icon, color]) => <StatCard key={label} label={label} loading={loading} value={value} sub={sub} icon={icon} color={color} />)}
       </div>
 
       <div className="card mb-3">
@@ -440,14 +441,14 @@ function Grille({ mode, loading, ready, emptyMessage, creneaux, horaires, onAdd,
   const editable = mode === 'classe';
   let body;
   let message = null;
-  if (loading) {
-    message = <><span className="spinner-border spinner-border-sm me-1" /> Chargement de la grille…</>;
-  } else if (!ready) {
+  if (!ready) {
     message = emptyMessage;
   } else if (!creneaux.length) {
     message = "Aucun créneau horaire défini. Créez-en dans l'onglet \"Créneaux horaires\".";
   }
-  if (message) {
+  if (loading) {
+    body = <SkelLignesTableau colonnes={7} lignes={5} label="Chargement de la grille…" />;
+  } else if (message) {
     body = <tr><td colSpan={7} className="text-center text-muted py-5">{message}</td></tr>;
   } else {
     const index = Object.fromEntries(horaires.map((h) => [`${h.jour_semaine}|${h.creneau_id}`, h]));

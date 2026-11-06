@@ -302,10 +302,10 @@ export default function ElevesPage() {
       <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
-        <StatCard label="Élèves au répertoire" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.actifs} actifs · ${stats.total - stats.actifs} inactifs`} icon="bx-face" color="primary" />
-        <StatCard label={`Inscrits ${anneeLabel(annee)}`} value={loading ? null : stats.inscrits} sub={stats.total ? `${Math.round((stats.inscrits / stats.total) * 100)} % du répertoire` : '—'} icon="bx-user-check" color="success" />
-        <StatCard label="Garçons / Filles" value={loading ? null : `${stats.m} / ${stats.f}`} sub={stats.total ? `${Math.round((stats.f / stats.total) * 100)} % de filles` : '—'} icon="bx-male-sign" color="info" />
-        <StatCard label="Sans classe cette année" value={loading ? null : stats.sansClasse} sub={stats.sansClasse ? 'à inscrire' : 'tout le monde est inscrit'} icon="bx-time" color="warning" />
+        <StatCard label="Élèves au répertoire" loading={loading} value={stats.total} sub={loading ? '—' : `${stats.actifs} actifs · ${stats.total - stats.actifs} inactifs`} icon="bx-face" color="primary" />
+        <StatCard label={`Inscrits ${anneeLabel(annee)}`} loading={loading} value={stats.inscrits} sub={stats.total ? `${Math.round((stats.inscrits / stats.total) * 100)} % du répertoire` : '—'} icon="bx-user-check" color="success" />
+        <StatCard label="Garçons / Filles" loading={loading} value={`${stats.m} / ${stats.f}`} sub={stats.total ? `${Math.round((stats.f / stats.total) * 100)} % de filles` : '—'} icon="bx-male-sign" color="info" />
+        <StatCard label="Sans classe cette année" loading={loading} value={stats.sansClasse} sub={stats.sansClasse ? 'à inscrire' : 'tout le monde est inscrit'} icon="bx-time" color="warning" />
       </div>
 
       {/* Analyses */}

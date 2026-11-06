@@ -6,6 +6,7 @@ import { AvecChoixClasse } from '../components/Espace';
 import './notes.css';
 import './bulletin.css';
 import Select from '../components/Select';
+import { SkelListe } from '../components/Skeleton';
 
 // Bulletins séquentiels, trimestriels et annuels (Censeur et Surveillant).
 // Calcul et mise en page côté serveur (/api/bulletins/, cf.
@@ -255,7 +256,7 @@ function BulletinsClasse({ classeId }) {
             </div>
             <div className="eleves-liste">
               {annees === null || chargement ? (
-                <div className="text-center text-muted py-5"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+                <SkelListe lignes={8} label="Chargement des élèves…" className="px-3" />
               ) : !pret ? (
                 <div className="text-center text-muted py-5"><i className="bx bx-info-circle me-1" />Sélectionnez une année et une période.</div>
               ) : !eleves.length ? (

@@ -7,6 +7,7 @@ import { colorClassFor, FeuilleEmploiDuTemps, GrilleJour, heureCourte, JOURS, LE
 import { EspaceTitre } from '../components/Espace';
 import './horaire.css';
 import Select from '../components/Select';
+import { SkelLignesTableau, SkelListe } from '../components/Skeleton';
 
 // Portage de server/static/templates/enseignant/horaire.html : grille
 // hebdomadaire (lecture seule) des cours de l'enseignant connecté, via
@@ -97,9 +98,9 @@ export default function EnseignantHorairePage() {
       {alerte && <div className="alert alert-warning"><i className="bx bx-error me-2" />{alerte}</div>}
 
       <div className="row g-3 mb-4 d-none d-md-flex">
-        <StatCard label="Cours / semaine" value={loading ? null : horaires.length} sub={`sur ${total} créneaux`} icon="bx-book-open" color="primary" />
-        <StatCard label="Classes couvertes" value={loading ? null : new Set(horaires.map((h) => h.classe_id)).size} sub="classes distinctes" icon="bx-chalkboard" color="info" />
-        <StatCard label="Créneaux libres" value={loading ? null : Math.max(total - horaires.length, 0)} sub="disponibles" icon="bx-checkbox-checked" color="success" />
+        <StatCard label="Cours / semaine" loading={loading} value={horaires.length} sub={`sur ${total} créneaux`} icon="bx-book-open" color="primary" />
+        <StatCard label="Classes couvertes" loading={loading} value={new Set(horaires.map((h) => h.classe_id)).size} sub="classes distinctes" icon="bx-chalkboard" color="info" />
+        <StatCard label="Créneaux libres" loading={loading} value={Math.max(total - horaires.length, 0)} sub="disponibles" icon="bx-checkbox-checked" color="success" />
         <StatCard label="Jours couverts" value={JOURS.length} sub="Lundi à Samedi" icon="bx-calendar-week" color="warning" />
       </div>
 
@@ -130,7 +131,7 @@ export default function EnseignantHorairePage() {
       >
         <div className="d-md-none">
           {loading ? (
-            <div className="text-center text-muted py-5"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+            <SkelListe lignes={4} label="Chargement de l'emploi du temps…" className="px-3" />
           ) : !creneaux.length ? (
             <div className="text-center text-muted py-5 px-3">Aucun cours programmé pour l'instant sur cette année scolaire.</div>
           ) : (
@@ -152,7 +153,7 @@ export default function EnseignantHorairePage() {
             <thead><tr><th className="time-col">Créneau</th>{JOURS.map((j) => <th key={j}>{j}</th>)}</tr></thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center text-muted py-5"><span className="spinner-border spinner-border-sm me-1" /> Chargement de la grille…</td></tr>
+                <SkelLignesTableau colonnes={7} lignes={5} label="Chargement de la grille…" />
               ) : !creneaux.length ? (
                 <tr><td colSpan={7} className="text-center text-muted py-5">Aucun cours programmé pour l'instant sur cette année scolaire.</td></tr>
               ) : creneaux.map((c) => (

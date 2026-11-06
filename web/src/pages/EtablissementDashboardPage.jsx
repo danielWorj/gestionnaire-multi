@@ -5,6 +5,7 @@ import ChartCanvas from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import { initiales } from '../components/ui';
+import { Skel, SkelGraphique, SkelListe } from '../components/Skeleton';
 
 // Portage de server/static/templates/dashboard.html (Admin d'établissement) :
 // toutes les métriques sont recalculées à partir des données réelles de
@@ -37,7 +38,7 @@ function Stat({ label, value, icon, color, sub, trend }) {
           </div>
           <span className="fw-semibold d-block mb-1">{label}</span>
           <h4 className="card-title mb-1">{value}</h4>
-          <small className="text-muted">{sub}</small>
+          {sub === null ? <Skel w="70%" h="0.7rem" className="mt-2" /> : <small className="text-muted">{sub}</small>}
         </div>
       </div>
     </div>
@@ -217,7 +218,8 @@ export default function EtablissementDashboardPage() {
   }, [data]);
 
   const nom = etablissement?.nom || user?.etablissement_nom || 'Établissement';
-  const v = (x) => (m ? x : <span className="spinner-border spinner-border-sm text-primary" />);
+  // Chiffres en squelette tant que les données ne sont pas arrivées.
+  const v = (x) => (m ? x : <Skel w="4.5rem" h="1.4rem" className="my-1" />);
 
   return (
     <>
@@ -240,17 +242,24 @@ export default function EtablissementDashboardPage() {
       </div>
 
       <div className="row g-3 mb-3">
-        <Stat label="Élèves inscrits" value={v(fmtNombre(m?.eleves))} icon="bxs-graduation" color="primary" sub={m ? `${fmtNombre(m.elevesActifs)} actifs · ${m.eleves ? Math.round((m.elevesActifs / m.eleves) * 100) : 0}%` : '…'} trend={m && <span className={`badge ${m.inscritsCeMois > 0 ? 'bg-label-success' : 'bg-label-secondary'}`}>+{m.inscritsCeMois} ce mois-ci</span>} />
-        <Stat label="Classes actives" value={v(fmtNombre(m?.classes))} icon="bx-chalkboard" color="info" sub={m ? `${fmtNombre(m.cycles)} cycle(s) · ${fmtNombre(m.niveaux)} niveau(x)` : '…'} />
-        <Stat label="Enseignants" value={v(fmtNombre(m?.enseignants))} icon="bx-user-voice" color="success" sub={m ? `${fmtNombre(m.matieresClasse)} matières-classe` : '…'} />
-        <Stat label="Recouvrement" value={v(`${m?.pctRecouvrement}%`)} icon="bx-wallet" color="warning" sub={m ? `${fmtNombre(m.totalReste)} FCFA restants` : '…'} />
+        <Stat label="Élèves inscrits" value={v(fmtNombre(m?.eleves))} icon="bxs-graduation" color="primary" sub={m ? `${fmtNombre(m.elevesActifs)} actifs · ${m.eleves ? Math.round((m.elevesActifs / m.eleves) * 100) : 0}%` : null} trend={m && <span className={`badge ${m.inscritsCeMois > 0 ? 'bg-label-success' : 'bg-label-secondary'}`}>+{m.inscritsCeMois} ce mois-ci</span>} />
+        <Stat label="Classes actives" value={v(fmtNombre(m?.classes))} icon="bx-chalkboard" color="info" sub={m ? `${fmtNombre(m.cycles)} cycle(s) · ${fmtNombre(m.niveaux)} niveau(x)` : null} />
+        <Stat label="Enseignants" value={v(fmtNombre(m?.enseignants))} icon="bx-user-voice" color="success" sub={m ? `${fmtNombre(m.matieresClasse)} matières-classe` : null} />
+        <Stat label="Recouvrement" value={v(`${m?.pctRecouvrement}%`)} icon="bx-wallet" color="warning" sub={m ? `${fmtNombre(m.totalReste)} FCFA restants` : null} />
       </div>
       <div className="row g-3 mb-4">
-        <Stat label="Notes saisies (séquence en cours)" value={v(`${fmtNombre(m?.notesSaisies)} / ${fmtNombre(m?.notesAttendues)}`)} icon="bx-edit" color="primary" sub={m ? `${fmtNombre(m.notesEnAttente)} en attente` : '…'} trend={m && <span className="badge bg-label-secondary">{m.notesAttendues ? Math.round((m.notesSaisies / m.notesAttendues) * 100) : 0}%</span>} />
-        <Stat label="Filles / Garçons" value={v(`${fmtNombre(m?.filles)} / ${fmtNombre(m?.garcons)}`)} icon="bx-male-sign" color="info" sub={m ? `Effectif total : ${fmtNombre(m.eleves)}` : '…'} />
-        <Stat label="Absences (séquence en cours)" value={v(fmtNombre(m?.absences))} icon="bx-run" color="danger" sub={m ? `${fmtNombre(m.retards)} retards · ${fmtNombre(m.exclusions)} exclusions` : '…'} />
-        <Stat label="Parents enregistrés" value={v(fmtNombre(m?.parents))} icon="bx-group" color="success" sub={m ? `${fmtNombre(m.parentsTel)} avec téléphone` : '…'} />
+        <Stat label="Notes saisies (séquence en cours)" value={v(`${fmtNombre(m?.notesSaisies)} / ${fmtNombre(m?.notesAttendues)}`)} icon="bx-edit" color="primary" sub={m ? `${fmtNombre(m.notesEnAttente)} en attente` : null} trend={m && <span className="badge bg-label-secondary">{m.notesAttendues ? Math.round((m.notesSaisies / m.notesAttendues) * 100) : 0}%</span>} />
+        <Stat label="Filles / Garçons" value={v(`${fmtNombre(m?.filles)} / ${fmtNombre(m?.garcons)}`)} icon="bx-male-sign" color="info" sub={m ? `Effectif total : ${fmtNombre(m.eleves)}` : null} />
+        <Stat label="Absences (séquence en cours)" value={v(fmtNombre(m?.absences))} icon="bx-run" color="danger" sub={m ? `${fmtNombre(m.retards)} retards · ${fmtNombre(m.exclusions)} exclusions` : null} />
+        <Stat label="Parents enregistrés" value={v(fmtNombre(m?.parents))} icon="bx-group" color="success" sub={m ? `${fmtNombre(m.parentsTel)} avec téléphone` : null} />
       </div>
+
+      {!m && (
+        <div className="row g-3 mb-4">
+          <div className="col-lg-8"><div className="card h-100"><div className="card-body"><SkelGraphique hauteur={280} /></div></div></div>
+          <div className="col-lg-4"><div className="card h-100"><div className="card-body"><SkelGraphique hauteur={180} /><SkelListe lignes={3} className="mt-3" /></div></div></div>
+        </div>
+      )}
 
       {m && (
         <>

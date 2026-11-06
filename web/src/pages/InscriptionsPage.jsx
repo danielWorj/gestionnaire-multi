@@ -463,10 +463,10 @@ export default function InscriptionsPage() {
       <OperationsEnAttente modules={MODULES_INSCRIPTION} titre="Inscriptions pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
-        <StatCard label={`Inscriptions ${anneeLabel(annee)}`} value={loading ? null : stats.total} sub={`${stats.distincts} élèves distincts`} icon="bx-clipboard" color="primary" />
-        <StatCard label="Inscriptions actives" value={loading ? null : stats.actives} sub={stats.total ? `${Math.round((stats.actives / stats.total) * 100)} % du total` : '—'} icon="bx-user-check" color="success" />
-        <StatCard label="Classes ouvertes" value={loading ? null : stats.classesOuvertes} sub={stats.classesOuvertes ? `${Math.round(stats.total / stats.classesOuvertes)} élèves par classe en moyenne` : '—'} icon="bx-building-house" color="info" />
-        <StatCard label="Enregistrées ce mois" value={loading ? null : stats.ceMois} sub={stats.moisLabel} icon="bx-calendar-event" color="warning" />
+        <StatCard label={`Inscriptions ${anneeLabel(annee)}`} loading={loading} value={stats.total} sub={`${stats.distincts} élèves distincts`} icon="bx-clipboard" color="primary" />
+        <StatCard label="Inscriptions actives" loading={loading} value={stats.actives} sub={stats.total ? `${Math.round((stats.actives / stats.total) * 100)} % du total` : '—'} icon="bx-user-check" color="success" />
+        <StatCard label="Classes ouvertes" loading={loading} value={stats.classesOuvertes} sub={stats.classesOuvertes ? `${Math.round(stats.total / stats.classesOuvertes)} élèves par classe en moyenne` : '—'} icon="bx-building-house" color="info" />
+        <StatCard label="Enregistrées ce mois" loading={loading} value={stats.ceMois} sub={stats.moisLabel} icon="bx-calendar-event" color="warning" />
       </div>
 
       <div className="d-flex align-items-center gap-2 mb-2">

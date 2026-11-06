@@ -147,9 +147,9 @@ export default function MatieresPage() {
       </PageHeader>
 
       <div className="row g-3 mb-4">
-        <StatCard className="col-sm-6 col-xl-4" label="Groupes de matières" value={loading || !referentielAccessible ? null : groupes.length} icon="bx-layer" color="primary" />
-        <StatCard className="col-sm-6 col-xl-4" label="Matières" value={loading || !referentielAccessible ? null : matieres.length} icon="bx-book-open" color="info" />
-        <StatCard className="col-sm-6 col-xl-4" label="Affectations classe" value={loading ? null : affectations.length} icon="bx-link" color="success" />
+        <StatCard className="col-sm-6 col-xl-4" label="Groupes de matières" loading={loading} value={!referentielAccessible ? null : groupes.length} icon="bx-layer" color="primary" />
+        <StatCard className="col-sm-6 col-xl-4" label="Matières" loading={loading} value={!referentielAccessible ? null : matieres.length} icon="bx-book-open" color="info" />
+        <StatCard className="col-sm-6 col-xl-4" label="Affectations classe" loading={loading} value={affectations.length} icon="bx-link" color="success" />
       </div>
 
       <Tabs

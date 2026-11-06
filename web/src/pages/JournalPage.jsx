@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { roleDe } from '../components/Layout';
 import { PageHeader } from '../components/ui';
 import Select from '../components/Select';
+import { SkelListe } from '../components/Skeleton';
 
 // Journal des modifications (Admin : son établissement ; Censeur : le volet
 // pédagogique — notes, discipline, emploi du temps — filtrage fait par le
@@ -97,7 +98,7 @@ export default function JournalPage() {
           )}
         </div>
         <div className="card-body">
-          {etat.chargement ? <div className="text-center py-4"><span className="spinner-border spinner-border-sm me-2" />Chargement…</div>
+          {etat.chargement ? <SkelListe lignes={6} label="Chargement du journal…" />
             : etat.erreur ? <div className="alert alert-danger mb-0">{etat.erreur}</div>
               : etat.items.length ? <ListeAudit items={etat.items} avecCible nomEtablissement={isSuperAdmin && !filtres.etablissement ? nomEtablissement : null} />
                 : <div className="text-center text-muted py-4"><i className="bx bx-history bx-md d-block mb-2" />Aucune modification pour ces critères.</div>}

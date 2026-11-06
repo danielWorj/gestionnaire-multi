@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import Modal from './Modal';
+import { SkelListe } from './Skeleton';
 
 // Historique des modifications (journal d'audit, cf. server/api/audit_api.py) :
 // qui a créé / modifié / supprimé quoi, et quand. Consultation à la demande
@@ -116,7 +117,7 @@ export function HistoriqueModal({ table, ligneId, titre, onClose }) {
   return (
     <Modal title="Historique des modifications" subtitle={titre || `${TABLES_AUDIT[table] || table} n°${ligneId}`} onClose={onClose}
       footer={<button type="button" className="btn btn-outline-secondary" onClick={onClose}>Fermer</button>}>
-      {etat.chargement ? <div className="text-center py-4"><span className="spinner-border spinner-border-sm me-2" />Chargement…</div>
+      {etat.chargement ? <SkelListe lignes={4} label="Chargement de l'historique…" />
         : etat.erreur ? <div className="alert alert-danger mb-0">{etat.erreur}</div>
           : etat.items.length ? <ListeAudit items={etat.items} />
             : <div className="text-center text-muted py-4"><i className="bx bx-history bx-md d-block mb-2" />Aucune modification enregistrée depuis la mise en place du journal.</div>}

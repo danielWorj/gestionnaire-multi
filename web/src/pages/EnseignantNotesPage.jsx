@@ -11,6 +11,7 @@ import {
   calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
   noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
 } from '../components/NotesCommun';
+import { SkelListe, SkelSaisie } from '../components/Skeleton';
 
 // Saisie des notes de l'enseignant, pensée d'abord pour le téléphone :
 // 1. cartes « classe · matière » avec l'avancement de la séquence en cours ;
@@ -217,9 +218,9 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
           <span>#</span><span>Élève</span><span className="text-center">Note / 20</span>
         </div>
         {!pret ? (
-          <div className="saisie-vide"><i className="bx bx-info-circle me-1" />{espace.loading ? 'Chargement…' : 'Choisissez une séquence pour afficher la grille de saisie.'}</div>
+          espace.loading ? <SkelSaisie /> : <div className="saisie-vide"><i className="bx bx-info-circle me-1" />Choisissez une séquence pour afficher la grille de saisie.</div>
         ) : ctx.chargement && !roster.length ? (
-          <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+          <SkelSaisie />
         ) : !eleves.length ? (
           <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond à la recherche.' : 'Aucun élève inscrit dans cette classe.'}</div>
         ) : eleves.map((eleve, idx) => (
@@ -361,7 +362,13 @@ function ReleveAnnee({ eleves, sequencesTree, notes, mcId, attente, saveStates, 
     return idx;
   }, [notes, mcId]);
 
-  if (chargement) return <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>;
+  if (chargement) {
+    return (
+      <div className="card mb-4"><div className="card-body">
+        <SkelListe lignes={8} label="Chargement du relevé de l'année…" />
+      </div></div>
+    );
+  }
   if (!sequences.length) return <div className="saisie-vide"><i className="bx bx-info-circle me-1" />Aucune séquence pour cette année scolaire.</div>;
   if (!eleves.length) return <div className="saisie-vide"><i className="bx bx-user-x me-1" />Aucun élève à afficher.</div>;
 

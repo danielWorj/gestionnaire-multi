@@ -171,3 +171,30 @@
 .conflit-mienne { background: rgba(105, 108, 255, .08); }
 .conflit-serveur { background: rgba(133, 146, 163, .1); }
 .conflit-valeur { font-size: 1.1rem; font-weight: 600; }
+
+/* ── Écrans squelettes (components/Skeleton.jsx) ─────────────────────────
+   Blocs gris animés qui dessinent la forme du contenu en cours de
+   chargement. Apparition différée de 180 ms : une réponse rapide ne fait
+   pas clignoter la page. */
+.skel {
+  display: block;
+  height: 0.8rem;
+  border-radius: 0.3rem;
+  background: linear-gradient(90deg, #eceef1 25%, #f6f7f9 37%, #eceef1 63%);
+  background-size: 400% 100%;
+  animation: skel-reflet 1.4s ease infinite;
+}
+.skel-rond { border-radius: 50%; flex-shrink: 0; }
+.skel-arrondi { border-radius: 0.5rem; }
+.skel-pile { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
+.skel-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0; border-bottom: 1px solid rgba(67, 89, 113, .08); }
+.skel-item:last-of-type { border-bottom: 0; }
+.skel-zone, .skel-tr { animation: skel-apparition 0.25s ease 180ms both; }
+.skel-tr > td { padding-top: 0.85rem !important; padding-bottom: 0.85rem !important; }
+.skel-lent { padding: 0.6rem 0.75rem; text-align: center; font-size: 0.8rem; color: #8592a3; }
+@keyframes skel-reflet { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+@keyframes skel-apparition { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .skel, .esp-squelette { animation: none; }
+  .skel-zone, .skel-tr { animation-duration: 0.01s; }
+}

@@ -315,10 +315,10 @@ export default function EnseignantsPage() {
       </PageHeader>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Enseignants" value={loading ? null : enseignants.length} icon="bx-user-voice" color="primary" />
-        <StatCard label="Titulaires de classe" value={loading ? null : enseignants.filter((e) => e.est_titulaire).length} icon="bx-chalkboard" color="success" />
-        <StatCard label="Affectations matière-classe" value={loading ? null : matieresClasse.length} icon="bx-book-open" color="info" />
-        <StatCard label="Grade le plus représenté" value={loading ? null : <span className="fs-5">{topGrade}</span>} icon="bx-layer" color="warning" />
+        <StatCard label="Enseignants" loading={loading} value={enseignants.length} icon="bx-user-voice" color="primary" />
+        <StatCard label="Titulaires de classe" loading={loading} value={enseignants.filter((e) => e.est_titulaire).length} icon="bx-chalkboard" color="success" />
+        <StatCard label="Affectations matière-classe" loading={loading} value={matieresClasse.length} icon="bx-book-open" color="info" />
+        <StatCard label="Grade le plus représenté" loading={loading} value={<span className="fs-5">{topGrade}</span>} icon="bx-layer" color="warning" />
       </div>
 
       {/* Graphiques */}

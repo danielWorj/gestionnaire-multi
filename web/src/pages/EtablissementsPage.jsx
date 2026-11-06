@@ -5,6 +5,7 @@ import AdministrateursModal from '../components/AdministrateursModal';
 import { IdentifiantsModal, useConfirm, useToast } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import Select from '../components/Select';
+import { Skel, SkelListe } from '../components/Skeleton';
 
 // Page SuperAdmin « Établissements » : portage React de l'ancienne page Flask
 // (static/templates/admin/etablissements.html + static/js/etablissements.js).
@@ -143,10 +144,10 @@ export default function EtablissementsPage() {
 
       {/* KPIs Contexte Structure Scolaire */}
       <div className="row g-3 mb-4">
-        <KpiCard label="Total Établissements" value={loading ? null : etablissements.length} sub="Tous établissements de la plateforme" icon="bx-buildings" color="primary" />
-        <KpiCard label="Cycles Configurés" value={kpis?.totalCycles} sub={kpis ? `Moy. ${kpis.moyCycles} / établissement` : ''} icon="bx-layer" color="info" />
-        <KpiCard label="Classes Actives" value={kpis?.totalClasses} sub={kpis ? `Réparties sur ${etablissements.length} établissement(s)` : ''} icon="bx-chalkboard" color="success" />
-        <KpiCard label="Années Scolaires Actives" value={kpis?.anneesActives} sub={kpis ? `Sur ${etablissements.length} établissement(s)` : ''} icon="bx-calendar-check" color="warning" />
+        <KpiCard label="Total Établissements" loading={loading} value={etablissements.length} sub="Tous établissements de la plateforme" icon="bx-buildings" color="primary" />
+        <KpiCard label="Cycles Configurés" loading={!kpis} value={kpis?.totalCycles} sub={kpis ? `Moy. ${kpis.moyCycles} / établissement` : ''} icon="bx-layer" color="info" />
+        <KpiCard label="Classes Actives" loading={!kpis} value={kpis?.totalClasses} sub={kpis ? `Réparties sur ${etablissements.length} établissement(s)` : ''} icon="bx-chalkboard" color="success" />
+        <KpiCard label="Années Scolaires Actives" loading={!kpis} value={kpis?.anneesActives} sub={kpis ? `Sur ${etablissements.length} établissement(s)` : ''} icon="bx-calendar-check" color="warning" />
       </div>
 
       {/* Filtres */}
@@ -182,9 +183,7 @@ export default function EtablissementsPage() {
           </span>
         </h5>
         {loading ? (
-          <div className="text-center text-muted py-4">
-            <span className="spinner-border spinner-border-sm text-primary me-2" /> Chargement des établissements...
-          </div>
+          <SkelListe lignes={4} avatar label="Chargement des établissements…" className="px-3" />
         ) : error ? (
           <div className="alert alert-danger m-3">{error}</div>
         ) : (
@@ -277,7 +276,7 @@ export default function EtablissementsPage() {
   );
 }
 
-function KpiCard({ label, value, sub, icon, color }) {
+function KpiCard({ label, value, sub, icon, color, loading = false }) {
   return (
     <div className="stat-col col-xl-3 col-md-6">
       <div className="card h-100">
@@ -285,13 +284,13 @@ function KpiCard({ label, value, sub, icon, color }) {
           <div className="d-flex justify-content-between align-items-start">
             <div>
               <span className="fw-semibold d-block mb-1">{label}</span>
-              <h3 className="card-title mb-0">{value ?? '—'}</h3>
+              <h3 className="card-title mb-0">{loading ? <Skel w="3.5rem" h="1.6rem" className="my-1" /> : (value ?? '—')}</h3>
             </div>
             <div className="avatar flex-shrink-0">
               <span className={`avatar-initial rounded bg-label-${color}`}><i className={`bx ${icon}`} /></span>
             </div>
           </div>
-          <small className="text-muted d-block mt-2">{sub || ' '}</small>
+          {loading ? <Skel w="65%" h="0.7rem" className="mt-3" /> : <small className="text-muted d-block mt-2">{sub || ' '}</small>}
         </div>
       </div>
     </div>
@@ -299,7 +298,7 @@ function KpiCard({ label, value, sub, icon, color }) {
 }
 
 function EtablissementRow({ etab, summary, onStructure, onAdmins, onEdit, onDelete }) {
-  const loadingCell = <span className="text-muted small"><span className="spinner-border spinner-border-sm me-1" /> chargement...</span>;
+  const loadingCell = <div className="skel-pile" style={{ minWidth: 140 }}><Skel w="80%" h="0.7rem" /><Skel w="60%" h="0.7rem" /></div>;
   return (
     <tr>
       <td>
@@ -840,7 +839,7 @@ function StructureModal({ etab, toast, onClose }) {
 
         <div className="p-3">
           {loading ? (
-            <div className="text-center text-muted py-3"><span className="spinner-border spinner-border-sm me-1" /> Chargement...</div>
+            <SkelListe lignes={4} label="Chargement de la structure…" />
           ) : (
             <>
               {/* TAB : CYCLES */}

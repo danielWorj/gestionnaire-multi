@@ -13,6 +13,7 @@ import {
   construireHtmlImpression, construireHtmlRapportSolvabilite, formatDateCourt, ouvrirImpression,
 } from '../lib/paiementsImpression';
 import Select from '../components/Select';
+import { SkelListe } from '../components/Skeleton';
 
 // Portage de server/static/templates/paiements.html (paiements_api.py) :
 // échéancier par classe (tranches), paiements (en-tête + lignes),
@@ -487,10 +488,10 @@ export default function PaiementsPage() {
       </div>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Montant attendu" value={loading ? null : formatMontant(stats.totalAttendu)} sub={statsClasse ? classeLabel(statsClasse) : "Tout l'établissement"} icon="bx-wallet" color="primary" />
-        <StatCard label="Montant versé" value={loading ? null : formatMontant(stats.totalVerse)} sub={`${stats.taux}% de l'attendu`} icon="bx-money" color="success" />
-        <StatCard label="Solde restant" value={loading ? null : formatMontant(stats.solde)} sub="À recouvrer" icon="bx-error" color="danger" />
-        <StatCard label="Taux de recouvrement" value={loading ? null : `${stats.taux}%`} sub="Sur l'année active" icon="bx-pie-chart-alt" color="info" />
+        <StatCard label="Montant attendu" loading={loading} value={formatMontant(stats.totalAttendu)} sub={statsClasse ? classeLabel(statsClasse) : "Tout l'établissement"} icon="bx-wallet" color="primary" />
+        <StatCard label="Montant versé" loading={loading} value={formatMontant(stats.totalVerse)} sub={`${stats.taux}% de l'attendu`} icon="bx-money" color="success" />
+        <StatCard label="Solde restant" loading={loading} value={formatMontant(stats.solde)} sub="À recouvrer" icon="bx-error" color="danger" />
+        <StatCard label="Taux de recouvrement" loading={loading} value={`${stats.taux}%`} sub="Sur l'année active" icon="bx-pie-chart-alt" color="info" />
       </div>
 
       <div className="row g-3 mb-4">
@@ -700,7 +701,7 @@ export default function PaiementsPage() {
           <div className="card-body">
             <div className="row g-3">
               {loading ? (
-                <div className="col-12 text-center text-muted py-4"><span className="spinner-border spinner-border-sm me-1" /> Chargement des tranches…</div>
+                <div className="col-12"><SkelListe lignes={3} label="Chargement des tranches…" /></div>
               ) : !tranchesGrid.length ? (
                 <div className="col-12 text-center text-muted py-4"><i className="bx bx-archive me-2" />Aucune tranche définie pour ce filtre.</div>
               ) : tranchesGrid.map((t) => {
@@ -1020,7 +1021,7 @@ function PaiementModal({ inscriptionOptions, inscriptionsById, elevesById, paren
             {!inscriptionId ? (
               <div className="text-muted text-center py-3 small">Choisissez d'abord un élève pour voir son échéancier.</div>
             ) : etat.loading ? (
-              <div className="text-center py-3 small"><span className="spinner-border spinner-border-sm me-1" /> Chargement de l'échéancier…</div>
+              <SkelListe lignes={3} label="Chargement de l'échéancier…" />
             ) : etat.error ? (
               <div className="text-danger text-center py-3 small">{etat.error}</div>
             ) : !etat.tranches?.length ? (

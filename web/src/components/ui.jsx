@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import Modal from './Modal';
 import { api } from '../lib/api';
 import Select from './Select';
+import { Skel, SkelLignesTableau } from './Skeleton';
 
 // Briques communes aux pages portées depuis les anciens templates Flask
 // (server/static/templates/*.html) : en-tête de page, cartes de stats,
@@ -121,7 +122,8 @@ export function PageHeader({ title, subtitle, children }) {
   );
 }
 
-export function StatCard({ label, value, icon, color = 'primary', sub, className = 'col-sm-6 col-xl-3' }) {
+// `loading` : affiche un squelette à la place du chiffre (et du sous-titre).
+export function StatCard({ label, value, icon, color = 'primary', sub, loading = false, className = 'col-sm-6 col-xl-3' }) {
   return (
     <div className={`stat-col ${className}`}>
       <div className="card h-100">
@@ -129,13 +131,15 @@ export function StatCard({ label, value, icon, color = 'primary', sub, className
           <div className="d-flex justify-content-between align-items-start">
             <div>
               <span className="fw-semibold d-block mb-1">{label}</span>
-              <h3 className="card-title mb-0">{value ?? '—'}</h3>
+              <h3 className="card-title mb-0">{loading ? <Skel w="3.5rem" h="1.6rem" className="my-1" /> : (value ?? '—')}</h3>
             </div>
             <div className="avatar flex-shrink-0">
               <span className={`avatar-initial rounded bg-label-${color}`}><i className={`bx ${icon}`} /></span>
             </div>
           </div>
-          {sub !== undefined && <small className="text-muted d-block mt-2">{sub || ' '}</small>}
+          {sub !== undefined && (loading
+            ? <Skel w="65%" h="0.7rem" className="mt-3" />
+            : <small className="text-muted d-block mt-2">{sub || ' '}</small>)}
         </div>
       </div>
     </div>
@@ -176,17 +180,18 @@ export function TableCard({ title, icon, count, actions, children, footer }) {
   );
 }
 
-// <tbody> avec états chargement / erreur / vide.
-export function TBody({ colSpan, loading, error, empty = 'Aucune donnée', emptyIcon, rows, children }) {
+// <tbody> avec états chargement (lignes squelettes) / erreur / vide.
+// `skeletonRows` : nombre de lignes squelettes affichées pendant le chargement.
+export function TBody({ colSpan, loading, error, empty = 'Aucune donnée', emptyIcon, rows, skeletonRows = 5, children }) {
   let content = children;
   if (loading) {
-    content = <tr><td colSpan={colSpan} className="text-center text-muted py-4"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</td></tr>;
+    content = <SkelLignesTableau colonnes={colSpan} lignes={skeletonRows} />;
   } else if (error) {
     content = <tr><td colSpan={colSpan} className="text-center text-danger py-4">{error}</td></tr>;
   } else if (rows !== undefined && rows === 0) {
     content = <tr><td colSpan={colSpan} className="text-center text-muted py-4">{emptyIcon && <i className={`bx ${emptyIcon} me-1`} />}{empty}</td></tr>;
   }
-  return <tbody className="table-border-bottom-0">{content}</tbody>;
+  return <tbody className="table-border-bottom-0" aria-busy={loading || undefined}>{content}</tbody>;
 }
 
 export function IconBtn({ icon, title, onClick, danger, disabled }) {

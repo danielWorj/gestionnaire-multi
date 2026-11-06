@@ -12,6 +12,7 @@ import {
   appreciationInfo, calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
   noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
 } from '../components/NotesCommun';
+import { SkelSaisie } from '../components/Skeleton';
 
 // Notes & discipline du Censeur / Surveillant : choix de la classe sur des
 // cartes, puis notes en lecture seule (saisie réservée à l'enseignant) et
@@ -169,9 +170,9 @@ function NotesClasse({ classeId }) {
 
           <div className="saisie-liste mb-3">
             {!pret ? (
-              <div className="saisie-vide"><i className="bx bx-info-circle me-1" />{espace.loading ? 'Chargement…' : ctx.matieres.length ? 'Choisissez une séquence pour afficher les notes.' : 'Aucune matière affectée à cette classe.'}</div>
+              espace.loading ? <SkelSaisie avecNote={saisie} /> : <div className="saisie-vide"><i className="bx bx-info-circle me-1" />{ctx.matieres.length ? 'Choisissez une séquence pour afficher les notes.' : 'Aucune matière affectée à cette classe.'}</div>
             ) : ctx.chargement && !roster.length ? (
-              <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+              <SkelSaisie avecNote={saisie} />
             ) : !eleves.length ? (
               <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond à la recherche.' : 'Aucun élève inscrit dans cette classe.'}</div>
             ) : saisie ? eleves.map((eleve, idx) => {
@@ -233,7 +234,7 @@ function NotesClasse({ classeId }) {
             {!sequenceId ? (
               <div className="saisie-vide"><i className="bx bx-info-circle me-1" />Choisissez une séquence pour afficher le suivi disciplinaire.</div>
             ) : !disciplinesChargees ? (
-              <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+              <SkelSaisie avecNote={false} label="Chargement du suivi disciplinaire…" />
             ) : !eleves.length ? (
               <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond à la recherche.' : 'Aucun élève inscrit dans cette classe.'}</div>
             ) : eleves.map((eleve, idx) => (

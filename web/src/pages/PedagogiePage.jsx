@@ -6,6 +6,7 @@ import { Field, IconBtn, PageHeader, StatCard, useConfirm, useToast } from '../c
 import { AvecChoixClasse } from '../components/Espace';
 import './notes.css';
 import Select from '../components/Select';
+import { SkelListe } from '../components/Skeleton';
 
 // Portage de server/static/templates/pedagogie.html (Censeur / Surveillant) :
 // affectations matière / enseignant des classes assignées. /classes/ et
@@ -89,7 +90,7 @@ function PedagogieContenu({ classeImposee = null }) {
 
   let zone;
   if (loading) {
-    zone = <div className="card"><div className="card-body text-center text-muted py-4"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div></div>;
+    zone = <div className="card"><div className="card-body"><SkelListe lignes={5} /></div></div>;
   } else if (error) {
     zone = <div className="card"><div className="card-body text-center text-danger py-4">{error}</div></div>;
   } else if (!classes.length) {
@@ -168,10 +169,10 @@ function PedagogieContenu({ classeImposee = null }) {
       </PageHeader>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Classes sous ma responsabilité" value={loading ? null : classes.length} icon="bx-chalkboard" color="primary" />
-        <StatCard label="Affectations matière/enseignant" value={loading ? null : matieresClasse.length} icon="bx-git-branch" color="info" />
-        <StatCard label="Enseignants distincts" value={loading ? null : new Set(matieresClasse.map((mc) => mc.enseignant_id)).size} icon="bx-user-voice" color="success" />
-        <StatCard label="Matières couvertes" value={loading ? null : new Set(matieresClasse.map((mc) => mc.matiere_id)).size} icon="bx-book-open" color="warning" />
+        <StatCard label="Classes sous ma responsabilité" loading={loading} value={classes.length} icon="bx-chalkboard" color="primary" />
+        <StatCard label="Affectations matière/enseignant" loading={loading} value={matieresClasse.length} icon="bx-git-branch" color="info" />
+        <StatCard label="Enseignants distincts" loading={loading} value={new Set(matieresClasse.map((mc) => mc.enseignant_id)).size} icon="bx-user-voice" color="success" />
+        <StatCard label="Matières couvertes" loading={loading} value={new Set(matieresClasse.map((mc) => mc.matiere_id)).size} icon="bx-book-open" color="warning" />
       </div>
 
       <div className="card mb-3">

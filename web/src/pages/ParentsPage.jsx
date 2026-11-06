@@ -300,10 +300,10 @@ export default function ParentsPage() {
       <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
 
       <div className="row g-3 mb-4">
-        <StatCard label="Familles enregistrées" value={loading ? null : stats.total} sub={loading ? '—' : `${stats.avecEnfants} avec au moins un enfant`} icon="bx-home-heart" color="primary" />
-        <StatCard label="Enfants par famille" value={loading ? null : (stats.avecEnfants ? (stats.nbEnfants / stats.avecEnfants).toFixed(1) : '—')} sub={`${stats.nbEnfants} enfants rattachés`} icon="bx-group" color="success" />
-        <StatCard label={`Concernés ${anneeLabel(annee)}`} value={loading ? null : stats.concernes} sub={stats.total ? `${Math.round((stats.concernes / stats.total) * 100)} % du carnet` : '—'} icon="bx-book-bookmark" color="info" />
-        <StatCard label="Familles sans enfant" value={loading ? null : stats.total - stats.avecEnfants} sub={stats.total - stats.avecEnfants ? 'fiches à compléter' : 'carnet complet'} icon="bx-user-x" color="warning" />
+        <StatCard label="Familles enregistrées" loading={loading} value={stats.total} sub={loading ? '—' : `${stats.avecEnfants} avec au moins un enfant`} icon="bx-home-heart" color="primary" />
+        <StatCard label="Enfants par famille" loading={loading} value={(stats.avecEnfants ? (stats.nbEnfants / stats.avecEnfants).toFixed(1) : '—')} sub={`${stats.nbEnfants} enfants rattachés`} icon="bx-group" color="success" />
+        <StatCard label={`Concernés ${anneeLabel(annee)}`} loading={loading} value={stats.concernes} sub={stats.total ? `${Math.round((stats.concernes / stats.total) * 100)} % du carnet` : '—'} icon="bx-book-bookmark" color="info" />
+        <StatCard label="Familles sans enfant" loading={loading} value={stats.total - stats.avecEnfants} sub={stats.total - stats.avecEnfants ? 'fiches à compléter' : 'carnet complet'} icon="bx-user-x" color="warning" />
       </div>
 
       <div className="d-flex align-items-center gap-2 mb-2">

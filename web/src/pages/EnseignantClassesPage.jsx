@@ -5,6 +5,7 @@ import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } fro
 import { EleveIdentite, filtrerRoster } from '../components/NotesCommun';
 import { useToast } from '../components/ui';
 import './notes.css';
+import { SkelSaisie } from '../components/Skeleton';
 
 // « Mes classes » de l'enseignant : cartes des classes où il enseigne, puis,
 // pour la classe choisie, ses matières (accès direct à la saisie) et la liste
@@ -110,7 +111,7 @@ function ListeEleves({ classeId, anneeId }) {
       )}
       <div className="saisie-liste">
         {roster === null ? (
-          <div className="saisie-vide"><span className="spinner-border spinner-border-sm me-1" /> Chargement…</div>
+          <SkelSaisie avecNote={false} />
         ) : !eleves.length ? (
           <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond.' : 'Aucun élève inscrit dans cette classe.'}</div>
         ) : eleves.map((eleve, idx) => (

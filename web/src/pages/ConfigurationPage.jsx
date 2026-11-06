@@ -162,10 +162,10 @@ export default function ConfigurationPage() {
       </PageHeader>
 
       <div className="row g-3 mb-4">
-        <StatCard label="Années scolaires" value={loading ? null : annees.length} sub={anneeActive ? `Active : ${anneeActive.libelle}` : 'Aucune année active'} icon="bx-calendar" color="primary" />
-        <StatCard label="Trimestres" value={loading ? null : trimestres.length} sub={`${sequences.length} séquence(s)`} icon="bx-calendar-week" color="info" />
-        <StatCard label="Cycles" value={loading ? null : cycles.length} sub="Référentiel propre à l'établissement" icon="bx-layer" color="success" />
-        <StatCard label="Classes" value={loading ? null : classes.length} sub={`${totalEffectif} élève(s) inscrit(s)`} icon="bx-chalkboard" color="warning" />
+        <StatCard label="Années scolaires" loading={loading} value={annees.length} sub={anneeActive ? `Active : ${anneeActive.libelle}` : 'Aucune année active'} icon="bx-calendar" color="primary" />
+        <StatCard label="Trimestres" loading={loading} value={trimestres.length} sub={`${sequences.length} séquence(s)`} icon="bx-calendar-week" color="info" />
+        <StatCard label="Cycles" loading={loading} value={cycles.length} sub="Référentiel propre à l'établissement" icon="bx-layer" color="success" />
+        <StatCard label="Classes" loading={loading} value={classes.length} sub={`${totalEffectif} élève(s) inscrit(s)`} icon="bx-chalkboard" color="warning" />
       </div>
 
       <Tabs

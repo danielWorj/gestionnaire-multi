@@ -4,6 +4,7 @@ import { roleInfo } from '../lib/espaces';
 import CompteFormModal from './CompteFormModal';
 import Modal from './Modal';
 import { IdentifiantsModal, useConfirm, useToast } from './ui';
+import { SkelListe } from './Skeleton';
 
 // Gestion des administrateurs d'un établissement (SuperAdmin uniquement, cf.
 // /api/auth/utilisateurs) : liste, ajout, modification (nom, email
@@ -140,7 +141,7 @@ export default function AdministrateursModal({ etab, onClose }) {
         )}
 
         {admins === null ? (
-          <div className="text-center text-muted py-4"><span className="spinner-border spinner-border-sm me-2" />Chargement…</div>
+          <SkelListe lignes={2} avatar label="Chargement des administrateurs…" />
         ) : admins.length === 0 ? (
           <div className="text-center text-muted py-4">
             <i className="bx bx-user-plus bx-md d-block mb-2" />

@@ -7,6 +7,7 @@ import { fmtHorodatage } from '../components/Historique';
 import { PageHeader, StatCard, formatMontant } from '../components/ui';
 import { roleInfo } from '../lib/espaces';
 import Select from '../components/Select';
+import { SkelCartes, SkelGraphique, SkelListe } from '../components/Skeleton';
 
 // Tableau de bord du SuperAdmin : vue de TOUT le réseau d'établissements
 // (cf. GET /api/superadmin/vue-reseau) — effectifs, recouvrement, avancement
@@ -160,7 +161,15 @@ export default function DashboardPage() {
       </PageHeader>
 
       {erreur && <div className="alert alert-danger">{erreur}</div>}
-      {!vue && chargement && <div className="text-center text-muted py-5"><span className="spinner-border spinner-border-sm me-2" />Calcul des indicateurs du réseau…</div>}
+      {!vue && chargement && (
+        <>
+          <SkelCartes nombre={8} label="Calcul des indicateurs du réseau…" />
+          <div className="row g-3 mb-4">
+            <div className="col-lg-5"><div className="card h-100"><div className="card-body"><SkelListe lignes={5} /></div></div></div>
+            <div className="col-lg-7"><div className="card h-100"><div className="card-body"><SkelGraphique hauteur={260} /></div></div></div>
+          </div>
+        </>
+      )}
 
       {t && (
         <>
