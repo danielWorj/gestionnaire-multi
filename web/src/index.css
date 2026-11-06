@@ -113,6 +113,80 @@
   justify-content: center;
 }
 
+/* ── Écran d'ouverture (LoadingScreen) ─────────────────────────────── */
+.splash {
+  flex-direction: column;
+  text-align: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at top, rgba(105, 108, 255, 0.10), transparent 60%), #f5f5f9;
+  animation: splash-entree 0.4s ease-out both;
+}
+.splash-logo {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 20px;
+}
+.splash-logo img {
+  position: relative;
+  z-index: 1;
+  display: block;
+  border-radius: 18px;
+  box-shadow: 0 8px 24px rgba(105, 108, 255, 0.35);
+}
+.splash-logo::before,
+.splash-logo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  background: rgba(105, 108, 255, 0.35);
+  animation: splash-halo 2s ease-out infinite;
+}
+.splash-logo::after { animation-delay: 1s; }
+.splash-titre {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: #384551;
+  letter-spacing: 0.2px;
+}
+.splash-label {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  color: #8592a3;
+}
+.splash-barre {
+  position: relative;
+  width: 160px;
+  height: 4px;
+  margin-top: 20px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(105, 108, 255, 0.15);
+}
+.splash-barre span {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 40%;
+  border-radius: 4px;
+  background: #696cff;
+  animation: splash-barre 1.2s ease-in-out infinite;
+}
+@keyframes splash-entree { from { opacity: 0; transform: translateY(6px); } }
+@keyframes splash-halo {
+  from { transform: scale(1); opacity: 0.6; }
+  to { transform: scale(1.7); opacity: 0; }
+}
+@keyframes splash-barre {
+  from { left: -40%; }
+  to { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash, .splash-logo::before, .splash-logo::after { animation: none; }
+  .splash-barre span { animation-duration: 2.4s; }
+}
+
 /* ── Documents imprimables (listes de classe, bulletins…) ───────────────
    Repris des anciens templates (inscription.html, censeur/bulletin.html) :
    à l'impression, seul le bloc .print-area est rendu. */
