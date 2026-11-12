@@ -8,15 +8,17 @@ export const ROLES_INFO = {
   Censeur: { label: 'Censeur', icon: 'bx-briefcase-alt-2', color: 'info', description: 'Suivez les notes, la discipline et les bulletins de vos classes.' },
   Surveillant: { label: 'Surveillant', icon: 'bx-shield-alt-2', color: 'warning', description: 'Tenez à jour la discipline et suivez vos classes.' },
   Enseignant: { label: 'Enseignant', icon: 'bx-chalkboard', color: 'success', description: 'Saisissez vos notes, consultez vos classes et votre emploi du temps.' },
-  Comptable: { label: 'Comptabilité', icon: 'bx-wallet', color: 'danger', description: 'Encaissez et suivez les paiements de scolarité.' },
+  Comptable: { label: 'Comptabilité', icon: 'bx-wallet', color: 'danger', description: 'Encaissez les paiements de scolarité et tenez la trésorerie.' },
   Secretaire: { label: 'Secrétariat', icon: 'bx-folder-open', color: 'secondary', description: 'Gestion administrative des dossiers.' },
   Infirmier: { label: 'Infirmerie', icon: 'bx-plus-medical', color: 'danger', description: 'Suivi de santé des élèves.' },
   Parent: { label: 'Parent', icon: 'bx-group', color: 'secondary', description: 'Suivez la scolarité de vos enfants.' },
 };
 
-// Rôles prévus mais sans aucun espace dans l'application pour l'instant :
-// non proposés à l'attribution (un compte n'aurait accès à rien).
-export const ROLES_SANS_ESPACE = ['Proviseur', 'Infirmier', 'Parent'];
+// Rôles non proposés dans le formulaire des comptes du personnel :
+// Proviseur et Infirmier n'ont pas encore d'espace (un compte n'aurait accès
+// à rien) ; Parent s'attribue depuis la page Parents (« Accès à l'espace
+// parent »), qui relie le compte à la fiche de la famille.
+export const ROLES_NON_ATTRIBUABLES = ['Proviseur', 'Infirmier', 'Parent'];
 
 export const roleInfo = (libelle) => ROLES_INFO[libelle] || { label: libelle, icon: 'bx-user', color: 'secondary', description: '' };
 
@@ -54,6 +56,7 @@ export const NAV_COURTE = {
   '/inscriptions': 'Inscriptions',
   '/listes-classes': 'Listes',
   '/paiements': 'Paiements',
+  '/tresorerie': 'Trésorerie',
   '/configuration': 'Réglages',
   '/enseignant/notes': 'Notes',
   '/enseignant/classes': 'Classes',
@@ -62,6 +65,8 @@ export const NAV_COURTE = {
   '/bulletins': 'Bulletins',
   '/emploi-du-temps': 'Horaires',
   '/pedagogie': 'Pédagogie',
+  '/parent/paiements': 'Paiements',
+  '/parent/bulletins': 'Bulletins',
 };
 
 // Onglets de la barre de navigation basse, par rôle (4 au plus : le 5e est
@@ -73,8 +78,9 @@ export const NAV_MOBILE = {
   Censeur: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
   Surveillant: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
   Enseignant: ['/', '/enseignant/notes', '/enseignant/classes', '/enseignant/emploi-du-temps'],
-  Comptable: ['/paiements'],
+  Comptable: ['/paiements', '/tresorerie'],
   Secretaire: ['/inscriptions', '/eleves', '/parents'],
+  Parent: ['/', '/parent/paiements', '/parent/bulletins'],
 };
 
 const DERNIER_ROLE_KEY = 'dernierEspace';

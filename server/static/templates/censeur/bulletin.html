@@ -121,8 +121,9 @@
       #printZone, #printZone * { visibility: visible; }
       #printZone { display: block; position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
       .bulletin-doc { border: none; border-radius: 0; padding: 14px 20px; }
-      .bulletin-page { page-break-after: always; }
-      .bulletin-page:last-child { page-break-after: auto; }
+      /* Saut AVANT chaque bulletin à partir du 2e : pas de page blanche
+         finale si un élément suit le dernier (cf. bulletins/bulletin.html). */
+      .bulletin-page + .bulletin-page { break-before: page; page-break-before: always; }
     }
   </style>
 </head>

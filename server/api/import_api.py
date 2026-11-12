@@ -3,7 +3,7 @@ from flask_jwt_extended import get_jwt, get_jwt_identity, jwt_required
 
 from services import (
     import_classes_services, import_eleves_services, import_emploi_du_temps_services, import_enseignants_services,
-    import_matieres_services, import_notes_services,
+    import_matieres_services, import_notes_services, import_tresorerie_services,
 )
 
 
@@ -16,7 +16,7 @@ from services import (
 #        corrections, exclues, valider -> aperçu (valider=false) ou import
 #   GET  /api/import/<module>/modele    -> modèle Excel vierge
 #
-# module : eleves, enseignants, classes, matieres, emploi-du-temps, notes.
+# module : eleves, enseignants, classes, matieres, emploi-du-temps, notes, tresorerie.
 #
 # Droits : élèves = mêmes rôles que eleve_bp (Admin, SuperAdmin, Secretaire) ;
 # enseignants / classes / matières = Admin et SuperAdmin uniquement (l'import
@@ -42,6 +42,8 @@ MODULES = {
     'emploi-du-temps': (import_emploi_du_temps_services, ("Admin", "SuperAdmin", "Censeur", "Surveillant"),
                         'modele-import-emploi-du-temps.xlsx'),
     'notes': (import_notes_services, ("Enseignant", "SuperAdmin"), 'modele-import-notes.xlsx'),
+    # Opérations de trésorerie : mêmes rôles que /api/tresorerie (finances).
+    'tresorerie': (import_tresorerie_services, ("Admin", "SuperAdmin", "Comptable"), 'modele-import-tresorerie.xlsx'),
 }
 TAILLE_MAX_FICHIER = 15 * 1024 * 1024
 

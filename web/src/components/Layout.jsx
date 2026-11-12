@@ -5,6 +5,8 @@ import { NAV_COURTE, NAV_MOBILE, roleInfo } from '../lib/espaces';
 import { useTableauxMobiles } from '../lib/tableauxMobiles';
 import BottomSheet from './BottomSheet';
 import HorsLigne from './HorsLigne';
+import { NotificationsMenu, NotificationsMobile } from './Notifications';
+import { useNotifications } from '../lib/notifications';
 import './espace.css';
 import './app-mobile.css';
 import Select from './Select';
@@ -21,7 +23,14 @@ export const MENU_SECTIONS = [
     items: [
       { to: '/', label: 'Tableau de bord', icon: 'bx-home-circle', roles: ['Admin'] },
       { to: '/', label: 'Vue réseau', icon: 'bx-network-chart', roles: ['SuperAdmin'] },
-      { to: '/', label: 'Accueil', icon: 'bx-home-circle', roles: [...CENSEUR, 'Enseignant'] },
+      { to: '/', label: 'Accueil', icon: 'bx-home-circle', roles: [...CENSEUR, 'Enseignant', 'Parent'] },
+    ],
+  },
+  {
+    header: 'Mes enfants',
+    items: [
+      { to: '/parent/paiements', label: 'Paiements', icon: 'bx-wallet', roles: ['Parent'] },
+      { to: '/parent/bulletins', label: 'Bulletins', icon: 'bx-file', roles: ['Parent'] },
     ],
   },
   {
@@ -68,7 +77,10 @@ export const MENU_SECTIONS = [
   },
   {
     header: 'Finances',
-    items: [{ to: '/paiements', label: 'Paiements', icon: 'bx-wallet', roles: [...ADMIN, 'Comptable'] }],
+    items: [
+      { to: '/paiements', label: 'Paiements', icon: 'bx-wallet', roles: [...ADMIN, 'Comptable'] },
+      { to: '/tresorerie', label: 'Trésorerie', icon: 'bx-coin-stack', roles: [...ADMIN, 'Comptable'] },
+    ],
   },
   {
     header: 'Configuration',
@@ -106,6 +118,9 @@ export default function Layout() {
   const role = roleDe(user);
   const roleLabel = role === 'SuperAdmin' ? 'SuperAdmin' : role ? roleInfo(role).label : 'Compte';
   const multiRoles = (user?.roles?.length || 0) > 1;
+  // Notifications : comptes d'établissement, dans leur espace actif.
+  const avecNotifications = Boolean(user?.type === 'utilisateur' && role);
+  const notif = useNotifications(avecNotifications);
   // Le SuperAdmin a un mot de passe, les comptes d'établissement un code PIN.
   const libelleSecret = isSuperAdmin ? 'Changer le mot de passe' : 'Changer mon code PIN';
   const etablissementNom = isSuperAdmin
@@ -173,6 +188,7 @@ export default function Layout() {
                 <i className="bx bx-transfer-alt" />
               </NavLink>
             )}
+            {avecNotifications && <NotificationsMobile notif={notif} />}
             <button type="button" className="app-topbar-avatar" onClick={() => setMenuMobileOuvert(true)} aria-label="Mon compte">
               <span className="avatar-initial rounded-circle bg-label-primary">{getInitials(user?.nom)}</span>
             </button>
@@ -213,6 +229,11 @@ export default function Layout() {
                       <span>{roleLabel}</span>
                       <i className="bx bx-transfer-alt esp-espace-actif-swap" />
                     </NavLink>
+                  </li>
+                )}
+                {avecNotifications && (
+                  <li className="nav-item me-2">
+                    <NotificationsMenu notif={notif} />
                   </li>
                 )}
                 <li className="nav-item navbar-dropdown dropdown-user dropdown" ref={userMenuRef}>

@@ -126,6 +126,18 @@ CHAMPS_REQUIS = {
 }
 LIBELLES = {Parent: 'parent', Eleve: 'élève', Inscription: 'inscription'}
 
+# Colonnes jamais écrites par le CRUD générique, quel que soit le payload :
+#   photo             : uniquement via save_photo_eleve / delete_photo_eleve ;
+#   utilisateur_id    : compte de l'espace parent (acces_parent_services) ;
+#   bulletin_debloque : levée du blocage du bulletin, réservée à l'Admin
+#                       (acces_parent_services.debloquer_bulletin).
+CHAMPS_PROTEGES = ('photo', 'utilisateur_id', 'bulletin_debloque')
+
+
+def _retirer_champs_proteges(data):
+    for champ in CHAMPS_PROTEGES:
+        data.pop(champ, None)
+
 
 # ---------------------------------------------------------------------------
 # Cloisonnement par établissement
@@ -252,7 +264,7 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
     # réellement cette colonne).
     if model_class in DIRECT_SCOPE_MODELS:
         data['etablissement_id'] = etablissement_id
-    data.pop('photo', None)  # uniquement via save_photo_eleve (upload)
+    _retirer_champs_proteges(data)
 
     for champ in CHAMPS_REQUIS.get(model_class, ()):
         if data.get(champ) in (None, ''):
@@ -284,7 +296,7 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
 
     data = dict(data or {})
     data.pop('etablissement_id', None)  # non modifiable, même par erreur de payload
-    data.pop('photo', None)  # uniquement via save_photo_eleve / delete_photo_eleve
+    _retirer_champs_proteges(data)
     controle = extraire_controle(data)
 
     if isinstance(entity, Inscription) and classe_ids_restriction is not None:

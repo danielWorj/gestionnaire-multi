@@ -8,6 +8,7 @@ from models.paiements_models import TrancheClasse, Paiement, LignePaiement
 from models.inscription_models import Inscription, Parent
 from models.structure_models import Classe, AnneeScolaire
 from models.authentification_models import Utilisateur
+from models.tresorerie_models import CategorieTresorerie
 from extensions import db
 from services.audit_services import heure_saisie_hors_ligne
 from services.conflits_services import extraire_controle, reponse_conflit
@@ -145,6 +146,14 @@ def _validate_tranche_foreign_keys(data, etablissement_id):
         annee = db.session.get(AnneeScolaire, data['annee_scolaire_id'])
         if not annee or annee.etablissement_id != etablissement_id:
             return "Année scolaire invalide pour cet établissement"
+
+    if 'categorie_entree_id' in data:
+        if data['categorie_entree_id'] in (None, ''):
+            data['categorie_entree_id'] = None
+        else:
+            categorie = db.session.get(CategorieTresorerie, data['categorie_entree_id'])
+            if not categorie or categorie.etablissement_id != etablissement_id or categorie.type != 'ENTREE':
+                return "Catégorie d'entrée invalide pour cet établissement"
 
     return None
 
@@ -310,6 +319,7 @@ def dupliquer_echeancier_scoped(classe_id, annee_source_id, annee_cible_id, etab
                 ordre=source.ordre,
                 montant_attendu=source.montant_attendu,
                 date_limite=source.date_limite,
+                categorie_entree_id=source.categorie_entree_id,
             )
             db.session.add(copie)
             creees.append(copie)

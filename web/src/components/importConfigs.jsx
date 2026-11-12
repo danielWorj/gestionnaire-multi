@@ -693,7 +693,141 @@ const NOTES = {
   ],
 };
 
-const CONFIGS = { enseignants: ENSEIGNANTS, classes: CLASSES, matieres: MATIERES, 'emploi-du-temps': EMPLOI_DU_TEMPS, notes: NOTES };
+/* ── Trésorerie ───────────────────────────────────────────────────────── */
+
+const LIBELLES_SENS = { ENTREE: 'Entrée', SORTIE: 'Dépense', TRANSFERT: 'Transfert' };
+const COULEURS_SENS = { ENTREE: 'success', SORTIE: 'danger', TRANSFERT: 'info' };
+const fcfa = (v) => `${Number(v || 0).toLocaleString('fr-FR', { maximumFractionDigits: 0 })} FCFA`;
+const fondsTexte = (fonds) => (fonds || []).map((f) => (fonds.length > 1 ? `${f.libelle}:${f.montant}` : f.libelle)).join('; ');
+const dateFr = (iso) => (iso ? new Date(`${iso}T00:00:00`).toLocaleDateString('fr-FR') : '');
+
+function OptionsTresorerie({ rep, options, setOpt, champsMappes }) {
+  return (
+    <>
+      <h6 className="mb-2">Catégories</h6>
+      <div className="border rounded p-3 small mb-3">
+        <label className="form-check mb-3">
+          <input type="checkbox" className="form-check-input" checked={options.creer_categories} onChange={setOpt('creer_categories')} />
+          <span className="form-check-label">Créer les catégories et fonds absents de l'application</span>
+        </label>
+        <div className="row g-2">
+          <div className="col-6">
+            <label className="form-label small mb-1">Catégorie des entrées {champsMappes.has('categorie') ? 'si vide' : ''}</label>
+            <input className="form-control form-control-sm" list="imp-cat-entree" placeholder="Fonds par défaut" value={options.categorie_entree_defaut} onChange={setOpt('categorie_entree_defaut')} />
+            <ListeSuggestions id="imp-cat-entree" valeurs={rep.categories_entree} />
+          </div>
+          <div className="col-6">
+            <label className="form-label small mb-1">Catégorie des dépenses {champsMappes.has('categorie') ? 'si vide' : ''}</label>
+            <input className="form-control form-control-sm" list="imp-cat-sortie" placeholder="Ex : Divers" value={options.categorie_sortie_defaut} onChange={setOpt('categorie_sortie_defaut')} />
+            <ListeSuggestions id="imp-cat-sortie" valeurs={rep.categories_sortie} />
+          </div>
+        </div>
+      </div>
+      <h6 className="mb-2">Fonds et comptes</h6>
+      <div className="border rounded p-3 small">
+        <label className="form-label small mb-1">Fonds des dépenses {champsMappes.has('fonds') ? 'sans fonds indiqué' : ''}</label>
+        <Select className="form-select form-select-sm mb-2" value={String(options.fonds_defaut)} onChange={setOpt('fonds_defaut')}>
+          <option value="">Fonds par défaut</option>
+          {rep.fonds.map((f) => <option key={f.id} value={f.id}>{f.libelle}</option>)}
+        </Select>
+        <label className="form-label small mb-1">Compte {champsMappes.has('compte') ? 'si vide' : 'de toutes les opérations'}</label>
+        <Select className="form-select form-select-sm" value={String(options.compte_defaut)} onChange={setOpt('compte_defaut')}>
+          <option value="">Caisse par défaut</option>
+          {rep.comptes.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+        </Select>
+        <div className="form-text">Un compte cité dans le fichier est retrouvé par son nom, ou par « caisse », « banque », « momo »… L'import ne crée jamais de compte.</div>
+      </div>
+      <p className="small text-muted mt-3 mb-0"><i className="bx bx-info-circle me-1" />N'importez pas les paiements de scolarité : ils sont déjà comptés via le module Paiements. Une opération déjà enregistrée (même date, montant, compte et libellé) n'est jamais doublée.</p>
+    </>
+  );
+}
+
+const TRESORERIE = {
+  module: 'tresorerie',
+  titre: 'Importer des opérations de trésorerie',
+  icone: 'bx-coin-stack',
+  titreIgnore: "Ce tableau ne ressemble pas à un cahier de caisse (pas de colonne de montant, ou ni date ni libellé). Cochez-le pour l'importer quand même.",
+  aideFichiers: 'Cahier de caisse « Date | Libellé | Recettes | Dépenses », ou liste « Date | Type | Montant | Catégorie | Fonds | Compte ». Pour une dépense prise sur plusieurs fonds : « Scolarité:40000; APEE:10000 ».',
+  exempleCollage: 'Date\tLibellé\tCatégorie\tRecettes\tDépenses\n03/10/2026\tAchat de craies\tFournitures\t\t15000',
+  optionsDefaut: { creer_categories: true, categorie_entree_defaut: '', categorie_sortie_defaut: '', fonds_defaut: '', compte_defaut: '' },
+  optionsMemorisees: ['creer_categories', 'categorie_entree_defaut', 'categorie_sortie_defaut', 'fonds_defaut', 'compte_defaut'],
+  manquants: (champs) => [
+    !champs.has('date') && "la date de chaque opération",
+    !champs.has('montant') && !champs.has('entree') && !champs.has('sortie') && 'le montant (colonne Montant, ou colonnes Recettes / Dépenses)',
+    champs.has('montant') && !champs.has('type') && !champs.has('entree') && !champs.has('sortie') && "le type d'opération (entrée, dépense ou transfert)",
+  ].filter(Boolean),
+  Options: OptionsTresorerie,
+  colonnesApercu: [
+    ['Date', (l) => (l.donnees.date ? dateFr(l.donnees.date) : <span className="text-danger">—</span>)],
+    ['Opération', (l) => (
+      <>
+        {l.donnees.sens && <span className={`badge bg-label-${COULEURS_SENS[l.donnees.sens]} me-1`}>{LIBELLES_SENS[l.donnees.sens]}</span>}
+        <span className="fw-semibold">{l.donnees.libelle || <span className="text-danger">—</span>}</span>
+        {(l.donnees.tiers || l.donnees.reference) && <div className="text-muted" style={{ fontSize: 11 }}>{[l.donnees.tiers, l.donnees.reference].filter(Boolean).join(' · ')}</div>}
+      </>
+    )],
+    ['Catégorie / fonds', (l) => (
+      <>
+        {l.donnees.sens === 'TRANSFERT'
+          ? <span className="text-muted">—</span>
+          : <>{l.donnees.categorie || <span className="text-danger">—</span>}<NouveauBadge visible={l.donnees.categorie_nouvelle} /></>}
+        {l.donnees.fonds?.length > 0 && (
+          <div className="text-muted" style={{ fontSize: 11 }}>
+            Pris sur : {l.donnees.fonds.map((f) => <span key={f.libelle} className="me-1">{f.libelle}{l.donnees.fonds.length > 1 ? ` (${fcfa(f.montant)})` : ''}<NouveauBadge visible={f.nouveau} /></span>)}
+          </div>
+        )}
+      </>
+    )],
+    ['Compte', (l) => (l.donnees.sens === 'TRANSFERT' ? `${l.donnees.compte || '?'} → ${l.donnees.compte_destination || '?'}` : l.donnees.compte || '—')],
+    ['Montant', (l) => <span className={`text-nowrap text-${COULEURS_SENS[l.donnees.sens] || 'body'}`}>{l.donnees.montant ? fcfa(l.donnees.montant) : '—'}</span>],
+  ],
+  edition: {
+    champs: (rep) => [
+      { cle: 'date', label: 'Date', col: 'col-md-2' },
+      { cle: 'type', label: 'Type', col: 'col-md-2', choix: [['', '—'], ['Entrée', 'Entrée'], ['Dépense', 'Dépense'], ['Transfert', 'Transfert']] },
+      { cle: 'montant', label: 'Montant', col: 'col-md-2' },
+      { cle: 'libelle', label: 'Libellé', col: 'col-md-6' },
+      { cle: 'categorie', label: 'Catégorie', col: 'col-md-3', suggestions: [...rep.categories_entree, ...rep.categories_sortie] },
+      { cle: 'fonds', label: 'Fonds (dépense)', col: 'col-md-3', suggestions: rep.categories_entree },
+      { cle: 'compte', label: 'Compte', col: 'col-md-3', choix: [['', '— Par défaut —'], ...rep.comptes.map((c) => [c.libelle, c.libelle])] },
+      { cle: 'compte_destination', label: 'Vers (transfert)', col: 'col-md-3', choix: [['', '—'], ...rep.comptes.map((c) => [c.libelle, c.libelle])] },
+    ],
+    initial: (l) => ({
+      date: dateFr(l.donnees.date),
+      type: LIBELLES_SENS[l.donnees.sens] || '',
+      montant: l.donnees.montant ? String(l.donnees.montant) : '',
+      libelle: l.donnees.libelle || '',
+      categorie: l.donnees.categorie || '',
+      fonds: fondsTexte(l.donnees.fonds),
+      compte: l.donnees.compte_id ? l.donnees.compte : '',
+      compte_destination: l.donnees.compte_destination_id ? l.donnees.compte_destination : '',
+    }),
+  },
+  exportColonnes: [
+    ['Date', (l) => l.donnees.date], ['Type', (l) => LIBELLES_SENS[l.donnees.sens] || ''], ['Montant', (l) => l.donnees.montant ?? ''],
+    ['Libellé', (l) => l.donnees.libelle], ['Catégorie', (l) => l.donnees.categorie], ['Fonds', (l) => fondsTexte(l.donnees.fonds)],
+    ['Compte', (l) => l.donnees.compte], ['Vers', (l) => l.donnees.compte_destination],
+  ],
+  resumeApercu: (rep) => {
+    const r = rep.resume;
+    return [
+      r.total_entrees > 0 && ['bx-down-arrow-circle', `Entrées : ${fcfa(r.total_entrees)}`],
+      r.total_sorties > 0 && ['bx-up-arrow-circle', `Dépenses : ${fcfa(r.total_sorties)}`],
+      r.total_transferts > 0 && ['bx-transfer-alt', `Transferts : ${fcfa(r.total_transferts)}`],
+      r.categories_nouvelles > 0 && ['bx-purchase-tag', pluriel(r.categories_nouvelles, 'catégorie à créer', 'catégories à créer')],
+    ].filter(Boolean);
+  },
+  nbActions: (rep) => rep.resume.nouveaux,
+  libelleImport: (rep) => `Enregistrer ${pluriel(rep.resume.nouveaux, 'opération')}`,
+  cartesBilan: [
+    ['entrees_creees', 'Entrées', 'success'],
+    ['depenses_creees', 'Dépenses', 'danger'],
+    ['transferts_crees', 'Transferts', 'info'],
+    ['categories_creees', 'Catégories créées', 'secondary'],
+  ],
+};
+
+const CONFIGS = { enseignants: ENSEIGNANTS, classes: CLASSES, matieres: MATIERES, 'emploi-du-temps': EMPLOI_DU_TEMPS, notes: NOTES, tresorerie: TRESORERIE };
 
 export default function ImportModal({ module, optionsInitiales, onClose, onImported }) {
   const config = useMemo(() => CONFIGS[module], [module]);

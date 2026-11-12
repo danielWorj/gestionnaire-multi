@@ -33,6 +33,8 @@ from api.import_api import import_bp
 # cet import à jour, /api/tranches-classe/ et /api/paiements/ n'existent pas
 # (404 côté frontend paiements.html).
 from api.paiements_api import tranche_classe_bp, paiement_bp
+# Trésorerie : entrées/sorties par catégorie, fonds et comptes (/api/tresorerie).
+from api.tresorerie_api import tresorerie_bp
 # enseignant_espace_bp : portail « mon espace » de l'enseignant connecté
 # (/api/enseignant/mon-espace, /sequences, /roster). À NE PAS confondre avec
 # pedagogie_api.enseignant_bp importé plus haut (/api/enseignants, gestion
@@ -49,6 +51,11 @@ from api.bulletin_api import bulletin_bp
 from api.audit_api import audit_bp
 # Supervision du réseau et comptes SuperAdmin (cf. api/superadmin_api.py).
 from api.superadmin_api import superadmin_supervision_bp
+# Espace parent (/api/parent, rôle Parent) et gestion des accès familles par
+# le secrétariat (/api/parents/<id>/acces…) — cf. api/espace_parent_api.py.
+from api.espace_parent_api import gestion_parents_bp, espace_parent_bp
+# Notifications dans l'application (cloche) — cf. services/notification_services.py.
+from api.notification_api import notification_bp
 from services.audit_services import activer_audit
 from api.authentification_api import authentification_bp, superadmin_bp, enforce_password_change, enforce_role_actif
 
@@ -150,6 +157,15 @@ def create_app(env=None):
         Role.init_roles()
         print("Rôles initialisés.")
 
+    @app.cli.command("notifications")
+    def notifications_command():
+        """Génère les notifications du jour pour tous les établissements
+        (échéances de paiement, fins de séquence, récapitulatif de saisie).
+        Facultatif : elles sont aussi générées au premier affichage de la
+        journée. À planifier (cron) pour qu'elles soient prêtes dès le matin."""
+        from services.notification_services import generer_pour_tous
+        print(f"{generer_pour_tous()} notification(s) créée(s).")
+
     # --- Enregistrement des blueprints ---
     app.register_blueprint(cycle_bp)
     app.register_blueprint(etablissement_bp)
@@ -196,6 +212,7 @@ def create_app(env=None):
     # /api/paiements/ répondaient 404 (page paiements.html).
     app.register_blueprint(tranche_classe_bp)
     app.register_blueprint(paiement_bp)
+    app.register_blueprint(tresorerie_bp)
     # Module Évaluation : notes (lecture pour Admin/SuperAdmin/Censeur/
     # Surveillant/Enseignant, écriture réservée à l'Enseignant titulaire) et
     # suivi disciplinaire (lecture+écriture Admin/SuperAdmin/Censeur/
@@ -218,6 +235,9 @@ def create_app(env=None):
     app.register_blueprint(authentification_bp)
     app.register_blueprint(superadmin_bp)
     app.register_blueprint(superadmin_supervision_bp)
+    app.register_blueprint(gestion_parents_bp)
+    app.register_blueprint(espace_parent_bp)
+    app.register_blueprint(notification_bp)
 
     # Doit être enregistré ici (niveau app, pas blueprint) pour couvrir TOUTES
     # les routes API (structure_api.py compris) : tant qu'un Utilisateur a

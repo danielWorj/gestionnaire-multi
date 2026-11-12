@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { api, apiRequest, cleCache, estHorsLigne } from './api';
 import { majCacheListe, setProprietaireCache, viderCache } from './stockageLocal';
+import { URLS_TRESORERIE } from './tresorerie';
 
 // ── 1. Session hors connexion (30 jours) ──────────────────────────────────
 const SESSION_KEY = 'sessionHorsLigne';
@@ -49,6 +50,40 @@ export function lireSession() {
   } catch {
     return null;
   }
+}
+
+// Fin de validité de la session hors connexion (ms), ou null s'il n'y en a pas.
+export function finSessionHorsLigne() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    return s?.verifieLe ? s.verifieLe + DUREE_SESSION_HORS_LIGNE_MS : null;
+  } catch {
+    return null;
+  }
+}
+
+// Échéance la plus proche des saisies gardées sur l'appareil :
+//  - fin de la séquence d'une note / fiche de discipline (au-delà, elle
+//    arrive trop tard pour les bulletins de la séquence) ;
+//  - fin de la session hors connexion (au-delà, l'application ne s'ouvre
+//    plus sans réseau ; les saisies restent gardées jusqu'à la reconnexion).
+// `sequences` : [{id, libelle, date_fin}] (GET /notifications/echeances-saisie).
+// Retourne null ou { type: 'sequence' | 'session', le (ms), libelle, nb }.
+export function echeanceSaisiesEnAttente(ops, sequences = [], finSession = finSessionHorsLigne()) {
+  if (!ops.length) return null;
+  const parSequence = new Map(sequences.filter((s) => s.date_fin).map((s) => [String(s.id), s]));
+  let plusProche = finSession ? { type: 'session', le: finSession, libelle: null, nb: ops.length } : null;
+  const groupes = new Map();
+  ops.forEach((op) => {
+    const seq = op.body?.sequence_id != null && parSequence.get(String(op.body.sequence_id));
+    if (seq) groupes.set(seq.id, { seq, nb: (groupes.get(seq.id)?.nb || 0) + 1 });
+  });
+  groupes.forEach(({ seq, nb }) => {
+    // Fin de journée, heure locale.
+    const le = new Date(`${seq.date_fin}T23:59:59`).getTime();
+    if (!plusProche || le < plusProche.le) plusProche = { type: 'sequence', le, libelle: seq.libelle, nb };
+  });
+  return plusProche;
 }
 
 export function oublierSession() {
@@ -211,7 +246,9 @@ export function useOperationsEnAttente(module = null) {
 // Erreurs pour lesquelles on garde l'opération et on réessaiera plus tard :
 // réseau, serveur indisponible, ou session à renouveler (reconnexion).
 export const estARessayer = (e) => estHorsLigne(e) || e?.status === 401;
-const estConflit = (e) => e?.status === 409 && ['conflit', 'doublon'].includes(e.payload?.code);
+// solde_insuffisant (trésorerie) : la dépense dépasse un solde, l'utilisateur
+// confirme (« enregistrer quand même ») ou renonce, comme pour un doublon.
+export const estConflit = (e) => e?.status === 409 && ['conflit', 'doublon', 'solde_insuffisant'].includes(e.payload?.code);
 
 function notifierSynchro(detail) {
   const d = { envoyees: [], ignorees: [], refusees: [], conflits: [], ...detail };
@@ -390,7 +427,7 @@ async function espaceEncadrement() {
 // Secrétariat / comptabilité / administration : listes complètes de
 // l'établissement (pages Élèves, Parents, Inscriptions, Paiements).
 const SCOLARITE = ['/inscriptions/', '/eleves/', '/parents/', '/classes/', '/cycles/', '/annees-scolaires/'];
-const FINANCES = ['/tranches-classe/', '/paiements/'];
+const FINANCES = ['/tranches-classe/', '/paiements/', ...URLS_TRESORERIE];
 const listes = (chemins) => async () => {
   // Deux à deux : ce sont de grosses listes, la connexion peut être faible.
   for (let i = 0; i < chemins.length; i += 2) {
@@ -406,6 +443,7 @@ const RECETTES = {
   Secretaire: listes(SCOLARITE),
   Comptable: listes([...SCOLARITE, ...FINANCES]),
   Admin: listes([...new Set([...SCOLARITE, ...FINANCES, ...EMPLOI_DU_TEMPS])]),
+  Parent: listes(['/parent/mon-espace']),
 };
 
 export const rolePrecharge = (role) => Boolean(RECETTES[role]);

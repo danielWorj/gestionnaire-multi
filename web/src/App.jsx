@@ -17,6 +17,7 @@ import InscriptionsPage from './pages/InscriptionsPage';
 import ListesClassesPage from './pages/ListesClassesPage';
 import ConfigurationPage from './pages/ConfigurationPage';
 import PaiementsPage from './pages/PaiementsPage';
+import TresoreriePage from './pages/TresoreriePage';
 import HorairePage from './pages/HorairePage';
 import PedagogiePage from './pages/PedagogiePage';
 import CenseurNotesPage from './pages/CenseurNotesPage';
@@ -30,6 +31,9 @@ import AccesRefusePage from './pages/AccesRefusePage';
 import JournalPage from './pages/JournalPage';
 import UtilisateursPage from './pages/UtilisateursPage';
 import SuperAdminsPage from './pages/SuperAdminsPage';
+import ParentAccueilPage from './pages/ParentAccueilPage';
+import ParentPaiementsPage from './pages/ParentPaiementsPage';
+import ParentBulletinsPage from './pages/ParentBulletinsPage';
 
 function AucunRole() {
   const { logout } = useAuth();
@@ -120,6 +124,7 @@ const PAGES = [
   { path: 'listes-classes', element: <ListesClassesPage />, roles: TOUS_LES_PROFILS },
   { path: 'configuration', element: <ConfigurationPage />, roles: ADMIN },
   { path: 'paiements', element: <PaiementsPage />, roles: [...ADMIN, 'Comptable'] },
+  { path: 'tresorerie', element: <TresoreriePage />, roles: [...ADMIN, 'Comptable'] },
   { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR] },
   { path: 'pedagogie', element: <PedagogiePage />, roles: CENSEUR },
   // SuperAdmin : lecture ET saisie des notes de l'établissement choisi.
@@ -129,6 +134,9 @@ const PAGES = [
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
   { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur'] },
+  // Espace parent : uniquement les enfants de la famille connectée.
+  { path: 'parent/paiements', element: <ParentPaiementsPage />, roles: ['Parent'] },
+  { path: 'parent/bulletins', element: <ParentBulletinsPage />, roles: ['Parent'] },
 ];
 
 // Page d'accueil propre à chaque rôle : tableau de bord pour l'administration,
@@ -142,6 +150,7 @@ function Accueil() {
   if (role === 'SuperAdmin') return <DashboardPage />;
   if (role === 'Admin') return <EtablissementDashboardPage />;
   if (ESPACES_RUBRIQUES.includes(role)) return <EspaceAccueilPage key={role} role={role} />;
+  if (role === 'Parent') return <ParentAccueilPage />;
   if (ACCUEIL[role]) return <Navigate to={ACCUEIL[role]} replace />;
   return <div className="card"><div className="card-body text-center text-muted py-5">Aucun espace n'est encore disponible pour votre rôle ({role || 'inconnu'}).</div></div>;
 }

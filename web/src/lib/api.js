@@ -267,7 +267,9 @@ function withEtablissementBody(body) {
 }
 
 export const api = {
-  get: (path) => apiRequest(path),
+  // options.sansCopieLocale : refuser la copie locale (données qui doivent
+  // être celles du serveur à l'instant, ex. un rapport financier daté).
+  get: (path, options) => apiRequest(path, options),
   post: (path, body) => apiRequest(path, { method: 'POST', body: JSON.stringify(withEtablissementBody(body ?? {})) }),
   put: (path, body) => apiRequest(path, { method: 'PUT', body: JSON.stringify(body ?? {}) }),
   patch: (path, body) => apiRequest(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }),

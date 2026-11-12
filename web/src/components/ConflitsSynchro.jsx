@@ -85,7 +85,9 @@ function Conflit({ op, onChoix, enCours }) {
         <div className="flex-grow-1">
           <div className="fw-semibold">{m.titre} — {op.libelle}</div>
           <div className="small text-muted">
-            {code === 'doublon' ? 'Cette donnée a déjà été saisie sur le serveur.' : 'Cette donnée a été modifiée sur le serveur depuis votre saisie.'}
+            {code === 'doublon' ? 'Cette donnée a déjà été saisie sur le serveur.'
+              : code === 'solde_insuffisant' ? "Le solde disponible sur le serveur ne couvre pas cette opération."
+                : 'Cette donnée a été modifiée sur le serveur depuis votre saisie.'}
           </div>
         </div>
       </div>
@@ -100,8 +102,14 @@ function Conflit({ op, onChoix, enCours }) {
         <div className="col-md-6">
           <div className="conflit-version conflit-serveur">
             <div className="small text-muted mb-1">Sur le serveur</div>
-            <div className="conflit-valeur">{m.resume(serveur)}</div>
-            {modification ? (
+            {code === 'solde_insuffisant' ? (
+              <ul className="conflit-valeur small mb-0 ps-3">
+                {(op.conflit.avertissements || []).map((a) => (
+                  <li key={`${a.type}-${a.id}`}>{a.type === 'fonds' ? 'Fonds' : 'Compte'} « {a.libelle} » : disponible {Number(a.disponible || 0).toLocaleString('fr-FR')} FCFA</li>
+                ))}
+              </ul>
+            ) : <div className="conflit-valeur">{m.resume(serveur)}</div>}
+            {code === 'solde_insuffisant' ? null : modification ? (
               <div className="small">
                 {modification.action === 'creation' ? 'Saisie par ' : 'Modifiée par '}<Auteur auteur={modification.auteur} />
                 <span className="text-muted"> le {fmtHorodatage(modification.horodatage)}</span>

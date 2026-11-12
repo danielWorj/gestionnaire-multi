@@ -37,17 +37,25 @@ class Parent(db.Model, Versionne):
     prenom = db.Column(db.String(100), nullable=False)
     telephone = db.Column(db.String(20), nullable=False)
     email = db.Column(db.String(150), nullable=False)
+    # Compte de connexion à l'espace parent (rôle 'Parent'), créé par le
+    # secrétariat ou l'administration (cf. services/acces_parent_services.py).
+    # Jamais modifiable par le CRUD générique (cf. inscription_services
+    # .CHAMPS_PROTEGES).
+    utilisateur_id = db.Column(db.Integer, db.ForeignKey('utilisateur.id', name='fk_parent_utilisateur'),
+                               nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('etablissement_id', 'email', name='uq_parent_email_etablissement'),
+        db.UniqueConstraint('utilisateur_id', name='uq_parent_utilisateur'),
     )
 
     etablissement = db.relationship('Etablissement', backref='parents', lazy=True)
     enfants = db.relationship('Eleve', backref='parent', lazy=True)
+    utilisateur = db.relationship('Utilisateur', lazy=True)
 
     def to_dict(self):
         return {k: getattr(self, k) for k in
-                ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'version']}
+                ['id', 'etablissement_id', 'nom', 'prenom', 'telephone', 'email', 'utilisateur_id', 'version']}
 
 
 class Eleve(db.Model, Versionne):
@@ -124,6 +132,11 @@ class Inscription(db.Model, Versionne):
     annee_scolaire_id = db.Column(db.Integer, db.ForeignKey('annee_scolaire.id'), nullable=False)
     date_inscription = db.Column(db.Date, nullable=False)
     statut = db.Column(db.String(30), nullable=False, default='Actif')
+    # Dans l'espace parent, le bulletin est grisé tant qu'une échéance passée
+    # reste impayée ; l'administration peut lever ce blocage pour un élève
+    # (arrangement avec la famille…). Réservé à l'Admin, jamais modifiable
+    # par le CRUD générique (cf. inscription_services.CHAMPS_PROTEGES).
+    bulletin_debloque = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
     __table_args__ = (
         db.UniqueConstraint('eleve_id', 'classe_id', 'annee_scolaire_id', name='uq_inscription'),
@@ -134,6 +147,6 @@ class Inscription(db.Model, Versionne):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in
-             ['id', 'eleve_id', 'classe_id', 'annee_scolaire_id', 'statut', 'version']}
+             ['id', 'eleve_id', 'classe_id', 'annee_scolaire_id', 'statut', 'bulletin_debloque', 'version']}
         d['date_inscription'] = self.date_inscription.isoformat() if self.date_inscription else None
         return d

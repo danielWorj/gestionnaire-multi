@@ -8,6 +8,7 @@ from services.paiements_services import (
     update_paiement_scoped, annuler_paiement_scoped,
     get_etat_paiements_inscription,
 )
+from services.solvabilite_services import get_rapport_solvabilite
 
 
 # ---------------------------------------------------------------------------
@@ -239,3 +240,22 @@ def paiement_etat_inscription(inscription_id):
     if etat is None:
         return jsonify({"erreur": "Inscription non trouvée"}), 404
     return jsonify(etat), 200
+
+
+@paiement_bp.route('/solvabilite', methods=['GET'])
+def paiement_rapport_solvabilite():
+    """État de solvabilité (cf. services/solvabilite_services.py). Query :
+    annee_scolaire_id? (année active par défaut), date=AAAA-MM-JJ? (date
+    d'arrêté, aujourd'hui par défaut, jamais dans le futur), du=AAAA-MM-JJ?
+    (début de la période des mouvements de caisse), classe_id? (une classe)."""
+    etab_id = _current_etablissement_id()
+    if not etab_id:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+    result, status = get_rapport_solvabilite(
+        etab_id,
+        annee_scolaire_id=request.args.get("annee_scolaire_id", type=int),
+        date_arrete=request.args.get("date"),
+        date_debut=request.args.get("du"),
+        classe_id=request.args.get("classe_id", type=int),
+    )
+    return jsonify(result), status

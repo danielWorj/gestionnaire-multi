@@ -11,7 +11,8 @@ donc la modification — échoue aussi et la transaction est annulée : aucune
 donnée ne change sans laisser de trace.
 
 Hors du périmètre (pas de valeur métier, ou écrits hors ORM) : le journal
-lui-même, les sessions de connexion et la liste des jetons révoqués.
+lui-même, les sessions de connexion, la liste des jetons révoqués et les
+notifications (régénérées à partir des données métier).
 """
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from models.audit_models import JournalAudit, Versionne
 
-TABLES_EXCLUES = {'journal_audit', 'session_connexion', 'token_blocklist'}
+TABLES_EXCLUES = {'journal_audit', 'session_connexion', 'token_blocklist', 'notification'}
 
 # Écritures techniques sans intérêt pour l'historique (chaque connexion les
 # modifie) : ignorées ; si une modification ne touche qu'elles, rien n'est

@@ -68,6 +68,23 @@ export const MODULES_HORS_LIGNE = {
       ].filter(Boolean).join(' · ');
     },
   },
+  // Opération de trésorerie (entrée, dépense, transfert) : comme un paiement,
+  // elle ne s'« écrase » pas : on confirme ou on renonce.
+  tresorerie: {
+    titre: 'Opération de trésorerie',
+    icone: 'bx-coin-stack',
+    choix: { ecraser: 'Enregistrer quand même', ignorer: "Ne pas l'enregistrer" },
+    resume: (d) => {
+      if (!d) return '—';
+      if (d.motif_annulation && !d.montant) return `Annulation — motif : ${d.motif_annulation}`;
+      const type = { ENTREE: 'Entrée', SORTIE: 'Dépense', TRANSFERT: 'Transfert' }[d.sens] || '';
+      return [
+        type, d.libelle, `${Number(d.montant || 0).toLocaleString('fr-FR')} FCFA`,
+        d.date_operation ? `le ${fmtDate(d.date_operation)}` : null,
+        d.statut === 'ANNULE' ? 'annulée' : null,
+      ].filter(Boolean).join(' · ');
+    },
+  },
   // Dossier complet (parent + élève + inscription, cf. /dossiers-inscription/).
   dossier_inscription: {
     titre: "Dossier d'inscription",

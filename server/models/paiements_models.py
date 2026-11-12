@@ -1,6 +1,9 @@
 from datetime import datetime
 from extensions import db
 from models.audit_models import Versionne
+# TrancheClasse.categorie_entree_id référence categorie_tresorerie : la table
+# doit être déclarée dans les métadonnées quel que soit l'ordre des imports.
+import models.tresorerie_models  # noqa: F401
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +62,10 @@ class TrancheClasse(db.Model):
     ordre = db.Column(db.Integer, nullable=False)
     montant_attendu = db.Column(db.Numeric(10, 2), nullable=False)
     date_limite = db.Column(db.Date, nullable=True)
+    # Fonds (catégorie d'entrée de la trésorerie) alimenté par les versements
+    # sur cette tranche ; None = catégorie d'entrée par défaut de
+    # l'établissement (cf. tresorerie_models).
+    categorie_entree_id = db.Column(db.Integer, db.ForeignKey('categorie_tresorerie.id'), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('classe_id', 'annee_scolaire_id', 'ordre', name='uq_tranche_ordre'),
@@ -72,7 +79,7 @@ class TrancheClasse(db.Model):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in
-             ['id', 'classe_id', 'annee_scolaire_id', 'libelle', 'ordre']}
+             ['id', 'classe_id', 'annee_scolaire_id', 'libelle', 'ordre', 'categorie_entree_id']}
         d['montant_attendu'] = float(self.montant_attendu) if self.montant_attendu is not None else None
         d['date_limite'] = self.date_limite.isoformat() if self.date_limite else None
         return d

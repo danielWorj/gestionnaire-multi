@@ -20,8 +20,11 @@
   @page { size: A4 portrait; margin: 8mm 9mm; }
   * { box-sizing: border-box; }
   body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; font-size: 8.4pt; color: #111; }
-  .page { page-break-after: always; }
-  .page:last-child { page-break-after: auto; }
+  /* Saut de page AVANT chaque bulletin à partir du 2e (et non après chacun
+     sauf le dernier via :last-child) : un élément ajouté en fin de document
+     par le navigateur ou une extension faisait du dernier bulletin un
+     « non dernier » et imprimait une page blanche en trop. */
+  .page + .page { break-before: page; page-break-before: always; }
   @media screen {
     body { background: #e9ebee; padding: 14px 0; }
     .page { width: 210mm; min-height: 297mm; margin: 0 auto 14px; padding: 8mm 9mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }

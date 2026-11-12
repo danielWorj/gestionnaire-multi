@@ -86,7 +86,7 @@ def _donnees():
     return etablissement, data
 
 
-def _rendu(data, logo_src, photos=None):
+def rendu_bulletins(data, logo_src, photos=None):
     return render_template("bulletins/bulletin.html", data=data, logo_src=logo_src, photos=photos or {},
                            date_edition=date.today().strftime('%d/%m/%Y'))
 
@@ -108,7 +108,7 @@ def _photos_http(etablissement, data):
             for e in _eleves_avec_photo(data)}
 
 
-def _photos_fichiers(data):
+def photos_fichiers(data):
     """{eleve_id: file://...} pour WeasyPrint, qui lit les fichiers en local
     (même principe que le logo)."""
     return {e.id: Path(chemin_photo_eleve(e)).as_uri() for e in _eleves_avec_photo(data)}
@@ -163,14 +163,24 @@ def bulletin_donnees():
 @bulletin_bp.route('/html', methods=['GET'])
 def bulletin_html():
     etablissement, data = _donnees()
-    # Aperçu affiché dans la page (même origine) : URL HTTP du logo.
-    logo_src = f"/api/etablissements/storage/logos/{etablissement.logo}" if etablissement.logo else None
-    return Response(_rendu(data, logo_src, _photos_http(etablissement, data)), mimetype='text/html')
+    logo_src = logo_http(etablissement)
+    return Response(rendu_bulletins(data, logo_src, _photos_http(etablissement, data)), mimetype='text/html')
 
 
 @bulletin_bp.route('/pdf', methods=['GET'])
 def bulletin_pdf():
     etablissement, data = _donnees()
+    return reponse_pdf(etablissement, data)
+
+
+def logo_http(etablissement):
+    """URL HTTP du logo pour l'aperçu affiché dans la page (même origine)."""
+    return f"/api/etablissements/storage/logos/{etablissement.logo}" if etablissement.logo else None
+
+
+def reponse_pdf(etablissement, data):
+    """PDF des bulletins de `data` (WeasyPrint), en pièce jointe. Partagé
+    avec l'espace parent (api/espace_parent_api.py)."""
     if not data["bulletins"]:
         return jsonify({"erreur": "Aucun bulletin à générer"}), 404
     # Import différé : WeasyPrint dépend de bibliothèques système (Pango) ;
@@ -182,7 +192,7 @@ def bulletin_pdf():
 
     logo = Path(LOGOS_DIR) / etablissement.logo if etablissement.logo else None
     logo_src = logo.as_uri() if logo and logo.is_file() else None
-    pdf = HTML(string=_rendu(data, logo_src, _photos_fichiers(data))).write_pdf()
+    pdf = HTML(string=rendu_bulletins(data, logo_src, photos_fichiers(data))).write_pdf()
 
     nom = f"bulletins_{data['classe']['label']}_{data['periode']['libelle']}"
     if len(data["bulletins"]) == 1:

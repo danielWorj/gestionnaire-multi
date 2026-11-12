@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import { api, estHorsLigne } from '../lib/api';
 import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro, useOperationsEnAttente } from '../lib/offline';
 import OperationsEnAttente from '../components/OperationsEnAttente';
 import Modal from '../components/Modal';
@@ -10,7 +10,8 @@ import {
   downloadCsv, formatMontant, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useToast,
 } from '../components/ui';
 import {
-  construireHtmlImpression, construireHtmlRapportSolvabilite, formatDateCourt, ouvrirImpression,
+  aujourdhuiIso, construireHtmlImpression, construireHtmlRapportSolvabilite, ecrireImpression, formatDateCourt,
+  formatPct, ouvrirFenetreImpression, ouvrirImpression,
 } from '../lib/paiementsImpression';
 import Select from '../components/Select';
 import { SkelListe } from '../components/Skeleton';
@@ -42,13 +43,7 @@ function computeStatutTranche(attendu, verse) {
 }
 
 // Même règle que le serveur (paiements_services : aujourd'hui > date_limite),
-// en comparant des dates 'AAAA-MM-JJ' locales : new Date('AAAA-MM-JJ') est
-// minuit UTC, ce qui décalait l'échéance d'un jour selon le fuseau.
-function aujourdhuiIso() {
-  const d = new Date();
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
+// en comparant des dates 'AAAA-MM-JJ' locales (cf. aujourdhuiIso).
 // Tranche exigible : date limite passée, ou pas de date limite (due dès
 // l'inscription) — cf. paiements_services.tranche_exigible.
 const estExigible = (dateLimite) => !dateLimite || String(dateLimite).slice(0, 10) < aujourdhuiIso();
@@ -57,8 +52,22 @@ const SOLVABILITE = {
   SOLVABLE: { label: 'Solvable', badge: 'bg-label-success' },
   INSOLVABLE: { label: 'Insolvable', badge: 'bg-label-danger' },
   SANS_ECHEANCIER: { label: 'Sans échéancier', badge: 'bg-label-secondary' },
-  ERREUR: { label: 'Erreur', badge: 'bg-label-warning' },
 };
+const STATUTS_EN_COURS = ['Actif', 'Suspendu'];
+
+// État de solvabilité calculé par le serveur (GET /paiements/solvabilite) :
+// jamais servi depuis la copie locale, un rapport daté doit refléter le
+// serveur à l'instant de sa génération.
+function chargerRapportSolvabilite({ annee, date, du, classeId }) {
+  const params = new URLSearchParams();
+  if (annee) params.set('annee_scolaire_id', annee);
+  if (date) params.set('date', date);
+  if (du) params.set('du', du);
+  if (classeId) params.set('classe_id', classeId);
+  return api.get(`/paiements/solvabilite?${params.toString()}`, { sansCopieLocale: true }).catch((e) => {
+    throw estHorsLigne(e) ? new Error("Serveur injoignable : l'état de solvabilité ne peut être établi qu'avec une connexion (aucune copie locale n'est utilisée, pour ne jamais produire un état périmé).") : e;
+  });
+}
 
 const StatutPaiement = ({ statut }) => <span className={`badge ${STATUT_BADGES[statut] || 'bg-label-secondary'}`}>{STATUT_LABELS[statut] || statut}</span>;
 const EnRetard = () => <span className="badge bg-label-danger ms-1">En retard</span>;
@@ -101,6 +110,8 @@ export default function PaiementsPage() {
   const [annee, setAnnee] = useState('');
   const [ref, setRef] = useState({ classes: [], cycles: [], inscriptions: [], eleves: [], parents: [] });
   const [tranches, setTranches] = useState([]);
+  // Fonds de la trésorerie (catégories d'entrée) auxquels rattacher une tranche.
+  const [fonds, setFonds] = useState([]);
   const [paiements, setPaiements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState('paiements');
@@ -115,6 +126,7 @@ export default function PaiementsPage() {
   /* ── Chargement ── */
   const loadTranchesEtPaiements = useCallback(async () => {
     setTranches(await api.get('/tranches-classe/').catch((e) => { toast(e.message, 'error'); return []; }));
+    setFonds(await api.get('/tresorerie/categories?type=ENTREE').catch(() => []));
     setPaiements(await api.get('/paiements/').catch((e) => { toast(`Paiements : ${e.message}`, 'error'); return []; }));
   }, [toast]);
 
@@ -183,7 +195,9 @@ export default function PaiementsPage() {
   const classesTriees = useMemo(() => [...classes].sort((a, b) => classeLabel(a.id).localeCompare(classeLabel(b.id))), [classes, classeLabel]);
 
   /* ── Calculs (montant_attendu = montant PAR ÉLÈVE, pondéré par l'effectif) ── */
-  const inscriptionsActives = useMemo(() => inscriptions.filter((i) => String(i.annee_scolaire_id) === String(annee) && i.statut === 'Actif'), [inscriptions, annee]);
+  // Inscriptions EN COURS (Actif + Suspendu, cf. STATUTS_INSCRIPTION_EN_COURS
+  // côté serveur) : un élève suspendu reste dans la classe et redevable.
+  const inscriptionsActives = useMemo(() => inscriptions.filter((i) => String(i.annee_scolaire_id) === String(annee) && STATUTS_EN_COURS.includes(i.statut)), [inscriptions, annee]);
   const effectifClasse = useCallback((classeId) => inscriptionsActives.filter((i) => String(i.classe_id) === String(classeId)).length, [inscriptionsActives]);
 
   // { inscription_id: { tranche_classe_id: montant versé } } — paiements VALIDE uniquement.
@@ -296,6 +310,8 @@ export default function PaiementsPage() {
   } : null), [situation.etat, situationVerse, situationSolde]);
 
   /* ── Paiements par classe (solvabilité) ── */
+  // Calculée par le serveur (même source que l'état imprimé) : exigible à ce
+  // jour, impayé exigible, retard — plus aucun recalcul côté navigateur.
   const chargerRoster = async (classeId = roster.classe) => {
     if (!classeId) {
       toast('Veuillez choisir une classe.', 'error');
@@ -305,108 +321,37 @@ export default function PaiementsPage() {
       toast('Aucune année scolaire active.', 'error');
       return;
     }
-    const inscriptionsClasse = inscriptionsActives.filter((i) => String(i.classe_id) === String(classeId));
-    if (!inscriptionsClasse.length) {
-      setRoster((r) => ({ ...r, lignes: [], classeChargee: classeId, message: "Aucun élève inscrit (actif) dans cette classe pour l'année sélectionnée." }));
-      return;
-    }
     setRoster((r) => ({ ...r, loading: true }));
-    const resultats = await Promise.all(inscriptionsClasse.map(async (insc) => {
-      const eleve = elevesById[insc.eleve_id] || {};
-      try {
-        const etat = await api.get(`/paiements/etat/${insc.id}`);
-        const tr = etat?.tranches || [];
-        const totalAttendu = tr.reduce((s, t) => s + Number(t.montant_attendu || 0), 0);
-        const totalVerse = tr.reduce((s, t) => s + Number(t.montant_verse || 0), 0);
-        return {
-          inscriptionId: insc.id,
-          eleve,
-          totalAttendu,
-          totalVerse,
-          solde: etat ? Number(etat.solde || 0) : totalAttendu - totalVerse,
-          // solvabilite null côté serveur = aucun échéancier défini : ni solvable ni insolvable.
-          statut: etat?.solvabilite || 'SANS_ECHEANCIER',
-          tranchesEnRetard: tr.filter((t) => t.en_retard).map((t) => t.libelle),
-        };
-      } catch (err) {
-        return { inscriptionId: insc.id, eleve, totalAttendu: 0, totalVerse: 0, solde: 0, statut: 'ERREUR', tranchesEnRetard: [], erreur: err.message };
-      }
-    }));
-    resultats.sort((a, b) => `${a.eleve.nom || ''} ${a.eleve.prenom || ''}`.localeCompare(`${b.eleve.nom || ''} ${b.eleve.prenom || ''}`));
-    const erreurs = resultats.filter((r) => r.statut === 'ERREUR').length;
-    if (erreurs) toast(`Situation indisponible pour ${erreurs} élève(s).`, 'error');
-    setRoster((r) => ({ ...r, lignes: resultats, classeChargee: classeId, loading: false, message: 'Aucune donnée à afficher.' }));
+    try {
+      const rapport = await chargerRapportSolvabilite({ annee, classeId });
+      setRoster((r) => ({
+        ...r,
+        lignes: rapport.eleves || [],
+        rapport,
+        classeChargee: classeId,
+        loading: false,
+        message: "Aucun élève inscrit (en cours) dans cette classe pour l'année sélectionnée.",
+      }));
+    } catch (e) {
+      toast(e.message, 'error');
+      setRoster((r) => ({ ...r, lignes: [], rapport: null, classeChargee: null, loading: false, message: e.message }));
+    }
   };
 
-  const rosterAffiche = roster.filtre ? roster.lignes.filter((r) => r.statut === roster.filtre) : roster.lignes;
+  const rosterAffiche = roster.filtre ? roster.lignes.filter((r) => r.solvabilite === roster.filtre) : roster.lignes;
 
   const imprimerRoster = (filtreStatut, titre) => {
-    if (!roster.lignes.length) {
+    if (!roster.rapport) {
       toast("Chargez d'abord une classe avant d'imprimer.", 'error');
       return;
     }
-    const lignes = filtreStatut ? roster.lignes.filter((r) => r.statut === filtreStatut) : roster.lignes;
+    const lignes = filtreStatut ? roster.lignes.filter((r) => r.solvabilite === filtreStatut) : roster.lignes;
     if (!lignes.length) {
       toast('Aucun élève ne correspond à cette liste.', 'error');
       return;
     }
-    const ok = ouvrirImpression(construireHtmlImpression({ titreListe: titre, lignes, etablissement, classeNom: classeLabel(roster.classeChargee), anneeNom: anneeLabel(annee) }));
+    const ok = ouvrirImpression(construireHtmlImpression({ titreListe: titre, lignes, rapport: roster.rapport, etablissement, classeNom: classeLabel(roster.classeChargee) }));
     if (!ok) toast('Veuillez autoriser les pop-ups pour imprimer la liste.', 'error');
-  };
-
-  /* ── État de solvabilité de l'établissement ── */
-  const imprimerRapportSolvabilite = () => {
-    if (!annee) {
-      toast('Aucune année scolaire active.', 'error');
-      return;
-    }
-    const pct = (n, d) => (d > 0 ? (n / d) * 100 : 0);
-    // Même définition que paiements_services.calculer_solvabilite.
-    const classesData = classes.filter((c) => effectifClasse(c.id) > 0).map((c) => {
-      const tranchesClasse = tranchesDeLAnnee(c.id);
-      const effectif = effectifClasse(c.id);
-      const tr = tranchesClasse.map((t) => {
-        const attenduTotal = Number(t.montant_attendu || 0) * effectif;
-        const verseTotal = Number(tranchesTotals[t.id] || 0);
-        return { libelle: t.libelle, attenduTotal, verseTotal, pct: Math.min(100, pct(verseTotal, attenduTotal)), dateLimite: t.date_limite };
-      });
-      let nbInsolvables = 0;
-      let nbSolvables = 0;
-      let nbSansEcheancier = 0;
-      inscriptionsActives.filter((i) => String(i.classe_id) === String(c.id)).forEach((insc) => {
-        if (!tranchesClasse.length) {
-          nbSansEcheancier += 1;
-          return;
-        }
-        const v = versements[insc.id] || {};
-        const retard = tranchesClasse.some((t) => estExigible(t.date_limite) && Number(v[t.id] || 0) < Number(t.montant_attendu || 0));
-        if (retard) nbInsolvables += 1;
-        else nbSolvables += 1;
-      });
-      const totalAttendu = tr.reduce((s, t) => s + t.attenduTotal, 0);
-      const totalVerse = tr.reduce((s, t) => s + t.verseTotal, 0);
-      return {
-        nom: classeLabel(c.id), effectif, totalAttendu, totalVerse, solde: totalAttendu - totalVerse,
-        pctPaye: pct(totalVerse, totalAttendu),
-        nbInsolvables, nbSolvables, nbSansEcheancier,
-        pctInsolvable: pct(nbInsolvables, effectif),
-        tranches: tr,
-      };
-    }).sort((a, b) => a.nom.localeCompare(b.nom));
-    const g = classesData.reduce((acc, c) => ({
-      effectif: acc.effectif + c.effectif,
-      totalAttendu: acc.totalAttendu + c.totalAttendu,
-      totalVerse: acc.totalVerse + c.totalVerse,
-      nbInsolvables: acc.nbInsolvables + c.nbInsolvables,
-      nbSolvables: acc.nbSolvables + c.nbSolvables,
-      nbSansEcheancier: acc.nbSansEcheancier + c.nbSansEcheancier,
-    }), { effectif: 0, totalAttendu: 0, totalVerse: 0, nbInsolvables: 0, nbSolvables: 0, nbSansEcheancier: 0 });
-    g.solde = g.totalAttendu - g.totalVerse;
-    g.pctPaye = pct(g.totalVerse, g.totalAttendu);
-    g.pctInsolvable = pct(g.nbInsolvables, g.effectif);
-    g.pctSolvable = pct(g.nbSolvables, g.effectif);
-    const ok = ouvrirImpression(construireHtmlRapportSolvabilite({ rapport: { global: g, classes: classesData }, etablissement, anneeNom: anneeLabel(annee) }));
-    if (!ok) toast('Veuillez autoriser les pop-ups pour imprimer le rapport.', 'error');
   };
 
   /* ── Actions ── */
@@ -439,7 +384,7 @@ export default function PaiementsPage() {
 
   const changeAnnee = (value) => {
     setAnnee(value);
-    setRoster((r) => ({ ...r, lignes: [], classeChargee: null, message: 'Choisissez une classe puis cliquez sur "Afficher la classe".' }));
+    setRoster((r) => ({ ...r, lignes: [], rapport: null, classeChargee: null, message: 'Choisissez une classe puis cliquez sur "Afficher la classe".' }));
   };
 
   const afterSave = async (msg) => {
@@ -461,7 +406,7 @@ export default function PaiementsPage() {
       <PageHeader title="Paiements" subtitle="Suivez l'échéancier par classe, les versements des élèves et leur situation financière.">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={async () => { await loadReferentiels(); await loadTranchesEtPaiements(); toast('Données actualisées.'); }}><i className="bx bx-refresh me-1" /> Actualiser</button>
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={exportCsv}><i className="bx bx-export me-1" /> Exporter</button>
-        <button type="button" className="btn btn-outline-primary btn-sm" onClick={imprimerRapportSolvabilite}><i className="bx bx-receipt me-1" /> Imprimer l'état de solvabilité</button>
+        <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setModal({ kind: 'rapport' })}><i className="bx bx-receipt me-1" /> État de solvabilité</button>
         {/* Le SuperAdmin n'est pas un compte utilisateur d'établissement : il ne peut pas être agent encaisseur (cf. paiements_api.paiement_create). */}
         {!isSuperAdmin && <button type="button" className="btn btn-primary btn-sm" onClick={() => setModal({ kind: 'paiement' })}><i className="bx bx-plus me-1" /> Enregistrer un paiement</button>}
       </PageHeader>
@@ -635,22 +580,28 @@ export default function PaiementsPage() {
                   <option value="">Tous les élèves</option>
                   <option value="SOLVABLE">Solvables uniquement</option>
                   <option value="INSOLVABLE">Insolvables uniquement</option>
+                  <option value="SANS_ECHEANCIER">Sans échéancier</option>
                 </Select>
               </div>
             </div>
           </div>
-          {roster.lignes.length > 0 && (
-            <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-              <span className="badge bg-label-primary p-2"><i className="bx bx-group" /> {roster.lignes.length} élève(s)</span>
-              <span className="badge bg-label-success p-2"><i className="bx bx-check-circle" /> {roster.lignes.filter((r) => r.statut === 'SOLVABLE').length} solvable(s)</span>
-              <span className="badge bg-label-danger p-2"><i className="bx bx-x-circle" /> {roster.lignes.filter((r) => r.statut === 'INSOLVABLE').length} insolvable(s)</span>
-              <div className="ms-auto d-flex gap-2">
-                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => imprimerRoster('SOLVABLE', 'Liste des élèves solvables')}><i className="bx bx-printer me-1" /> Imprimer solvables</button>
-                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => imprimerRoster('INSOLVABLE', 'Liste des élèves insolvables')}><i className="bx bx-printer me-1" /> Imprimer insolvables</button>
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => imprimerRoster(null, 'Situation financière de la classe')}><i className="bx bx-printer me-1" /> Imprimer la liste complète</button>
+          {roster.rapport && roster.lignes.length > 0 && (() => {
+            const g = roster.rapport.global;
+            return (
+              <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
+                <span className="badge bg-label-primary p-2"><i className="bx bx-group" /> {g.effectif} élève(s){g.suspendus ? ` dont ${g.suspendus} suspendu(s)` : ''}</span>
+                <span className="badge bg-label-success p-2"><i className="bx bx-check-circle" /> {g.solvables} solvable(s)</span>
+                <span className="badge bg-label-danger p-2"><i className="bx bx-x-circle" /> {g.insolvables} insolvable(s){g.pct_insolvables != null ? ` — ${formatPct(g.pct_insolvables)}` : ''}</span>
+                {g.sans_echeancier > 0 && <span className="badge bg-label-secondary p-2"><i className="bx bx-help-circle" /> {g.sans_echeancier} sans échéancier</span>}
+                <span className="badge bg-label-warning p-2"><i className="bx bx-error" /> Impayé exigible : {formatMontant(g.impaye_exigible)}</span>
+                <div className="ms-auto d-flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => imprimerRoster('SOLVABLE', 'Liste des élèves solvables')}><i className="bx bx-printer me-1" /> Imprimer solvables</button>
+                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => imprimerRoster('INSOLVABLE', 'Liste des élèves insolvables')}><i className="bx bx-printer me-1" /> Imprimer insolvables</button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => imprimerRoster(null, 'Situation financière de la classe')}><i className="bx bx-printer me-1" /> Imprimer la liste complète</button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
           <TableCard
             title="Situation financière de la classe"
             icon="bx-group"
@@ -658,30 +609,33 @@ export default function PaiementsPage() {
             footer={(
               <small className="text-muted">
                 <i className="bx bx-info-circle me-1" />
-                <strong>Solvable</strong> : au moins une tranche déjà payée pour cette classe/année, et aucune tranche restante n'a d'échéance dépassée.
-                <strong className="ms-2">Insolvable</strong> : aucune tranche payée du tout, OU au moins une tranche impayée dont la date limite est dépassée.
+                Situation au {roster.rapport ? formatDateCourt(roster.rapport.date_arrete) : "jour"}. Une tranche est <strong>exigible</strong> quand sa date limite est passée (ou dès l'inscription si elle n'en a pas).
+                <strong className="ms-1">Solvable</strong> : tout l'exigible est réglé — un élève qui n'a rien versé alors qu'aucune échéance n'est passée est solvable.
+                <strong className="ms-1">Insolvable</strong> : au moins une tranche exigible reste impayée.
               </small>
             )}
           >
             <table className="table table-hover mb-0">
-              <thead><tr><th>#</th><th>Matricule</th><th>Élève</th><th>Sexe</th><th>Attendu</th><th>Versé</th><th>Solde</th><th>Tranches en retard</th><th>Statut</th></tr></thead>
-              <TBody colSpan={9} loading={roster.loading} rows={rosterAffiche.length} empty={roster.lignes.length ? 'Aucun élève ne correspond à ce filtre.' : roster.message}>
-                {rosterAffiche.map((r, idx) => {
-                  const nom = `${r.eleve.nom || ''} ${r.eleve.prenom || ''}`.trim();
-                  return (
-                    <tr key={r.inscriptionId}>
-                      <td>{idx + 1}</td>
-                      <td>{r.eleve.matricule || '—'}</td>
-                      <td><div className="d-flex align-items-center gap-2"><span>{nom}</span></div></td>
-                      <td>{r.eleve.sexe || '—'}</td>
-                      <td>{formatMontant(r.totalAttendu)}</td>
-                      <td>{formatMontant(r.totalVerse)}</td>
-                      <td className={r.solde > 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'}>{formatMontant(r.solde)}</td>
-                      <td>{r.tranchesEnRetard.length ? r.tranchesEnRetard.join(', ') : <span className="text-muted">Aucune</span>}</td>
-                      <td><span className={`badge ${SOLVABILITE[r.statut].badge}`} title={r.erreur || ''}>{SOLVABILITE[r.statut].label}</span></td>
-                    </tr>
-                  );
-                })}
+              <thead><tr><th>#</th><th>Matricule</th><th>Élève</th><th>Sexe</th><th>Attendu (année)</th><th>Exigible</th><th>Versé</th><th>Impayé exigible</th><th>Retard</th><th>Tranches en retard</th><th>Statut</th></tr></thead>
+              <TBody colSpan={11} loading={roster.loading} rows={rosterAffiche.length} empty={roster.lignes.length ? 'Aucun élève ne correspond à ce filtre.' : roster.message}>
+                {rosterAffiche.map((r, idx) => (
+                  <tr key={r.inscription_id}>
+                    <td>{idx + 1}</td>
+                    <td>{r.matricule || '—'}</td>
+                    <td>
+                      {`${r.nom || ''} ${r.prenom || ''}`.trim()}
+                      {r.statut_inscription === 'Suspendu' && <span className="badge bg-label-warning ms-1">Suspendu</span>}
+                    </td>
+                    <td>{r.sexe || '—'}</td>
+                    <td>{formatMontant(r.attendu)}</td>
+                    <td>{formatMontant(r.exigible)}</td>
+                    <td>{formatMontant(r.verse)}</td>
+                    <td className={r.impaye_exigible > 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'}>{formatMontant(r.impaye_exigible)}</td>
+                    <td>{r.jours_retard ? `${r.jours_retard} j` : <span className="text-muted">—</span>}</td>
+                    <td>{r.tranches_en_retard.length ? r.tranches_en_retard.map((t) => t.libelle).join(', ') : <span className="text-muted">Aucune</span>}</td>
+                    <td><span className={`badge ${SOLVABILITE[r.solvabilite].badge}`}>{SOLVABILITE[r.solvabilite].label}</span></td>
+                  </tr>
+                ))}
               </TBody>
             </table>
           </TableCard>
@@ -722,6 +676,7 @@ export default function PaiementsPage() {
                             <div className="fw-semibold">{t.libelle}</div>
                             <small className="text-muted d-block">{classeLabel(t.classe_id)} · ordre {t.ordre}</small>
                             <small className="text-muted">{t.date_limite ? `Échéance : ${formatDateCourt(t.date_limite)}` : 'Due dès l’inscription'}{enRetard && <EnRetard />}</small>
+                            {fonds.length > 0 && <small className="text-muted d-block"><i className="bx bx-coin-stack me-1" />Fonds : {(fonds.find((f) => f.id === t.categorie_entree_id) || fonds.find((f) => f.par_defaut))?.libelle || '—'}</small>}
                           </div>
                           <div className="text-nowrap">
                             <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'tranche', data: t })} />
@@ -747,7 +702,7 @@ export default function PaiementsPage() {
       )}
 
       {modal?.kind === 'tranche' && (
-        <TrancheModal data={modal.data} classes={classesTriees} classeLabel={classeLabel} annee={annee} anneeLabel={anneeLabel(annee)} defaultClasse={filtreTrancheClasse} onClose={() => setModal(null)} onSaved={afterSave} />
+        <TrancheModal data={modal.data} fonds={fonds} classes={classesTriees} classeLabel={classeLabel} annee={annee} anneeLabel={anneeLabel(annee)} defaultClasse={filtreTrancheClasse} onClose={() => setModal(null)} onSaved={afterSave} />
       )}
       {modal?.kind === 'dupliquer' && (
         <DupliquerModal classes={classesTriees} classeLabel={classeLabel} annees={annees} defaultClasse={filtreTrancheClasse} defaultCible={annee} onClose={() => setModal(null)} onSaved={afterSave} />
@@ -791,6 +746,7 @@ export default function PaiementsPage() {
           </Modal>
         );
       })()}
+      {modal?.kind === 'rapport' && <RapportSolvabiliteModal annee={annee} anneeNom={anneeLabel(annee)} etablissement={etablissement} onClose={() => setModal(null)} />}
       {modal?.kind === 'annuler' && <AnnulerModal paiement={modal.data} onClose={() => setModal(null)} onSaved={afterSave} />}
       {confirmNode}
     </>
@@ -815,13 +771,14 @@ function ErrorBox({ error }) {
   return error ? <div className="alert alert-danger">{error}</div> : null;
 }
 
-function TrancheModal({ data, classes, classeLabel, annee, anneeLabel, defaultClasse, onClose, onSaved }) {
+function TrancheModal({ data, fonds = [], classes, classeLabel, annee, anneeLabel, defaultClasse, onClose, onSaved }) {
   const [form, setForm] = useState({
     classe_id: data ? String(data.classe_id) : defaultClasse || '',
     libelle: data?.libelle || '',
     ordre: data?.ordre ?? '',
     montant_attendu: data?.montant_attendu ?? '',
     date_limite: data?.date_limite || '',
+    categorie_entree_id: data?.categorie_entree_id ? String(data.categorie_entree_id) : '',
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -836,6 +793,7 @@ function TrancheModal({ data, classes, classeLabel, annee, anneeLabel, defaultCl
       ordre: form.ordre,
       montant_attendu: form.montant_attendu,
       date_limite: form.date_limite || null,
+      categorie_entree_id: form.categorie_entree_id ? Number(form.categorie_entree_id) : null,
     };
     if (!payload.classe_id || !payload.libelle || !payload.ordre || !payload.montant_attendu) {
       setError("Veuillez renseigner la classe, le libellé, l'ordre et le montant attendu.");
@@ -862,6 +820,16 @@ function TrancheModal({ data, classes, classeLabel, annee, anneeLabel, defaultCl
         <div className="col-md-4"><label className="form-label">Ordre *</label><input type="number" className="form-control" min="1" step="1" placeholder="1" value={form.ordre} onChange={set('ordre')} /></div>
         <div className="col-md-6"><label className="form-label">Montant attendu (FCFA) *</label><input type="number" className="form-control" min="1" step="1" placeholder="Ex : 50000" value={form.montant_attendu} onChange={set('montant_attendu')} /></div>
         <div className="col-md-6"><label className="form-label">Date limite</label><input type="date" className="form-control" value={form.date_limite} onChange={set('date_limite')} /></div>
+        {fonds.length > 0 && (
+          <div className="col-12">
+            <label className="form-label">Fonds alimenté (trésorerie)</label>
+            <Select className="form-select" value={form.categorie_entree_id} onChange={set('categorie_entree_id')}>
+              <option value="">{`Fonds par défaut (${fonds.find((f) => f.par_defaut)?.libelle || 'Scolarité'})`}</option>
+              {fonds.filter((f) => !f.par_defaut && (f.actif || String(f.id) === form.categorie_entree_id)).map((f) => <option key={f.id} value={f.id}>{f.libelle}</option>)}
+            </Select>
+            <div className="form-text">Les versements sur cette tranche iront dans ce fonds (ex. APEE, frais d'examen).</div>
+          </div>
+        )}
       </div>
     </Modal>
   );
@@ -1093,6 +1061,77 @@ function AnnulerModal({ paiement, onClose, onSaved }) {
       <p className="text-muted small">L'annulation neutralise immédiatement ce paiement (et toutes ses lignes) dans les calculs de solde. Cette action est irréversible.</p>
       <label className="form-label">Motif de l'annulation *</label>
       <textarea className="form-control" rows={3} placeholder="Ex : erreur de saisie sur le montant" value={motif} onChange={(e) => setMotif(e.target.value)} />
+    </Modal>
+  );
+}
+
+// Génération de l'état de solvabilité : date d'arrêté (situation à cette
+// date) et période des mouvements de caisse (encaissements, annulations).
+function RapportSolvabiliteModal({ annee, anneeNom, etablissement, onClose }) {
+  const [form, setForm] = useState({ date: aujourdhuiIso(), du: '', nominatif: true, detailTranches: true });
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const set = (name) => (e) => setForm((f) => ({ ...f, [name]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
+
+  const submit = async () => {
+    setError('');
+    if (!annee) {
+      setError('Aucune année scolaire sélectionnée.');
+      return;
+    }
+    if (!form.date) {
+      setError("Veuillez indiquer la date d'arrêté.");
+      return;
+    }
+    if (form.date > aujourdhuiIso()) {
+      setError("La date d'arrêté ne peut pas être dans le futur.");
+      return;
+    }
+    if (form.du && form.du > form.date) {
+      setError("Le début de la période doit précéder la date d'arrêté.");
+      return;
+    }
+    // Fenêtre ouverte dès le clic (sinon bloquée comme pop-up après l'attente réseau).
+    const fenetre = ouvrirFenetreImpression();
+    if (!fenetre) {
+      setError('Veuillez autoriser les pop-ups pour imprimer le rapport.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const rapport = await chargerRapportSolvabilite({ annee, date: form.date, du: form.du });
+      ecrireImpression(fenetre, construireHtmlRapportSolvabilite({
+        rapport, etablissement, anneeNom: rapport.annee_scolaire?.libelle || anneeNom,
+        options: { nominatif: form.nominatif, detailTranches: form.detailTranches },
+      }));
+      onClose();
+    } catch (e) {
+      fenetre.close();
+      setError(e.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal size="" title={<><i className="bx bx-receipt me-2 text-primary" />État de solvabilité de l'établissement</>} onClose={onClose} onSubmit={submit} footer={<><button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={saving}>Annuler</button><button type="submit" className="btn btn-primary" disabled={saving}><i className={`bx ${saving ? 'bx-loader-alt bx-spin' : 'bx-printer'} me-1`} /> Générer et imprimer</button></>}>
+      <ErrorBox error={error} />
+      <p className="text-muted small mb-3">Année scolaire <strong>{anneeNom || '—'}</strong>. Le rapport est calculé par le serveur à l'instant de sa génération (connexion requise).</p>
+      <div className="row g-3">
+        <div className="col-md-6">
+          <label className="form-label" htmlFor="rapportDate">Situation arrêtée au *</label>
+          <input id="rapportDate" type="date" className="form-control" max={aujourdhuiIso()} value={form.date} onChange={set('date')} />
+          <small className="text-muted">Exigible, versements et annulations reconstitués à cette date.</small>
+        </div>
+        <div className="col-md-6">
+          <label className="form-label" htmlFor="rapportDu">Mouvements de caisse depuis le</label>
+          <input id="rapportDu" type="date" className="form-control" max={form.date} value={form.du} onChange={set('du')} />
+          <small className="text-muted">Vide : depuis le début de l'année.</small>
+        </div>
+        <div className="col-12">
+          <div className="form-check"><input id="rapportNominatif" className="form-check-input" type="checkbox" checked={form.nominatif} onChange={set('nominatif')} /><label className="form-check-label" htmlFor="rapportNominatif">Inclure la liste nominative des élèves insolvables (avec contact du parent)</label></div>
+          <div className="form-check"><input id="rapportTranches" className="form-check-input" type="checkbox" checked={form.detailTranches} onChange={set('detailTranches')} /><label className="form-check-label" htmlFor="rapportTranches">Inclure le détail par tranche, classe par classe</label></div>
+        </div>
+      </div>
     </Modal>
   );
 }

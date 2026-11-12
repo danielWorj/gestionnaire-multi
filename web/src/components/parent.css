@@ -1,0 +1,72 @@
+/* Espace parent (pages Parent*Page, components/EspaceParent.jsx). Mobile
+   d'abord, mêmes tons et rayons que les autres espaces (espace.css). */
+
+.par-photo {
+  flex: 0 0 auto; border-radius: 50%; object-fit: cover; background: #eceef1;
+}
+.par-photo-initiales {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(105, 108, 255, 0.12); color: var(--esp-primary); font-weight: 700;
+}
+
+.par-pastille {
+  display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.2rem 0.6rem; border-radius: 999px;
+  background: var(--esp-ton-fond); color: var(--esp-ton); font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+}
+.par-pastille .bx { font-size: 0.95rem; }
+
+/* ── Carte d'un enfant (accueil) ─────────────────────────────────────── */
+.par-enfants { display: grid; grid-template-columns: 1fr; gap: 0.875rem; }
+@media (min-width: 768px) { .par-enfants { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1400px) { .par-enfants { grid-template-columns: repeat(3, 1fr); } }
+
+.par-enfant {
+  display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem;
+  border-radius: var(--esp-rayon); background: var(--esp-fond-carte); box-shadow: var(--esp-ombre);
+}
+.par-enfant-tete { display: flex; align-items: center; gap: 0.75rem; }
+.par-enfant-nom { font-size: 1.05rem; font-weight: 700; line-height: 1.25; }
+.par-enfant-classe { font-size: 0.85rem; color: var(--esp-texte-doux); }
+.par-enfant-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+.par-enfant-actions .btn { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; }
+
+.par-barre-tete { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem; color: var(--esp-texte-doux); margin-bottom: 0.3rem; }
+.par-barre-chiffre { font-weight: 700; color: var(--esp-ton); text-align: right; }
+.par-ligne-info { display: flex; align-items: flex-start; gap: 0.35rem; font-size: 0.85rem; color: var(--esp-texte); }
+.par-ligne-info .bx { font-size: 1.05rem; margin-top: 0.1rem; flex: 0 0 auto; }
+
+/* ── Alerte retard (accueil) ─────────────────────────────────────────── */
+.par-alerte {
+  display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem 1rem; margin-bottom: 0.75rem;
+  border-radius: var(--esp-rayon); background: rgba(255, 62, 29, 0.08); border: 1px solid rgba(255, 62, 29, 0.25);
+  color: var(--esp-texte); text-decoration: none;
+}
+.par-alerte:hover { color: var(--esp-texte); background: rgba(255, 62, 29, 0.12); }
+.par-alerte > .bx:first-child { font-size: 1.6rem; color: var(--esp-danger); flex: 0 0 auto; }
+.par-alerte > .bx:last-child { font-size: 1.3rem; color: #c3c8d0; margin-left: auto; flex: 0 0 auto; }
+.par-alerte-texte { min-width: 0; font-size: 0.88rem; line-height: 1.4; }
+
+/* ── Paiements ───────────────────────────────────────────────────────── */
+.par-resume { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; margin-bottom: 1rem; }
+@media (min-width: 992px) { .par-resume { grid-template-columns: repeat(4, 1fr); } }
+.par-resume-case {
+  padding: 0.875rem 1rem; border-radius: var(--esp-rayon); background: var(--esp-fond-carte); box-shadow: var(--esp-ombre);
+}
+.par-resume-libelle { font-size: 0.78rem; color: var(--esp-texte-doux); }
+.par-resume-valeur { font-size: 1.1rem; font-weight: 700; color: var(--esp-ton, var(--esp-texte)); }
+
+/* ── Bulletin grisé ──────────────────────────────────────────────────── */
+.par-bulletin-bloque {
+  position: relative; overflow: hidden; min-height: 320px; border-radius: var(--esp-rayon);
+  background: repeating-linear-gradient(180deg, #e9ebef 0 14px, #f3f4f6 14px 34px);
+  display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+}
+.par-bulletin-bloque-carte {
+  max-width: 440px; padding: 1.5rem; border-radius: var(--esp-rayon); text-align: center;
+  background: rgba(255, 255, 255, 0.96); box-shadow: var(--esp-ombre-hover);
+}
+.par-bulletin-bloque-carte > .bx { font-size: 2.4rem; color: var(--esp-texte-doux); margin-bottom: 0.5rem; }
+.par-periodes-grisees .esp-pastille { opacity: 0.55; cursor: not-allowed; }
+
+.par-bulletin-apercu { width: 100%; min-height: 75vh; border: 0; border-radius: var(--esp-rayon); background: #fff; box-shadow: var(--esp-ombre); }
+.par-bulletin-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }

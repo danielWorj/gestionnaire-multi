@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { enregistrer, nouvelleCle, terminerEnregistrement, useApresSynchro } from '../lib/offline';
 import OperationsEnAttente from '../components/OperationsEnAttente';
+import FicheFamilleAcces from '../components/FicheFamilleAcces';
+import { roleDe } from '../components/Layout';
 import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
@@ -35,7 +37,10 @@ const MODULES_FICHES = ['dossier_inscription', 'eleve', 'parent', 'inscription']
 export default function ParentsPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
-  const { activeEtablissementId } = useAuth();
+  const { activeEtablissementId, user } = useAuth();
+  // Lever le blocage d'un bulletin : administration seulement (le
+  // secrétariat gère les accès et les rattachements).
+  const peutDebloquer = ['Admin', 'SuperAdmin'].includes(roleDe(user));
 
   const [data, setData] = useState({ parents: [], eleves: [], inscriptions: [], classes: [], cycles: [], annees: [] });
   const [loading, setLoading] = useState(true);
@@ -407,7 +412,11 @@ export default function ParentsPage() {
                 <tr key={p.id}>
                   <td>
                     <div className="d-flex align-items-center gap-2">
-                      <div><div className="fw-semibold">{nomComplet(p)}</div><small className="text-muted">Fiche #{p.id}</small></div>
+                      <div>
+                        <div className="fw-semibold">{nomComplet(p)}</div>
+                        <small className="text-muted">Fiche #{p.id}</small>
+                        {p.utilisateur_id && <small className="text-success ms-2" title="Un compte d'accès à l'espace parent a été créé pour cette famille"><i className="bx bx-mobile-alt" /> Espace parent</small>}
+                      </div>
                     </div>
                   </td>
                   <td>{p.telephone ? <a href={`tel:${p.telephone}`}>{p.telephone}</a> : <span className="text-warning">Manquant</span>}</td>
@@ -457,27 +466,7 @@ export default function ParentsPage() {
               <div className="text-muted">{detail.telephone || 'Téléphone manquant'} · {detail.email || 'E-mail manquant'}</div>
             </div>
           </div>
-          <h6 className="mb-2">Enfants rattachés <span className="badge bg-label-primary">{(enfantsDe[detail.id] || []).length}</span></h6>
-          {(enfantsDe[detail.id] || []).length ? (
-            <table className="table mb-0">
-              <thead><tr><th>Élève</th><th>Matricule</th><th>Sexe</th><th>Classe</th><th>Statut</th></tr></thead>
-              <tbody>
-                {enfantsDe[detail.id].map((e) => {
-                  const anneeId = Number(annee) || null;
-                  const insc = inscriptions.filter((i) => i.eleve_id === e.id && (!anneeId || i.annee_scolaire_id === anneeId)).at(-1);
-                  return (
-                    <tr key={e.id}>
-                      <td className="fw-semibold">{`${e.prenom || ''} ${e.nom || ''}`}</td>
-                      <td><code className="small">{e.matricule || '—'}</code></td>
-                      <td>{e.sexe === 'M' ? 'Garçon' : e.sexe === 'F' ? 'Fille' : '—'}</td>
-                      <td>{insc ? classeLabel(classeById[insc.classe_id]) : <span className="text-muted">Non inscrit</span>}</td>
-                      <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          ) : <p className="text-muted mb-0">Aucun enfant n'est encore rattaché à cette famille. Rattachez-le depuis la fiche de l'élève.</p>}
+          <FicheFamilleAcces key={detail.id} parent={detail} eleves={eleves} parents={parents} peutDebloquer={peutDebloquer} onChange={loadAll} />
         </Modal>
       )}
       {confirmNode}

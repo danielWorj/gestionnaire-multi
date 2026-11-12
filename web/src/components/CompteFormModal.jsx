@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { apiRequest } from '../lib/api';
-import { ROLES_SANS_ESPACE, roleInfo } from '../lib/espaces';
+import { ROLES_NON_ATTRIBUABLES, roleInfo } from '../lib/espaces';
 import Modal from './Modal';
 import Select from './Select';
 import { useConfirm, useToast } from './ui';
@@ -180,7 +180,7 @@ export default function CompteFormModal({
 
         <label className="form-label d-block">Rôles</label>
         <div className="admin-roles">
-          {roles.filter((r) => !ROLES_SANS_ESPACE.includes(r.libelle) || form.roleIds.has(r.id)).map((r) => {
+          {roles.filter((r) => !ROLES_NON_ATTRIBUABLES.includes(r.libelle) || form.roleIds.has(r.id)).map((r) => {
             const info = roleInfo(r.libelle);
             const verrouille = creation && r.libelle === roleImpose;
             return (
