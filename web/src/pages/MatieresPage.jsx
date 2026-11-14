@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import {
-  classeLabel, Field, FormFooter, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave, useToast,
+  classeLabel, Field, FilterChips, FormFooter, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
 import ImportModal from '../components/importConfigs';
@@ -12,6 +12,9 @@ import { roleDe } from '../components/Layout';
 // Portage de server/static/templates/matiere.html : groupes de matières,
 // matières et affectations matière → classe (pedagogie_api.py, cloisonné
 // par établissement).
+
+// Filtres de l'onglet « Affectations Classe » (valeur vide = pas de filtre).
+const FILTRES_VIDES = { classe: '', matiere: '', enseignant: '' };
 
 export default function MatieresPage() {
   const toast = useToast();
@@ -34,6 +37,8 @@ export default function MatieresPage() {
   const [groupeModal, setGroupeModal] = useState(null);
   const [matiereModal, setMatiereModal] = useState(null);
   const [affectationModal, setAffectationModal] = useState(null);
+  const [filtres, setFiltres] = useState(FILTRES_VIDES);
+  const [etabDesFiltres, setEtabDesFiltres] = useState(activeEtablissementId);
 
   const loadGroupes = useCallback(async () => {
     try {
@@ -90,6 +95,13 @@ export default function MatieresPage() {
     loadAll();
   }, [loadAll, activeEtablissementId]);
 
+  // Les identifiants de classe / matière / enseignant changent d'un
+  // établissement à l'autre : on repart sans filtre.
+  if (etabDesFiltres !== activeEtablissementId) {
+    setEtabDesFiltres(activeEtablissementId);
+    setFiltres(FILTRES_VIDES);
+  }
+
   const groupesTries = useMemo(() => [...groupes].sort((a, b) => (a.ordre ?? 0) - (b.ordre ?? 0) || a.libelle.localeCompare(b.libelle, 'fr')), [groupes]);
   const groupeLibelle = (id) => groupes.find((g) => g.id === id)?.libelle || `Groupe #${id}`;
   const matiereLabel = (id) => matieres.find((m) => m.id === id)?.libelle || `Matière #${id}`;
@@ -98,6 +110,35 @@ export default function MatieresPage() {
     return en ? `${en.prenom} ${en.nom}` : `Enseignant #${id}`;
   };
   const labelClasse = (id) => classeLabel(classes.find((c) => c.id === id)) || `Classe #${id}`;
+
+  /* ── Filtres de l'onglet Affectations ── */
+  const classeOptions = useMemo(
+    () => classes
+      .map((c) => ({ id: c.id, label: classeLabel(c) || `Classe #${c.id}` }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr', { numeric: true })),
+    [classes],
+  );
+  const matiereOptions = useMemo(() => [...matieres].sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr')), [matieres]);
+  const enseignantOptions = useMemo(
+    () => enseignants
+      .map((en) => ({ id: en.id, label: `${en.prenom} ${en.nom}` }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr')),
+    [enseignants],
+  );
+
+  const affectationsFiltrees = useMemo(() => affectations.filter((a) => (
+    (!filtres.classe || Number(a.classe_id) === Number(filtres.classe))
+    && (!filtres.matiere || Number(a.matiere_id) === Number(filtres.matiere))
+    && (!filtres.enseignant || Number(a.enseignant_id) === Number(filtres.enseignant))
+  )), [affectations, filtres]);
+
+  const setFiltre = (name) => (e) => setFiltres((f) => ({ ...f, [name]: e.target.value }));
+
+  const chips = [
+    filtres.classe && ['classe', `Classe : ${labelClasse(Number(filtres.classe))}`],
+    filtres.matiere && ['matiere', `Matière : ${matiereLabel(Number(filtres.matiere))}`],
+    filtres.enseignant && ['enseignant', `Enseignant : ${enseignantLabel(Number(filtres.enseignant))}`],
+  ].filter(Boolean);
 
   const supprimer = async (path, label, reload) => {
     if (!(await confirm(`Supprimer « ${label} » ? Cette action est irréversible.`))) return;
@@ -222,34 +263,83 @@ export default function MatieresPage() {
       )}
 
       {tab === 'affectations' && (
-        <TableCard
-          title="Affectations Matière → Classe"
-          icon="bx-link"
-          count={affectations.length}
-          actions={(
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => openAffectation(null)}>
-              <i className="bx bx-plus me-1" /> Nouvelle affectation
-            </button>
-          )}
-        >
-          <table className="table table-hover mb-0">
-            <thead><tr><th>Classe</th><th>Matière</th><th>Enseignant</th><th>Coefficient</th><th className="text-end">Actions</th></tr></thead>
-            <TBody colSpan={5} loading={loading} error={errors.affectations} rows={affectations.length} empty="Aucune affectation" emptyIcon="bx-link">
-              {affectations.map((a) => (
-                <tr key={a.id}>
-                  <td><strong>{labelClasse(a.classe_id)}</strong></td>
-                  <td>{matiereLabel(a.matiere_id)}</td>
-                  <td>{enseignantLabel(a.enseignant_id)}</td>
-                  <td><span className="badge bg-label-warning">{a.coefficient}</span></td>
-                  <td className="text-end">
-                    <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => openAffectation(a)} />
-                    <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/matieres-classe/${a.id}`, `${labelClasse(a.classe_id)} — ${matiereLabel(a.matiere_id)}`, loadAffectations)} />
-                  </td>
-                </tr>
-              ))}
-            </TBody>
-          </table>
-        </TableCard>
+        <>
+          <div className="card mb-3">
+            <div className="card-body">
+              <h6 className="mb-3">
+                <i className="bx bx-filter-alt me-1" /> Filtres {chips.length > 0 && <span className="badge rounded-pill bg-primary ms-1">{chips.length}</span>}
+              </h6>
+              <div className="row g-2 align-items-end">
+                <div className="col-md-3">
+                  <label className="form-label">Classe</label>
+                  <Select className="form-select form-select-sm" value={filtres.classe} onChange={setFiltre('classe')}>
+                    <option value="">Toutes les classes</option>
+                    {classeOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                  </Select>
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Matière</label>
+                  <Select className="form-select form-select-sm" value={filtres.matiere} onChange={setFiltre('matiere')}>
+                    <option value="">Toutes les matières</option>
+                    {matiereOptions.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}
+                  </Select>
+                </div>
+                <div className="col-md-3">
+                  <label className="form-label">Enseignant</label>
+                  <Select className="form-select form-select-sm" value={filtres.enseignant} onChange={setFiltre('enseignant')}>
+                    <option value="">Tous les enseignants</option>
+                    {enseignantOptions.map((en) => <option key={en.id} value={en.id}>{en.label}</option>)}
+                  </Select>
+                </div>
+                <div className="col-md-3">
+                  <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setFiltres(FILTRES_VIDES)} disabled={!chips.length}>
+                    <i className="bx bx-reset me-1" /> Réinitialiser
+                  </button>
+                </div>
+              </div>
+              <FilterChips chips={chips} onClear={(key) => setFiltres((f) => ({ ...f, [key]: '' }))} />
+            </div>
+          </div>
+
+          <TableCard
+            title="Affectations Matière → Classe"
+            icon="bx-link"
+            count={affectationsFiltrees.length}
+            actions={(
+              <button type="button" className="btn btn-primary btn-sm" onClick={() => openAffectation(null)}>
+                <i className="bx bx-plus me-1" /> Nouvelle affectation
+              </button>
+            )}
+            footer={chips.length > 0 && !loading ? (
+              <small className="text-muted">{affectationsFiltrees.length} affectation(s) sur {affectations.length}</small>
+            ) : null}
+          >
+            <table className="table table-hover mb-0">
+              <thead><tr><th>Classe</th><th>Matière</th><th>Enseignant</th><th>Coefficient</th><th className="text-end">Actions</th></tr></thead>
+              <TBody
+                colSpan={5}
+                loading={loading}
+                error={errors.affectations}
+                rows={affectationsFiltrees.length}
+                empty={chips.length ? 'Aucune affectation ne correspond à ces filtres' : 'Aucune affectation'}
+                emptyIcon="bx-link"
+              >
+                {affectationsFiltrees.map((a) => (
+                  <tr key={a.id}>
+                    <td><strong>{labelClasse(a.classe_id)}</strong></td>
+                    <td>{matiereLabel(a.matiere_id)}</td>
+                    <td>{enseignantLabel(a.enseignant_id)}</td>
+                    <td><span className="badge bg-label-warning">{a.coefficient}</span></td>
+                    <td className="text-end">
+                      <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => openAffectation(a)} />
+                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/matieres-classe/${a.id}`, `${labelClasse(a.classe_id)} — ${matiereLabel(a.matiere_id)}`, loadAffectations)} />
+                    </td>
+                  </tr>
+                ))}
+              </TBody>
+            </table>
+          </TableCard>
+        </>
       )}
 
       {groupeModal && (
