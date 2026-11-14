@@ -323,6 +323,61 @@ def resolve_enseignant_profil(user_id):
     return Enseignant.query.filter_by(utilisateur_id=user_id).first()
 
 
+# Borne haute du coefficient : même valeur que l'import des matières
+# (import_matieres_services.COEF_MAX). Évite une saisie aberrante qui
+# écraserait toute la moyenne d'une classe.
+COEFFICIENT_MAX = 99
+
+
+def _coefficient_valide(valeur):
+    """Entier compris entre 1 et COEFFICIENT_MAX, ou None. Refuse les booléens
+    (True == 1 en Python), les décimaux non entiers (2.5 ne doit pas devenir 2
+    en silence) et les chaînes non numériques."""
+    if isinstance(valeur, bool):
+        return None
+    if isinstance(valeur, int):
+        n = valeur
+    elif isinstance(valeur, float) and valeur.is_integer():
+        n = int(valeur)
+    elif isinstance(valeur, str) and valeur.strip().isdecimal():
+        n = int(valeur.strip())
+    else:
+        return None
+    return n if 1 <= n <= COEFFICIENT_MAX else None
+
+
+def modifier_coefficient_enseignant(enseignant, matiere_classe_id, valeur, etablissement_id):
+    """Un enseignant change le coefficient de SA matière dans une classe.
+
+    Périmètre : uniquement une MatiereClasse dont il est l'enseignant
+    (enseignant_id) et dont la classe appartient à son établissement. Une
+    affectation d'un collègue, d'un autre établissement ou inexistante répond
+    404 sans distinction, pour ne pas révéler leur existence. L'appartenance
+    est vérifiée AVANT la valeur.
+
+    Seul le coefficient est modifiable ici : classe, matière et enseignant
+    restent du ressort de l'administration. Le journal d'audit enregistre la
+    modification (ancienne et nouvelle valeur, auteur) automatiquement.
+    Retourne (résultat, status)."""
+    mc = db.session.get(MatiereClasse, matiere_classe_id)
+    if (mc is None or enseignant is None or mc.enseignant_id != enseignant.id
+            or mc.classe is None or mc.classe.etablissement_id != etablissement_id):
+        return {"erreur": "Matière non trouvée"}, 404
+
+    coefficient = _coefficient_valide(valeur)
+    if coefficient is None:
+        return {"erreur": f"Le coefficient doit être un entier compris entre 1 et {COEFFICIENT_MAX}"}, 400
+
+    if coefficient != mc.coefficient:
+        mc.coefficient = coefficient
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"erreur": "Erreur lors de la mise à jour"}, 500
+    return mc.to_dict(), 200
+
+
 def resolve_classe_ids_restriction(role, user_id):
     """Calcule la restriction de périmètre "classes" à appliquer pour
     l'utilisateur courant :

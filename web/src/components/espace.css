@@ -199,6 +199,7 @@
 }
 .esp-ligne-rapide:hover { color: var(--esp-texte); box-shadow: var(--esp-ombre-hover); }
 .esp-ligne-rapide-texte { flex: 1 1 auto; min-width: 0; }
+.esp-ligne-lien, .esp-ligne-lien:hover { color: inherit; text-decoration: none; }
 .esp-ligne-rapide-titre { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .esp-ligne-rapide .esp-avancement { margin-top: 0.35rem; }
 .esp-ligne-rapide > .bx { color: #c3c8d0; font-size: 1.3rem; }

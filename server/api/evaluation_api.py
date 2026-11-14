@@ -15,7 +15,9 @@ from services.evaluation_services import (
 # resolve_enseignant_profil : équivalent pour un Enseignant, résout son profil
 # métier (pedagogie_models.Enseignant) depuis son user_id, pour ensuite ne lui
 # ouvrir que SES PROPRES MatiereClasse sur ce module (cf. note_bp ci-dessous).
-from services.pedagogie_services import resolve_classe_ids_restriction, resolve_enseignant_profil
+from services.pedagogie_services import (
+    resolve_classe_ids_restriction, resolve_enseignant_profil, modifier_coefficient_enseignant,
+)
 # Modèles nécessaires aux blueprints ENSEIGNANT et CENSEUR en fin de fichier
 # (« mon espace » : classes/matières-classe, années/trimestres/séquences,
 # liste des élèves). Enseignant : utilisé par censeur_espace_bp pour
@@ -282,8 +284,9 @@ def discipline_delete(id):
 
 
 # ---------------------------------------------------------------------------
-# Blueprint ENSEIGNANT — « mon espace », réservé au SEUL rôle Enseignant,
-# en LECTURE SEULE (aucun verbe autre que GET).
+# Blueprint ENSEIGNANT — « mon espace », réservé au SEUL rôle Enseignant.
+# En LECTURE (GET), à une exception près : PUT .../matieres-classe/<id>/coefficient
+# (l'enseignant règle le coefficient de SA matière, cf. plus bas).
 #
 # Alimente la page /enseignant/notes (notes.html) : la grille de saisie a
 # besoin, en plus de /api/notes/ ci-dessus, de connaître les matières-classe
@@ -491,6 +494,37 @@ def enseignant_mon_espace():
         ],
         "sequence_courante": _sequence_json(sequence),
     }), 200
+
+
+# ---------------------------------------------------------------------------
+# PUT /api/enseignant/matieres-classe/<id>/coefficient   {coefficient: int}
+# -> {id, classe_id, matiere_id, enseignant_id, coefficient}
+#
+# L'enseignant règle lui-même le coefficient de la matière qu'il dispense dans
+# une classe. Strictement limité à SES MatiereClasse (404 pour celle d'un
+# collègue ou d'un autre établissement) et à la seule colonne coefficient
+# (entier de 1 à 99). Le journal d'audit trace l'ancienne et la nouvelle
+# valeur au nom de l'enseignant. Les moyennes et bulletins étant calculés à
+# la volée, le nouveau coefficient s'applique immédiatement à toutes les notes
+# de la matière.
+# ---------------------------------------------------------------------------
+
+@enseignant_espace_bp.route('/matieres-classe/<int:mc_id>/coefficient', methods=['PUT'])
+def enseignant_modifier_coefficient(mc_id):
+    etab_id = _etablissement_id_enseignant()
+    if not etab_id:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+
+    profil = resolve_enseignant_profil(int(get_jwt_identity()))
+    if profil is None:
+        return jsonify(ERREUR_PROFIL_NON_RELIE), 404
+
+    data = request.get_json(silent=True) or {}
+    if "coefficient" not in data:
+        return jsonify({"erreur": "coefficient requis"}), 400
+
+    result, status = modifier_coefficient_enseignant(profil, mc_id, data["coefficient"], etab_id)
+    return jsonify(result), status
 
 
 # ---------------------------------------------------------------------------

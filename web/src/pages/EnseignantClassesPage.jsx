@@ -3,9 +3,73 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
 import { EleveIdentite, filtrerRoster } from '../components/NotesCommun';
-import { useToast } from '../components/ui';
+import { Field, FormFooter, useToast } from '../components/ui';
+import Modal from '../components/Modal';
 import './notes.css';
 import { SkelSaisie } from '../components/Skeleton';
+
+// Mêmes bornes que le serveur (pedagogie_services.COEFFICIENT_MAX).
+const COEFFICIENT_MAX = 99;
+
+// Modale de réglage du coefficient d'une matière que l'enseignant dispense.
+// Le serveur reste juge : il refuse toute matière qui n'est pas la sienne.
+function CoefficientModal({ mc, onClose, onSaved }) {
+  const toast = useToast();
+  const [valeur, setValeur] = useState(String(mc.coefficient));
+  const [saving, setSaving] = useState(false);
+  const [erreur, setErreur] = useState('');
+
+  const submit = async () => {
+    const texte = valeur.trim();
+    const n = Number(texte);
+    if (!/^\d+$/.test(texte) || n < 1 || n > COEFFICIENT_MAX) {
+      setErreur(`Saisissez un entier entre 1 et ${COEFFICIENT_MAX}.`);
+      return;
+    }
+    if (n === mc.coefficient) { onClose(); return; }
+    setSaving(true);
+    setErreur('');
+    try {
+      await api.put(`/enseignant/matieres-classe/${mc.id}/coefficient`, { coefficient: n });
+      toast(`Coefficient de ${mc.matiere_libelle} (${mc.classe_label}) : ${n}`);
+      onSaved();
+    } catch (e) {
+      setErreur(e.message);
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="Coefficient de la matière"
+      subtitle={`${mc.matiere_libelle} · ${mc.classe_label}`}
+      size="modal-sm"
+      onClose={saving ? () => {} : onClose}
+      onSubmit={submit}
+      footer={<FormFooter onCancel={onClose} saving={saving} />}
+    >
+      <Field
+        label="Coefficient"
+        required
+        className="mb-0"
+        invalid={erreur}
+        hint="S'applique à toutes les notes de cette matière dans cette classe : moyennes, classements et bulletins, y compris pour les notes déjà saisies."
+      >
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          max={COEFFICIENT_MAX}
+          step="1"
+          autoFocus
+          className={`form-control ${erreur ? 'is-invalid' : ''}`}
+          value={valeur}
+          onChange={(e) => { setValeur(e.target.value); setErreur(''); }}
+        />
+      </Field>
+    </Modal>
+  );
+}
 
 // « Mes classes » de l'enseignant : cartes des classes où il enseigne, puis,
 // pour la classe choisie, ses matières (accès direct à la saisie) et la liste
@@ -14,6 +78,7 @@ import { SkelSaisie } from '../components/Skeleton';
 export default function EnseignantClassesPage() {
   const espace = useMonEspace('/enseignant');
   const [params, setParams] = useSearchParams();
+  const [mcCoef, setMcCoef] = useState(null);
   const classeId = params.get('classe');
   const data = espace.data || {};
   const mcs = useMemo(() => espace.data?.matieres_classe || [], [espace.data]);
@@ -65,16 +130,32 @@ export default function EnseignantClassesPage() {
           <h6 className="esp-groupe-titre">Mes matières dans cette classe</h6>
           <div className="esp-liste-rapide mb-4">
             {classe.matieres.map((mc) => (
-              <Link key={mc.id} to={`/enseignant/notes?mc=${mc.id}`} className="esp-ligne-rapide">
-                <div className="esp-ligne-rapide-texte">
+              <div key={mc.id} className="esp-ligne-rapide">
+                <Link to={`/enseignant/notes?mc=${mc.id}`} className="esp-ligne-rapide-texte esp-ligne-lien">
                   <div className="esp-ligne-rapide-titre">{mc.matiere_libelle} <small className="text-muted fw-normal">· coef. {mc.coefficient}</small></div>
                   {sequence && <Avancement saisies={mc.notes_saisies} attendues={mc.effectif} libelle={sequence.libelle} />}
-                </div>
-                <span className="btn btn-sm btn-primary flex-shrink-0"><i className="bx bx-edit me-1" />Saisir</span>
-              </Link>
+                </Link>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-icon btn-outline-secondary flex-shrink-0"
+                  title="Modifier le coefficient"
+                  aria-label={`Modifier le coefficient de ${mc.matiere_libelle}`}
+                  onClick={() => setMcCoef(mc)}
+                >
+                  <i className="bx bx-slider-alt" />
+                </button>
+                <Link to={`/enseignant/notes?mc=${mc.id}`} className="btn btn-sm btn-primary flex-shrink-0"><i className="bx bx-edit me-1" />Saisir</Link>
+              </div>
             ))}
           </div>
           {annee && <ListeEleves classeId={classeId} anneeId={annee.id} />}
+          {mcCoef && (
+            <CoefficientModal
+              mc={mcCoef}
+              onClose={() => setMcCoef(null)}
+              onSaved={() => { setMcCoef(null); espace.recharger(); }}
+            />
+          )}
         </>
       )}
     </>

@@ -1,0 +1,462 @@
+diff --git a/server/api/evaluation_api.py b/server/api/evaluation_api.py
+index 9881411..440e16b 100644
+--- a/server/api/evaluation_api.py
++++ b/server/api/evaluation_api.py
+@@ -15,7 +15,9 @@ from services.evaluation_services import (
+ # resolve_enseignant_profil : équivalent pour un Enseignant, résout son profil
+ # métier (pedagogie_models.Enseignant) depuis son user_id, pour ensuite ne lui
+ # ouvrir que SES PROPRES MatiereClasse sur ce module (cf. note_bp ci-dessous).
+-from services.pedagogie_services import resolve_classe_ids_restriction, resolve_enseignant_profil
++from services.pedagogie_services import (
++    resolve_classe_ids_restriction, resolve_enseignant_profil, modifier_coefficient_enseignant,
++)
+ # Modèles nécessaires aux blueprints ENSEIGNANT et CENSEUR en fin de fichier
+ # (« mon espace » : classes/matières-classe, années/trimestres/séquences,
+ # liste des élèves). Enseignant : utilisé par censeur_espace_bp pour
+@@ -282,8 +284,9 @@ def discipline_delete(id):
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Blueprint ENSEIGNANT — « mon espace », réservé au SEUL rôle Enseignant,
+-# en LECTURE SEULE (aucun verbe autre que GET).
++# Blueprint ENSEIGNANT — « mon espace », réservé au SEUL rôle Enseignant.
++# En LECTURE (GET), à une exception près : PUT .../matieres-classe/<id>/coefficient
++# (l'enseignant règle le coefficient de SA matière, cf. plus bas).
+ #
+ # Alimente la page /enseignant/notes (notes.html) : la grille de saisie a
+ # besoin, en plus de /api/notes/ ci-dessus, de connaître les matières-classe
+@@ -493,6 +496,37 @@ def enseignant_mon_espace():
+     }), 200
+ 
+ 
++# ---------------------------------------------------------------------------
++# PUT /api/enseignant/matieres-classe/<id>/coefficient   {coefficient: int}
++# -> {id, classe_id, matiere_id, enseignant_id, coefficient}
++#
++# L'enseignant règle lui-même le coefficient de la matière qu'il dispense dans
++# une classe. Strictement limité à SES MatiereClasse (404 pour celle d'un
++# collègue ou d'un autre établissement) et à la seule colonne coefficient
++# (entier de 1 à 99). Le journal d'audit trace l'ancienne et la nouvelle
++# valeur au nom de l'enseignant. Les moyennes et bulletins étant calculés à
++# la volée, le nouveau coefficient s'applique immédiatement à toutes les notes
++# de la matière.
++# ---------------------------------------------------------------------------
++
++@enseignant_espace_bp.route('/matieres-classe/<int:mc_id>/coefficient', methods=['PUT'])
++def enseignant_modifier_coefficient(mc_id):
++    etab_id = _etablissement_id_enseignant()
++    if not etab_id:
++        return jsonify({"erreur": "etablissement_id requis"}), 400
++
++    profil = resolve_enseignant_profil(int(get_jwt_identity()))
++    if profil is None:
++        return jsonify(ERREUR_PROFIL_NON_RELIE), 404
++
++    data = request.get_json(silent=True) or {}
++    if "coefficient" not in data:
++        return jsonify({"erreur": "coefficient requis"}), 400
++
++    result, status = modifier_coefficient_enseignant(profil, mc_id, data["coefficient"], etab_id)
++    return jsonify(result), status
++
++
+ # ---------------------------------------------------------------------------
+ # GET /api/enseignant/horaire?annee_scolaire_id=<id>
+ # -> {creneaux: [{id, libelle, heure_debut, heure_fin}],
+diff --git a/server/services/pedagogie_services.py b/server/services/pedagogie_services.py
+index 0e53261..eba02b7 100644
+--- a/server/services/pedagogie_services.py
++++ b/server/services/pedagogie_services.py
+@@ -323,6 +323,61 @@ def resolve_enseignant_profil(user_id):
+     return Enseignant.query.filter_by(utilisateur_id=user_id).first()
+ 
+ 
++# Borne haute du coefficient : même valeur que l'import des matières
++# (import_matieres_services.COEF_MAX). Évite une saisie aberrante qui
++# écraserait toute la moyenne d'une classe.
++COEFFICIENT_MAX = 99
++
++
++def _coefficient_valide(valeur):
++    """Entier compris entre 1 et COEFFICIENT_MAX, ou None. Refuse les booléens
++    (True == 1 en Python), les décimaux non entiers (2.5 ne doit pas devenir 2
++    en silence) et les chaînes non numériques."""
++    if isinstance(valeur, bool):
++        return None
++    if isinstance(valeur, int):
++        n = valeur
++    elif isinstance(valeur, float) and valeur.is_integer():
++        n = int(valeur)
++    elif isinstance(valeur, str) and valeur.strip().isdecimal():
++        n = int(valeur.strip())
++    else:
++        return None
++    return n if 1 <= n <= COEFFICIENT_MAX else None
++
++
++def modifier_coefficient_enseignant(enseignant, matiere_classe_id, valeur, etablissement_id):
++    """Un enseignant change le coefficient de SA matière dans une classe.
++
++    Périmètre : uniquement une MatiereClasse dont il est l'enseignant
++    (enseignant_id) et dont la classe appartient à son établissement. Une
++    affectation d'un collègue, d'un autre établissement ou inexistante répond
++    404 sans distinction, pour ne pas révéler leur existence. L'appartenance
++    est vérifiée AVANT la valeur.
++
++    Seul le coefficient est modifiable ici : classe, matière et enseignant
++    restent du ressort de l'administration. Le journal d'audit enregistre la
++    modification (ancienne et nouvelle valeur, auteur) automatiquement.
++    Retourne (résultat, status)."""
++    mc = db.session.get(MatiereClasse, matiere_classe_id)
++    if (mc is None or enseignant is None or mc.enseignant_id != enseignant.id
++            or mc.classe is None or mc.classe.etablissement_id != etablissement_id):
++        return {"erreur": "Matière non trouvée"}, 404
++
++    coefficient = _coefficient_valide(valeur)
++    if coefficient is None:
++        return {"erreur": f"Le coefficient doit être un entier compris entre 1 et {COEFFICIENT_MAX}"}, 400
++
++    if coefficient != mc.coefficient:
++        mc.coefficient = coefficient
++        try:
++            db.session.commit()
++        except Exception:
++            db.session.rollback()
++            return {"erreur": "Erreur lors de la mise à jour"}, 500
++    return mc.to_dict(), 200
++
++
+ def resolve_classe_ids_restriction(role, user_id):
+     """Calcule la restriction de périmètre "classes" à appliquer pour
+     l'utilisateur courant :
+diff --git a/server/tests/test_coefficient_enseignant.py b/server/tests/test_coefficient_enseignant.py
+new file mode 100644
+index 0000000..c325147
+--- /dev/null
++++ b/server/tests/test_coefficient_enseignant.py
+@@ -0,0 +1,187 @@
++"""Un enseignant règle le coefficient de SA matière depuis son espace :
++périmètre strict (ses seules affectations), valeurs bornées, trace d'audit."""
++import pytest
++
++from extensions import db
++from models.audit_models import JournalAudit
++from models.pedagogie_models import Departement, Enseignant, Grade, Matiere, MatiereClasse
++from models.structure_models import Classe, Cycle, Etablissement
++from services.authentification_services import create_utilisateur
++
++
++def _url(mc_id):
++    return f'/api/enseignant/matieres-classe/{mc_id}/coefficient'
++
++
++def _coef_en_base(mc_id):
++    db.session.expire_all()
++    return db.session.get(MatiereClasse, mc_id).coefficient
++
++
++def _role_id(nom):
++    from models.authentification_models import Role
++    return Role.query.filter_by(libelle=nom).first().id
++
++
++@pytest.fixture()
++def collegue(monde):
++    """Second enseignant du même établissement, titulaire d'une autre matière
++    dans la même classe. Retourne (compte, id de sa matière-classe)."""
++    compte, status = create_utilisateur(
++        {'nom': 'Collegue Test', 'role_ids': [_role_id('Enseignant')], 'etablissement_id': monde.etab_id})
++    assert status == 201, compte
++    dep = Departement.query.filter_by(etablissement_id=monde.etab_id).first()
++    grade = Grade.query.filter_by(etablissement_id=monde.etab_id).first()
++    ens = Enseignant(etablissement_id=monde.etab_id, nom='Collegue', prenom='Test',
++                     departement_id=dep.id, grade_id=grade.id, utilisateur_id=compte['id'])
++    matiere = Matiere(etablissement_id=monde.etab_id, libelle='Physique',
++                      groupe_id=Matiere.query.get(monde.matiere_id).groupe_id)
++    db.session.add_all([ens, matiere])
++    db.session.flush()
++    mc = MatiereClasse(classe_id=monde.classe_id, matiere_id=matiere.id, enseignant_id=ens.id, coefficient=2)
++    db.session.add(mc)
++    db.session.commit()
++    return compte, mc.id
++
++
++@pytest.fixture()
++def autre_etablissement(monde):
++    """Matière-classe d'un AUTRE établissement. Retourne son id."""
++    etab = Etablissement(code='TST2', nom='Autre lycée')
++    db.session.add(etab)
++    db.session.flush()
++    cycle = Cycle(etablissement_id=etab.id, libelle='6e')
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=etab.id, cycle_id=cycle.id)
++    dep = Departement(etablissement_id=etab.id, libelle='Maths')
++    grade = Grade(etablissement_id=etab.id, libelle='PLEG')
++    db.session.add_all([classe, dep, grade])
++    db.session.flush()
++    ens = Enseignant(etablissement_id=etab.id, nom='Etranger', prenom='Prof',
++                     departement_id=dep.id, grade_id=grade.id)
++    matiere = Matiere(etablissement_id=etab.id, libelle='Maths',
++                      groupe_id=Matiere.query.get(monde.matiere_id).groupe_id)
++    db.session.add_all([ens, matiere])
++    db.session.flush()
++    mc = MatiereClasse(classe_id=classe.id, matiere_id=matiere.id, enseignant_id=ens.id, coefficient=3)
++    db.session.add(mc)
++    db.session.commit()
++    return mc.id
++
++
++def test_enseignant_modifie_le_coefficient_de_sa_matiere(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    rep = prof.put(_url(monde.mc_id), json={'coefficient': 6})
++    assert rep.status_code == 200, rep.get_json()
++    assert rep.get_json()['coefficient'] == 6
++    assert _coef_en_base(monde.mc_id) == 6
++
++    # Visible tout de suite dans « mon espace ».
++    espace = prof.get('/api/enseignant/mon-espace').get_json()
++    assert [mc['coefficient'] for mc in espace['matieres_classe']] == [6]
++
++
++def test_modification_tracee_au_nom_de_l_enseignant(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(monde.mc_id), json={'coefficient': 6}).status_code == 200
++
++    [entree] = JournalAudit.query.filter_by(table_nom='matiere_classe', ligne_id=str(monde.mc_id),
++                                            action='modification').all()
++    assert entree.changements['coefficient'] == [4, 6]
++    assert entree.auteur_id == monde.enseignant_compte['id']
++    assert entree.auteur_role == 'Enseignant'
++
++
++def test_meme_valeur_ne_change_rien(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(monde.mc_id), json={'coefficient': 4}).status_code == 200
++    assert JournalAudit.query.filter_by(table_nom='matiere_classe', action='modification').count() == 0
++
++
++def test_chaine_numerique_acceptee(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(monde.mc_id), json={'coefficient': '5'}).status_code == 200
++    assert _coef_en_base(monde.mc_id) == 5
++
++
++@pytest.mark.parametrize('valeur', [0, -1, 100, 2.5, 'abc', '', '2.5', '²', True, None, [3], {'a': 1}])
++def test_valeurs_invalides_refusees(monde, connecter, valeur):
++    prof = connecter(monde.enseignant_compte)
++    rep = prof.put(_url(monde.mc_id), json={'coefficient': valeur})
++    assert rep.status_code == 400, rep.get_json()
++    assert _coef_en_base(monde.mc_id) == 4
++
++
++def test_bornes_acceptees(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(monde.mc_id), json={'coefficient': 1}).status_code == 200
++    assert prof.put(_url(monde.mc_id), json={'coefficient': 99}).status_code == 200
++    assert _coef_en_base(monde.mc_id) == 99
++
++
++def test_coefficient_obligatoire(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(monde.mc_id), json={'autre': 1}).status_code == 400
++
++
++def test_matiere_d_un_collegue_interdite(monde, connecter, collegue):
++    _, mc_collegue = collegue
++    prof = connecter(monde.enseignant_compte)
++    rep = prof.put(_url(mc_collegue), json={'coefficient': 9})
++    assert rep.status_code == 404
++    assert _coef_en_base(mc_collegue) == 2
++    # Valeur invalide sur la matière d'un autre : toujours 404, pas 400
++    # (l'existence de la matière ne doit pas fuiter).
++    assert prof.put(_url(mc_collegue), json={'coefficient': 0}).status_code == 404
++
++
++def test_matiere_d_un_autre_etablissement_interdite(monde, connecter, autre_etablissement):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(autre_etablissement), json={'coefficient': 9}).status_code == 404
++    assert _coef_en_base(autre_etablissement) == 3
++
++
++def test_matiere_inexistante(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    assert prof.put(_url(99999), json={'coefficient': 3}).status_code == 404
++
++
++def test_les_autres_champs_ne_sont_pas_modifiables(monde, connecter, collegue):
++    """Le corps n'est lu que pour « coefficient » : impossible de s'octroyer
++    une autre matière ou de se réaffecter."""
++    compte_collegue, _ = collegue
++    ens_collegue = Enseignant.query.filter_by(utilisateur_id=compte_collegue['id']).first()
++    prof = connecter(monde.enseignant_compte)
++    rep = prof.put(_url(monde.mc_id), json={'coefficient': 5, 'enseignant_id': ens_collegue.id,
++                                            'classe_id': 999, 'matiere_id': 999})
++    assert rep.status_code == 200
++    db.session.expire_all()
++    mc = db.session.get(MatiereClasse, monde.mc_id)
++    assert (mc.enseignant_id, mc.classe_id, mc.matiere_id) == (monde.enseignant_id, monde.classe_id, monde.matiere_id)
++
++
++@pytest.mark.parametrize('compte', ['admin_compte', 'censeur_compte'])
++def test_autres_roles_refuses(monde, connecter, compte):
++    client = connecter(getattr(monde, compte))
++    rep = client.put(_url(monde.mc_id), json={'coefficient': 9})
++    assert rep.status_code == 403
++    assert _coef_en_base(monde.mc_id) == 4
++
++
++def test_non_connecte_refuse(monde, appli):
++    rep = appli.test_client().put(_url(monde.mc_id), json={'coefficient': 9})
++    assert rep.status_code == 401
++    assert _coef_en_base(monde.mc_id) == 4
++
++
++def test_enseignant_sans_profil_relie(monde, connecter):
++    """Compte Enseignant non relié à un profil : message actionnable."""
++    compte, status = create_utilisateur(
++        {'nom': 'Sans Profil', 'role_ids': [_role_id('Enseignant')], 'etablissement_id': monde.etab_id})
++    assert status == 201
++    client = connecter(compte)
++    rep = client.put(_url(monde.mc_id), json={'coefficient': 3})
++    assert rep.status_code == 404
++    assert 'profil enseignant' in rep.get_json()['erreur']
++    assert _coef_en_base(monde.mc_id) == 4
+diff --git a/web/src/components/espace.css b/web/src/components/espace.css
+index 416ab01..8f4debd 100644
+--- a/web/src/components/espace.css
++++ b/web/src/components/espace.css
+@@ -199,6 +199,7 @@
+ }
+ .esp-ligne-rapide:hover { color: var(--esp-texte); box-shadow: var(--esp-ombre-hover); }
+ .esp-ligne-rapide-texte { flex: 1 1 auto; min-width: 0; }
++.esp-ligne-lien, .esp-ligne-lien:hover { color: inherit; text-decoration: none; }
+ .esp-ligne-rapide-titre { font-weight: 600; font-size: 0.92rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .esp-ligne-rapide .esp-avancement { margin-top: 0.35rem; }
+ .esp-ligne-rapide > .bx { color: #c3c8d0; font-size: 1.3rem; }
+diff --git a/web/src/pages/EnseignantClassesPage.jsx b/web/src/pages/EnseignantClassesPage.jsx
+index f8a4577..4d3ee35 100644
+--- a/web/src/pages/EnseignantClassesPage.jsx
++++ b/web/src/pages/EnseignantClassesPage.jsx
+@@ -3,10 +3,74 @@ import { Link, useSearchParams } from 'react-router-dom';
+ import { api } from '../lib/api';
+ import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
+ import { EleveIdentite, filtrerRoster } from '../components/NotesCommun';
+-import { useToast } from '../components/ui';
++import { Field, FormFooter, useToast } from '../components/ui';
++import Modal from '../components/Modal';
+ import './notes.css';
+ import { SkelSaisie } from '../components/Skeleton';
+ 
++// Mêmes bornes que le serveur (pedagogie_services.COEFFICIENT_MAX).
++const COEFFICIENT_MAX = 99;
++
++// Modale de réglage du coefficient d'une matière que l'enseignant dispense.
++// Le serveur reste juge : il refuse toute matière qui n'est pas la sienne.
++function CoefficientModal({ mc, onClose, onSaved }) {
++  const toast = useToast();
++  const [valeur, setValeur] = useState(String(mc.coefficient));
++  const [saving, setSaving] = useState(false);
++  const [erreur, setErreur] = useState('');
++
++  const submit = async () => {
++    const texte = valeur.trim();
++    const n = Number(texte);
++    if (!/^\d+$/.test(texte) || n < 1 || n > COEFFICIENT_MAX) {
++      setErreur(`Saisissez un entier entre 1 et ${COEFFICIENT_MAX}.`);
++      return;
++    }
++    if (n === mc.coefficient) { onClose(); return; }
++    setSaving(true);
++    setErreur('');
++    try {
++      await api.put(`/enseignant/matieres-classe/${mc.id}/coefficient`, { coefficient: n });
++      toast(`Coefficient de ${mc.matiere_libelle} (${mc.classe_label}) : ${n}`);
++      onSaved();
++    } catch (e) {
++      setErreur(e.message);
++      setSaving(false);
++    }
++  };
++
++  return (
++    <Modal
++      title="Coefficient de la matière"
++      subtitle={`${mc.matiere_libelle} · ${mc.classe_label}`}
++      size="modal-sm"
++      onClose={saving ? () => {} : onClose}
++      onSubmit={submit}
++      footer={<FormFooter onCancel={onClose} saving={saving} />}
++    >
++      <Field
++        label="Coefficient"
++        required
++        className="mb-0"
++        invalid={erreur}
++        hint="S'applique à toutes les notes de cette matière dans cette classe : moyennes, classements et bulletins, y compris pour les notes déjà saisies."
++      >
++        <input
++          type="number"
++          inputMode="numeric"
++          min="1"
++          max={COEFFICIENT_MAX}
++          step="1"
++          autoFocus
++          className={`form-control ${erreur ? 'is-invalid' : ''}`}
++          value={valeur}
++          onChange={(e) => { setValeur(e.target.value); setErreur(''); }}
++        />
++      </Field>
++    </Modal>
++  );
++}
++
+ // « Mes classes » de l'enseignant : cartes des classes où il enseigne, puis,
+ // pour la classe choisie, ses matières (accès direct à la saisie) et la liste
+ // des élèves.
+@@ -14,6 +78,7 @@ import { SkelSaisie } from '../components/Skeleton';
+ export default function EnseignantClassesPage() {
+   const espace = useMonEspace('/enseignant');
+   const [params, setParams] = useSearchParams();
++  const [mcCoef, setMcCoef] = useState(null);
+   const classeId = params.get('classe');
+   const data = espace.data || {};
+   const mcs = useMemo(() => espace.data?.matieres_classe || [], [espace.data]);
+@@ -65,16 +130,32 @@ export default function EnseignantClassesPage() {
+           <h6 className="esp-groupe-titre">Mes matières dans cette classe</h6>
+           <div className="esp-liste-rapide mb-4">
+             {classe.matieres.map((mc) => (
+-              <Link key={mc.id} to={`/enseignant/notes?mc=${mc.id}`} className="esp-ligne-rapide">
+-                <div className="esp-ligne-rapide-texte">
++              <div key={mc.id} className="esp-ligne-rapide">
++                <Link to={`/enseignant/notes?mc=${mc.id}`} className="esp-ligne-rapide-texte esp-ligne-lien">
+                   <div className="esp-ligne-rapide-titre">{mc.matiere_libelle} <small className="text-muted fw-normal">· coef. {mc.coefficient}</small></div>
+                   {sequence && <Avancement saisies={mc.notes_saisies} attendues={mc.effectif} libelle={sequence.libelle} />}
+-                </div>
+-                <span className="btn btn-sm btn-primary flex-shrink-0"><i className="bx bx-edit me-1" />Saisir</span>
+-              </Link>
++                </Link>
++                <button
++                  type="button"
++                  className="btn btn-sm btn-icon btn-outline-secondary flex-shrink-0"
++                  title="Modifier le coefficient"
++                  aria-label={`Modifier le coefficient de ${mc.matiere_libelle}`}
++                  onClick={() => setMcCoef(mc)}
++                >
++                  <i className="bx bx-slider-alt" />
++                </button>
++                <Link to={`/enseignant/notes?mc=${mc.id}`} className="btn btn-sm btn-primary flex-shrink-0"><i className="bx bx-edit me-1" />Saisir</Link>
++              </div>
+             ))}
+           </div>
+           {annee && <ListeEleves classeId={classeId} anneeId={annee.id} />}
++          {mcCoef && (
++            <CoefficientModal
++              mc={mcCoef}
++              onClose={() => setMcCoef(null)}
++              onSaved={() => { setMcCoef(null); espace.recharger(); }}
++            />
++          )}
+         </>
+       )}
+     </>
