@@ -35,3 +35,6 @@ ui.zip
 
 # --- Photos d'identité des élèves (données personnelles de mineurs) ---
 server/storage/photos_eleves/
+
+# --- Épreuves déposées par les enseignants (documents pédagogiques) ---
+server/storage/epreuves/

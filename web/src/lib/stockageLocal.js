@@ -51,8 +51,10 @@ export function setProprietaireCache(id) {
 
 // GET mis en cache : toutes les données métier (espaces, notes, discipline,
 // emplois du temps, élèves, inscriptions, paiements…), sauf l'authentification
-// (session gérée à part, cf. offline.js), le journal d'audit et les imports.
-const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/'];
+// (session gérée à part, cf. offline.js), le journal d'audit, les imports et
+// les épreuves (listes paginées et filtrées, fichiers : rien à rejouer hors
+// connexion, cf. lib/epreuves.js).
+const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/', '/epreuves', '/enseignant/epreuves'];
 
 export function estCacheable(basePath) {
   return !PREFIXES_EXCLUS.some((p) => basePath.startsWith(p));

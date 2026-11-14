@@ -35,6 +35,12 @@ from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN
 # Censeur/Surveillant), d'où ce point d'entrée dédié, pré-filtré et
 # pré-enrichi côté serveur, sur le même modèle que enseignant_mon_espace.
 from models.emploi_du_temps_models import CreneauHoraire, Horaire
+# Épreuves déposées par l'enseignant (liste paginée, dépôt, suppression) : toute
+# la logique (formats, taille, stockage, périmètre) est dans le service, ces
+# routes ne font que résoudre l'enseignant connecté — cf. plus bas.
+from services.epreuve_services import (
+    lister_epreuves, deposer_epreuve, supprimer_epreuve, get_epreuve_scoped,
+)
 # Comptage des notes saisies (avancement des cartes de classes) : règle
 # commune, cf. evaluation_services.notes_saisies_par_mc.
 
@@ -712,6 +718,78 @@ def enseignant_roster():
 
     liste.sort(key=lambda e: (e["nom"] or "", e["prenom"] or ""))
     return jsonify(liste), 200
+
+
+# ---------------------------------------------------------------------------
+# ÉPREUVES de l'enseignant connecté
+#
+# GET    /api/enseignant/epreuves?page&per_page=6&classe_id&matiere_id
+#        -> {items, total, page, pages, per_page} : UNIQUEMENT ses épreuves
+# POST   /api/enseignant/epreuves   (multipart : matiere_classe_id, titre,
+#        fichier) -> 201 ; 403 si la matière-classe n'est pas la sienne
+# DELETE /api/enseignant/epreuves/<id>  : ses épreuves uniquement (404 sinon)
+#
+# Les classes et matières proposées dans la fenêtre d'ajout et dans les filtres
+# viennent de /api/enseignant/mon-espace (matieres_classe). Le périmètre est
+# résolu EN DIRECT depuis le user_id (resolve_enseignant_profil), comme pour
+# les notes, jamais depuis un claim mis en cache. Formats, taille, stockage :
+# cf. services/epreuve_services.py.
+# ---------------------------------------------------------------------------
+
+EPREUVES_PAR_PAGE_ENSEIGNANT = 6
+
+
+def _contexte_epreuves_enseignant():
+    """((etab_id, profil), None) ou (None, (réponse, status)) : établissement du
+    JWT et profil Enseignant relié au compte, ou l'erreur à renvoyer."""
+    etab_id = _etablissement_id_enseignant()
+    if not etab_id:
+        return None, (jsonify({"erreur": "etablissement_id requis"}), 400)
+    profil = resolve_enseignant_profil(int(get_jwt_identity()))
+    if profil is None:
+        return None, (jsonify(ERREUR_PROFIL_NON_RELIE), 404)
+    return (etab_id, profil), None
+
+
+@enseignant_espace_bp.route('/epreuves', methods=['GET'])
+def enseignant_epreuves_liste():
+    contexte, erreur = _contexte_epreuves_enseignant()
+    if erreur:
+        return erreur
+    etab_id, profil = contexte
+    return jsonify(lister_epreuves(
+        etab_id,
+        page=request.args.get("page", default=1, type=int),
+        per_page=request.args.get("per_page", default=EPREUVES_PAR_PAGE_ENSEIGNANT, type=int),
+        classe_id=request.args.get("classe_id", type=int),
+        matiere_id=request.args.get("matiere_id", type=int),
+        # Toujours lui-même : un enseignant_id passé en paramètre est ignoré.
+        enseignant_id=profil.id,
+        annee_scolaire_id=request.args.get("annee_scolaire_id", type=int),
+    )), 200
+
+
+@enseignant_espace_bp.route('/epreuves', methods=['POST'])
+def enseignant_epreuves_depot():
+    contexte, erreur = _contexte_epreuves_enseignant()
+    if erreur:
+        return erreur
+    etab_id, profil = contexte
+    result, status = deposer_epreuve(etab_id, request.form, request.files.get("fichier"), enseignant_id=profil.id)
+    return jsonify(result), status
+
+
+@enseignant_espace_bp.route('/epreuves/<int:epreuve_id>', methods=['DELETE'])
+def enseignant_epreuves_suppression(epreuve_id):
+    contexte, erreur = _contexte_epreuves_enseignant()
+    if erreur:
+        return erreur
+    etab_id, profil = contexte
+    epreuve = get_epreuve_scoped(epreuve_id, etab_id, profil.id)
+    if epreuve is None:
+        return jsonify({"erreur": "Épreuve non trouvée"}), 404
+    result, status = supprimer_epreuve(epreuve)
+    return jsonify(result), status
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,1422 @@
+diff --git a/.gitignore b/.gitignore
+index 6f53a85..954e0cf 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -35,3 +35,6 @@ ui.zip
+ 
+ # --- Photos d'identité des élèves (données personnelles de mineurs) ---
+ server/storage/photos_eleves/
++
++# --- Épreuves déposées par les enseignants (documents pédagogiques) ---
++server/storage/epreuves/
+diff --git a/server/api/epreuve_api.py b/server/api/epreuve_api.py
+new file mode 100644
+index 0000000..fdc5f53
+--- /dev/null
++++ b/server/api/epreuve_api.py
+@@ -0,0 +1,104 @@
++from flask import Blueprint, jsonify, request, send_from_directory
++from flask_jwt_extended import get_jwt, jwt_required
++
++from services.epreuve_services import (
++    lister_epreuves, deposer_epreuve, supprimer_epreuve, get_epreuve_scoped,
++    chemin_epreuve, epreuves_dir_of,
++)
++
++# ---------------------------------------------------------------------------
++# Blueprint ÉPREUVES (administration) — toutes les épreuves de l'établissement.
++#
++# Réservé à Admin et SuperAdmin. Le SuperAdmin choisit l'établissement par
++# ?etablissement_id= (y compris sur le POST multipart : le paramètre reste dans
++# l'URL, jamais dans le formulaire) ; l'Admin est toujours cantonné à celui de
++# son compte (claim JWT).
++#
++# GET    /api/epreuves/?page&per_page=10&classe_id&matiere_id&enseignant_id
++#                      &annee_scolaire_id
++#        -> {items, total, page, pages, per_page}
++# POST   /api/epreuves/   (multipart : titre, fichier, et matiere_classe_id OU
++#        classe_id + matiere_id) : l'administration choisit classe + matière,
++#        l'enseignant est celui de la MatiereClasse.
++# GET    /api/epreuves/<id>/fichier  : téléchargement (pièce jointe)
++# DELETE /api/epreuves/<id>
++#
++# Les enseignants déposent et suppriment leurs propres épreuves via
++# /api/enseignant/epreuves (cf. evaluation_api.py). Formats, taille, stockage :
++# cf. services/epreuve_services.py.
++# ---------------------------------------------------------------------------
++
++ROLES_EPREUVES = ("Admin", "SuperAdmin")
++EPREUVES_PAR_PAGE_ADMIN = 10
++
++epreuve_bp = Blueprint('epreuve_api', __name__, url_prefix='/api/epreuves')
++
++
++@epreuve_bp.before_request
++@jwt_required()
++def _require_role_epreuve():
++    if get_jwt().get("role") not in ROLES_EPREUVES:
++        return jsonify({"erreur": "Accès non autorisé"}), 403
++    return None
++
++
++def _resolve_etablissement_id_epreuve():
++    claims = get_jwt()
++    if claims.get("role") == "SuperAdmin":
++        return request.args.get("etablissement_id", type=int)
++    return claims.get("etablissement_id")
++
++
++@epreuve_bp.route('/', methods=['GET'])
++def epreuve_get_all():
++    etab_id = _resolve_etablissement_id_epreuve()
++    if not etab_id:
++        return jsonify({"erreur": "etablissement_id requis"}), 400
++    return jsonify(lister_epreuves(
++        etab_id,
++        page=request.args.get("page", default=1, type=int),
++        per_page=request.args.get("per_page", default=EPREUVES_PAR_PAGE_ADMIN, type=int),
++        classe_id=request.args.get("classe_id", type=int),
++        matiere_id=request.args.get("matiere_id", type=int),
++        enseignant_id=request.args.get("enseignant_id", type=int),
++        annee_scolaire_id=request.args.get("annee_scolaire_id", type=int),
++    )), 200
++
++
++@epreuve_bp.route('/', methods=['POST'])
++def epreuve_create():
++    etab_id = _resolve_etablissement_id_epreuve()
++    if not etab_id:
++        return jsonify({"erreur": "etablissement_id requis"}), 400
++    result, status = deposer_epreuve(etab_id, request.form, request.files.get("fichier"))
++    return jsonify(result), status
++
++
++@epreuve_bp.route('/<int:id>/fichier', methods=['GET'])
++def epreuve_telecharger(id):
++    etab_id = _resolve_etablissement_id_epreuve()
++    epreuve = get_epreuve_scoped(id, etab_id) if etab_id else None
++    if epreuve is None:
++        return jsonify({"erreur": "Épreuve non trouvée"}), 404
++    if not chemin_epreuve(epreuve):
++        return jsonify({"erreur": "Fichier introuvable sur le serveur"}), 404
++
++    # Toujours en pièce jointe (jamais affiché dans le navigateur), sous le
++    # nom d'origine ; le type est celui déduit de la signature au dépôt.
++    response = send_from_directory(
++        epreuves_dir_of(epreuve.etablissement_id), epreuve.fichier,
++        as_attachment=True, download_name=epreuve.nom_original, mimetype=epreuve.mime,
++    )
++    response.headers['Cache-Control'] = 'private, no-store'
++    response.headers['X-Content-Type-Options'] = 'nosniff'
++    return response
++
++
++@epreuve_bp.route('/<int:id>', methods=['DELETE'])
++def epreuve_delete(id):
++    etab_id = _resolve_etablissement_id_epreuve()
++    epreuve = get_epreuve_scoped(id, etab_id) if etab_id else None
++    if epreuve is None:
++        return jsonify({"erreur": "Épreuve non trouvée"}), 404
++    result, status = supprimer_epreuve(epreuve)
++    return jsonify(result), status
+diff --git a/server/api/evaluation_api.py b/server/api/evaluation_api.py
+index 440e16b..a05d7fa 100644
+--- a/server/api/evaluation_api.py
++++ b/server/api/evaluation_api.py
+@@ -35,6 +35,12 @@ from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN
+ # Censeur/Surveillant), d'où ce point d'entrée dédié, pré-filtré et
+ # pré-enrichi côté serveur, sur le même modèle que enseignant_mon_espace.
+ from models.emploi_du_temps_models import CreneauHoraire, Horaire
++# Épreuves déposées par l'enseignant (liste paginée, dépôt, suppression) : toute
++# la logique (formats, taille, stockage, périmètre) est dans le service, ces
++# routes ne font que résoudre l'enseignant connecté — cf. plus bas.
++from services.epreuve_services import (
++    lister_epreuves, deposer_epreuve, supprimer_epreuve, get_epreuve_scoped,
++)
+ # Comptage des notes saisies (avancement des cartes de classes) : règle
+ # commune, cf. evaluation_services.notes_saisies_par_mc.
+ 
+@@ -714,6 +720,78 @@ def enseignant_roster():
+     return jsonify(liste), 200
+ 
+ 
++# ---------------------------------------------------------------------------
++# ÉPREUVES de l'enseignant connecté
++#
++# GET    /api/enseignant/epreuves?page&per_page=6&classe_id&matiere_id
++#        -> {items, total, page, pages, per_page} : UNIQUEMENT ses épreuves
++# POST   /api/enseignant/epreuves   (multipart : matiere_classe_id, titre,
++#        fichier) -> 201 ; 403 si la matière-classe n'est pas la sienne
++# DELETE /api/enseignant/epreuves/<id>  : ses épreuves uniquement (404 sinon)
++#
++# Les classes et matières proposées dans la fenêtre d'ajout et dans les filtres
++# viennent de /api/enseignant/mon-espace (matieres_classe). Le périmètre est
++# résolu EN DIRECT depuis le user_id (resolve_enseignant_profil), comme pour
++# les notes, jamais depuis un claim mis en cache. Formats, taille, stockage :
++# cf. services/epreuve_services.py.
++# ---------------------------------------------------------------------------
++
++EPREUVES_PAR_PAGE_ENSEIGNANT = 6
++
++
++def _contexte_epreuves_enseignant():
++    """((etab_id, profil), None) ou (None, (réponse, status)) : établissement du
++    JWT et profil Enseignant relié au compte, ou l'erreur à renvoyer."""
++    etab_id = _etablissement_id_enseignant()
++    if not etab_id:
++        return None, (jsonify({"erreur": "etablissement_id requis"}), 400)
++    profil = resolve_enseignant_profil(int(get_jwt_identity()))
++    if profil is None:
++        return None, (jsonify(ERREUR_PROFIL_NON_RELIE), 404)
++    return (etab_id, profil), None
++
++
++@enseignant_espace_bp.route('/epreuves', methods=['GET'])
++def enseignant_epreuves_liste():
++    contexte, erreur = _contexte_epreuves_enseignant()
++    if erreur:
++        return erreur
++    etab_id, profil = contexte
++    return jsonify(lister_epreuves(
++        etab_id,
++        page=request.args.get("page", default=1, type=int),
++        per_page=request.args.get("per_page", default=EPREUVES_PAR_PAGE_ENSEIGNANT, type=int),
++        classe_id=request.args.get("classe_id", type=int),
++        matiere_id=request.args.get("matiere_id", type=int),
++        # Toujours lui-même : un enseignant_id passé en paramètre est ignoré.
++        enseignant_id=profil.id,
++        annee_scolaire_id=request.args.get("annee_scolaire_id", type=int),
++    )), 200
++
++
++@enseignant_espace_bp.route('/epreuves', methods=['POST'])
++def enseignant_epreuves_depot():
++    contexte, erreur = _contexte_epreuves_enseignant()
++    if erreur:
++        return erreur
++    etab_id, profil = contexte
++    result, status = deposer_epreuve(etab_id, request.form, request.files.get("fichier"), enseignant_id=profil.id)
++    return jsonify(result), status
++
++
++@enseignant_espace_bp.route('/epreuves/<int:epreuve_id>', methods=['DELETE'])
++def enseignant_epreuves_suppression(epreuve_id):
++    contexte, erreur = _contexte_epreuves_enseignant()
++    if erreur:
++        return erreur
++    etab_id, profil = contexte
++    epreuve = get_epreuve_scoped(epreuve_id, etab_id, profil.id)
++    if epreuve is None:
++        return jsonify({"erreur": "Épreuve non trouvée"}), 404
++    result, status = supprimer_epreuve(epreuve)
++    return jsonify(result), status
++
++
+ # ---------------------------------------------------------------------------
+ # Blueprint CENSEUR/SURVEILLANT — « mon espace », strict pendant de
+ # enseignant_espace_bp ci-dessus, mais scopé par CLASSES ASSIGNÉES
+diff --git a/server/app.py b/server/app.py
+index 2887a8d..ced0d22 100644
+--- a/server/app.py
++++ b/server/app.py
+@@ -46,6 +46,10 @@ from api.tresorerie_api import tresorerie_bp
+ # templates/censeur/notes.html et templates/censeur/bulletin.html.
+ from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
+ from api.bulletin_api import bulletin_bp
++# Épreuves (documents déposés par les enseignants) : vue et dépôt de
++# l'administration sous /api/epreuves ; les routes de l'enseignant sont dans
++# enseignant_espace_bp (/api/enseignant/epreuves) — cf. api/epreuve_api.py.
++from api.epreuve_api import epreuve_bp
+ # audit_bp : consultation du journal d'audit (qui a modifié quoi, quand),
+ # alimenté automatiquement par services/audit_services.activer_audit().
+ from api.audit_api import audit_bp
+@@ -231,6 +235,9 @@ def create_app(env=None):
+     app.register_blueprint(censeur_espace_bp)
+     # Bulletins séquentiels / trimestriels / annuels (aperçu HTML + PDF).
+     app.register_blueprint(bulletin_bp)
++    # Épreuves : liste/dépôt/téléchargement/suppression pour Admin et
++    # SuperAdmin. Les audits sont automatiques (activer_audit).
++    app.register_blueprint(epreuve_bp)
+     app.register_blueprint(audit_bp)
+     app.register_blueprint(authentification_bp)
+     app.register_blueprint(superadmin_bp)
+diff --git a/server/config.py b/server/config.py
+index 5a150c7..a67fde3 100644
+--- a/server/config.py
++++ b/server/config.py
+@@ -122,6 +122,16 @@ class Config:
+         "BULLETINS_STORAGE_PATH", os.path.join(BASE_DIR, "storage", "bulletins")
+     )
+ 
++    # --- Stockage des épreuves (PDF, Word, images déposés par les enseignants) ---
++    # <EPREUVES_STORAGE_PATH>/<etablissement_id>/<uuid>.<ext>. Par défaut sous
++    # storage/, déjà monté sur le volume persistant en production
++    # (server-storage:/app/storage). Lu à l'exécution par
++    # services/epreuve_services.py (les tests le redirigent vers un dossier
++    # temporaire).
++    EPREUVES_STORAGE_PATH = os.environ.get(
++        "EPREUVES_STORAGE_PATH", os.path.join(BASE_DIR, "storage", "epreuves")
++    )
++
+     @classmethod
+     def validate(cls):
+         """À appeler explicitement au démarrage de l'application (voir app.py) :
+diff --git a/server/migrations/versions/d9b3a5f7c264_epreuves.py b/server/migrations/versions/d9b3a5f7c264_epreuves.py
+new file mode 100644
+index 0000000..e9201d9
+--- /dev/null
++++ b/server/migrations/versions/d9b3a5f7c264_epreuves.py
+@@ -0,0 +1,51 @@
++"""épreuves : documents déposés par les enseignants
++
++Table epreuve : une épreuve (PDF, Word ou image) rattachée à une
++matière-classe (classe + matière + enseignant) et à une année scolaire. Le
++fichier est stocké sur disque (storage/epreuves/<etablissement_id>/), la base
++ne garde que ses métadonnées.
++
++Revision ID: d9b3a5f7c264
++Revises: c8a4f1e6b273
++Create Date: 2026-11-14 09:00:00.000000
++
++"""
++from alembic import op
++import sqlalchemy as sa
++
++
++# revision identifiers, used by Alembic.
++revision = 'd9b3a5f7c264'
++down_revision = 'c8a4f1e6b273'
++branch_labels = None
++depends_on = None
++
++
++def upgrade():
++    op.create_table(
++        'epreuve',
++        sa.Column('id', sa.Integer(), nullable=False),
++        sa.Column('etablissement_id', sa.Integer(), nullable=False),
++        sa.Column('matiere_classe_id', sa.Integer(), nullable=False),
++        sa.Column('enseignant_id', sa.Integer(), nullable=False),
++        sa.Column('annee_scolaire_id', sa.Integer(), nullable=False),
++        sa.Column('titre', sa.String(length=150), nullable=False),
++        sa.Column('nom_original', sa.String(length=255), nullable=False),
++        sa.Column('fichier', sa.String(length=64), nullable=False),
++        sa.Column('mime', sa.String(length=100), nullable=False),
++        sa.Column('taille', sa.Integer(), nullable=False),
++        sa.Column('created_at', sa.DateTime(), nullable=False),
++        sa.ForeignKeyConstraint(['etablissement_id'], ['etablissement.id']),
++        sa.ForeignKeyConstraint(['matiere_classe_id'], ['matiere_classe.id']),
++        sa.ForeignKeyConstraint(['enseignant_id'], ['enseignant.id']),
++        sa.ForeignKeyConstraint(['annee_scolaire_id'], ['annee_scolaire.id']),
++        sa.PrimaryKeyConstraint('id'),
++    )
++    op.create_index('ix_epreuve_etab_mc', 'epreuve', ['etablissement_id', 'matiere_classe_id'])
++    op.create_index('ix_epreuve_etab_enseignant', 'epreuve', ['etablissement_id', 'enseignant_id'])
++
++
++def downgrade():
++    op.drop_index('ix_epreuve_etab_enseignant', table_name='epreuve')
++    op.drop_index('ix_epreuve_etab_mc', table_name='epreuve')
++    op.drop_table('epreuve')
+diff --git a/server/models/epreuve_models.py b/server/models/epreuve_models.py
+new file mode 100644
+index 0000000..d267dbe
+--- /dev/null
++++ b/server/models/epreuve_models.py
+@@ -0,0 +1,69 @@
++from datetime import datetime
++
++from extensions import db
++
++
++# ---------------------------------------------------------------------------
++# Epreuve — un document (PDF, Word, image) déposé par un enseignant, ou par
++# l'administration pour son compte, dans l'une des classes où il enseigne.
++#
++# Rattachée à une MatiereClasse (classe + matière + enseignant), ce qui
++# garantit qu'une épreuve appartient toujours à une classe ET à une matière
++# réellement enseignées, et que l'enseignant est celui de l'affectation.
++#
++# Cloisonnement DIRECT par établissement (colonne etablissement_id, comme
++# Enseignant / Matiere) : les listes filtrent dessus sans jointure.
++#
++# Le fichier vit sur disque, jamais en base : storage/epreuves/<etab_id>/
++# sous un nom ALÉATOIRE (`fichier`), jamais dérivé du nom envoyé par
++# l'utilisateur. `nom_original` ne sert qu'à nommer le téléchargement.
++#
++# `enseignant_id` est celui de la MatiereClasse AU MOMENT du dépôt : si
++# l'affectation change plus tard, l'épreuve reste attribuée à son auteur.
++#
++# Volontairement non Versionne : pas de saisie hors connexion pour cette
++# table (cf. web/src/lib/epreuves.js). L'audit, lui, est automatique
++# (services/audit_services.py).
++# ---------------------------------------------------------------------------
++
++class Epreuve(db.Model):
++    __tablename__ = 'epreuve'
++
++    id = db.Column(db.Integer, primary_key=True)
++    etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
++    matiere_classe_id = db.Column(db.Integer, db.ForeignKey('matiere_classe.id'), nullable=False)
++    enseignant_id = db.Column(db.Integer, db.ForeignKey('enseignant.id'), nullable=False)
++    annee_scolaire_id = db.Column(db.Integer, db.ForeignKey('annee_scolaire.id'), nullable=False)
++
++    titre = db.Column(db.String(150), nullable=False)
++    nom_original = db.Column(db.String(255), nullable=False)
++    fichier = db.Column(db.String(64), nullable=False)
++    mime = db.Column(db.String(100), nullable=False)
++    taille = db.Column(db.Integer, nullable=False)
++    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
++
++    __table_args__ = (
++        db.Index('ix_epreuve_etab_mc', 'etablissement_id', 'matiere_classe_id'),
++        db.Index('ix_epreuve_etab_enseignant', 'etablissement_id', 'enseignant_id'),
++    )
++
++    matiere_classe = db.relationship('MatiereClasse', backref='epreuves', lazy=True)
++    enseignant = db.relationship('Enseignant', backref='epreuves', lazy=True)
++    annee_scolaire = db.relationship('AnneeScolaire', backref='epreuves', lazy=True)
++
++    def to_dict(self):
++        """Champs propres à l'épreuve. Le nom du fichier sur disque (`fichier`)
++        n'est jamais exposé ; les libellés de classe / matière / enseignant
++        sont ajoutés par epreuve_services (jointure unique, pas de N+1)."""
++        return {
++            'id': self.id,
++            'etablissement_id': self.etablissement_id,
++            'matiere_classe_id': self.matiere_classe_id,
++            'enseignant_id': self.enseignant_id,
++            'annee_scolaire_id': self.annee_scolaire_id,
++            'titre': self.titre,
++            'nom_original': self.nom_original,
++            'mime': self.mime,
++            'taille': self.taille,
++            'created_at': self.created_at.isoformat() if self.created_at else None,
++        }
+diff --git a/server/services/epreuve_services.py b/server/services/epreuve_services.py
+new file mode 100644
+index 0000000..7dfb4b6
+--- /dev/null
++++ b/server/services/epreuve_services.py
+@@ -0,0 +1,403 @@
++import io
++import math
++import os
++import uuid
++import zipfile
++
++from flask import current_app
++
++from extensions import db
++from models.epreuve_models import Epreuve
++from models.pedagogie_models import Enseignant, Matiere, MatiereClasse
++from models.structure_models import Classe, Cycle, annee_active
++
++
++# ---------------------------------------------------------------------------
++# Épreuves : documents (PDF, Word, images) déposés par les enseignants, ou par
++# l'administration pour leur compte.
++#
++# Stockage : <EPREUVES_STORAGE_PATH>/<etablissement_id>/<uuid>.<ext> (même
++# volume Docker persistant que les logos et les photos, cf.
++# docker-compose.prod.yml : server-storage), sous un nom ALÉATOIRE jamais
++# dérivé du nom envoyé. Le nom d'origine est conservé en base, uniquement
++# pour nommer le téléchargement.
++#
++# Formats : PDF, DOC, DOCX, JPEG, PNG, WEBP. Pas de SVG (peut embarquer du
++# script), ni de formats Office à macros. Chaque fichier est vérifié sur son
++# EXTENSION et sur sa SIGNATURE binaire, et les deux doivent concorder : une
++# extension trompeuse (un exécutable renommé « .pdf ») est refusée. Le type
++# MIME enregistré est celui déduit de la signature, jamais celui annoncé par
++# le navigateur.
++#
++# Même séquence que les photos d'élèves (cf. inscription_services) : fichier
++# écrit sur disque, puis commit ; si le commit échoue, le fichier est retiré.
++# À la suppression, le fichier n'est retiré qu'APRÈS le commit réussi : une
++# épreuve ne pointe jamais vers un fichier disparu.
++# ---------------------------------------------------------------------------
++
++EPREUVE_TAILLE_MAX = 15 * 1024 * 1024  # 15 Mo
++TITRE_MAX = 150
++NOM_FICHIER_MAX = 255
++PER_PAGE_MAX = 50
++
++# Extensions acceptées -> format canonique.
++FORMAT_PAR_EXTENSION = {
++    'pdf': 'pdf',
++    'doc': 'doc',
++    'docx': 'docx',
++    'jpg': 'jpg',
++    'jpeg': 'jpg',
++    'png': 'png',
++    'webp': 'webp',
++}
++
++MIME_PAR_FORMAT = {
++    'pdf': 'application/pdf',
++    'doc': 'application/msword',
++    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
++    'jpg': 'image/jpeg',
++    'png': 'image/png',
++    'webp': 'image/webp',
++}
++
++MESSAGE_FORMATS = "Format non pris en charge (PDF, DOC, DOCX, JPEG, PNG ou WEBP uniquement)"
++
++_SIGNATURE_OLE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'  # ancien format Word (.doc)
++
++
++# ---------------------------------------------------------------------------
++# Validation du fichier
++# ---------------------------------------------------------------------------
++
++def _est_docx(contenu):
++    """Un .docx est une archive ZIP (signature « PK ») contenant le document
++    Word : on vérifie la présence de word/document.xml pour ne pas accepter
++    n'importe quelle archive, ni un classeur Excel ou une présentation
++    PowerPoint (également des ZIP). Seule la table des entrées est lue, rien
++    n'est décompressé."""
++    if not contenu.startswith(b'PK\x03\x04'):
++        return False
++    try:
++        with zipfile.ZipFile(io.BytesIO(contenu)) as archive:
++            noms = set(archive.namelist())
++    except (zipfile.BadZipFile, ValueError):
++        return False
++    return 'word/document.xml' in noms and '[Content_Types].xml' in noms
++
++
++def format_detecte(contenu):
++    """Format canonique d'après la signature binaire, ou None."""
++    if contenu.startswith(b'%PDF-'):
++        return 'pdf'
++    if contenu.startswith(b'\xff\xd8\xff'):
++        return 'jpg'
++    if contenu.startswith(b'\x89PNG\r\n\x1a\n'):
++        return 'png'
++    if contenu[:4] == b'RIFF' and contenu[8:12] == b'WEBP':
++        return 'webp'
++    if contenu.startswith(_SIGNATURE_OLE):
++        return 'doc'
++    if _est_docx(contenu):
++        return 'docx'
++    return None
++
++
++def _nom_affichage(filename):
++    """Nom d'origine nettoyé : sans chemin, sans caractère de contrôle, borné
++    à 255 caractères (extension conservée). Les accents sont gardés : il ne
++    sert qu'à nommer le téléchargement, jamais de chemin sur le disque."""
++    nom = (filename or '').replace('\\', '/').rsplit('/', 1)[-1]
++    nom = ''.join(c for c in nom if c.isprintable()).strip()
++    if len(nom) > NOM_FICHIER_MAX:
++        racine, ext = os.path.splitext(nom)
++        nom = racine[:NOM_FICHIER_MAX - len(ext)] + ext
++    return nom
++
++
++def valider_fichier(file_storage):
++    """Lit et contrôle le fichier envoyé (werkzeug FileStorage).
++
++    Retourne (contenu, format, nom_original) si valide, sinon
++    ({"erreur": ...}, 400) — le premier élément est alors un dict."""
++    if not file_storage or not getattr(file_storage, 'filename', None):
++        return {"erreur": "Aucun fichier reçu"}, 400
++
++    nom = _nom_affichage(file_storage.filename)
++    extension = os.path.splitext(nom)[1].lower().lstrip('.')
++    if extension not in FORMAT_PAR_EXTENSION:
++        return {"erreur": MESSAGE_FORMATS}, 400
++
++    contenu = file_storage.read(EPREUVE_TAILLE_MAX + 1)
++    if len(contenu) > EPREUVE_TAILLE_MAX:
++        return {"erreur": "Fichier trop volumineux (15 Mo maximum)"}, 400
++    if not contenu:
++        return {"erreur": "Le fichier est vide"}, 400
++
++    detecte = format_detecte(contenu)
++    if detecte is None:
++        return {"erreur": MESSAGE_FORMATS}, 400
++    if FORMAT_PAR_EXTENSION[extension] != detecte:
++        return {"erreur": "L'extension du fichier ne correspond pas à son contenu"}, 400
++
++    return contenu, detecte, nom
++
++
++# ---------------------------------------------------------------------------
++# Stockage sur disque
++# ---------------------------------------------------------------------------
++
++def epreuves_dir_of(etablissement_id):
++    return os.path.join(current_app.config['EPREUVES_STORAGE_PATH'], str(int(etablissement_id)))
++
++
++def chemin_epreuve(epreuve):
++    """Chemin absolu du fichier de l'épreuve, ou None si le fichier a disparu
++    du disque."""
++    if not epreuve or not epreuve.fichier:
++        return None
++    chemin = os.path.join(epreuves_dir_of(epreuve.etablissement_id), os.path.basename(epreuve.fichier))
++    return chemin if os.path.isfile(chemin) else None
++
++
++def delete_epreuve_file(etablissement_id, filename):
++    """Best-effort, ne lève jamais (même logique que delete_photo_file)."""
++    if not filename:
++        return
++    chemin = os.path.join(epreuves_dir_of(etablissement_id), os.path.basename(filename))
++    if os.path.isfile(chemin):
++        try:
++            os.remove(chemin)
++        except OSError:
++            pass
++
++
++# ---------------------------------------------------------------------------
++# Lecture : requête de base jointe (classe, matière, enseignant) pour ne pas
++# déclencher une requête par ligne, et pagination côté serveur.
++# ---------------------------------------------------------------------------
++
++def _classe_label(cycle_libelle, option, classe_id):
++    """Même règle que evaluation_api._classe_label : cycle + option
++    (ex. « 6ème A »)."""
++    if cycle_libelle and option:
++        return f"{cycle_libelle} {option}"
++    return cycle_libelle or option or f"Classe #{classe_id}"
++
++
++_COLONNES = (
++    Epreuve, MatiereClasse.classe_id, MatiereClasse.matiere_id, Matiere.libelle,
++    Cycle.libelle, Classe.option, Enseignant.nom, Enseignant.prenom,
++)
++
++
++def _requete_base(etablissement_id):
++    return (
++        db.session.query(Epreuve)
++        .join(MatiereClasse, MatiereClasse.id == Epreuve.matiere_classe_id)
++        .join(Matiere, Matiere.id == MatiereClasse.matiere_id)
++        .join(Classe, Classe.id == MatiereClasse.classe_id)
++        .join(Cycle, Cycle.id == Classe.cycle_id)
++        .join(Enseignant, Enseignant.id == Epreuve.enseignant_id)
++        .filter(Epreuve.etablissement_id == etablissement_id)
++    )
++
++
++def _ligne_vers_dict(ligne):
++    epreuve, classe_id, matiere_id, matiere_libelle, cycle_libelle, option, nom, prenom = ligne
++    data = epreuve.to_dict()
++    data.update({
++        'classe_id': classe_id,
++        'classe_label': _classe_label(cycle_libelle, option, classe_id),
++        'matiere_id': matiere_id,
++        'matiere_libelle': matiere_libelle,
++        'enseignant_nom': f"{nom} {prenom}".strip(),
++    })
++    return data
++
++
++def lister_epreuves(etablissement_id, page=1, per_page=10, classe_id=None, matiere_id=None,
++                    enseignant_id=None, annee_scolaire_id=None):
++    """Liste paginée, de la plus récente à la plus ancienne.
++
++    Retourne {items, total, page, pages, per_page}. `page` est ramenée dans
++    [1, pages] (une page trop grande renvoie la dernière, jamais une erreur),
++    `pages` vaut au moins 1 (une liste vide s'affiche « page 1 sur 1 »).
++    `per_page` est borné à PER_PAGE_MAX."""
++    per_page = min(max(per_page or 1, 1), PER_PAGE_MAX)
++
++    base = _requete_base(etablissement_id)
++    if classe_id:
++        base = base.filter(MatiereClasse.classe_id == classe_id)
++    if matiere_id:
++        base = base.filter(MatiereClasse.matiere_id == matiere_id)
++    if enseignant_id:
++        base = base.filter(Epreuve.enseignant_id == enseignant_id)
++    if annee_scolaire_id:
++        base = base.filter(Epreuve.annee_scolaire_id == annee_scolaire_id)
++
++    total = base.count()
++    pages = max(1, math.ceil(total / per_page))
++    page = min(max(page or 1, 1), pages)
++
++    lignes = (
++        base.with_entities(*_COLONNES)
++        .order_by(Epreuve.created_at.desc(), Epreuve.id.desc())
++        .offset((page - 1) * per_page)
++        .limit(per_page)
++        .all()
++    )
++    return {
++        'items': [_ligne_vers_dict(ligne) for ligne in lignes],
++        'total': total,
++        'page': page,
++        'pages': pages,
++        'per_page': per_page,
++    }
++
++
++def get_epreuve_scoped(epreuve_id, etablissement_id, enseignant_id=None):
++    """L'épreuve si elle appartient à l'établissement (et, côté enseignant, à
++    cet enseignant), sinon None — l'appelant répond 404, sans distinguer
++    « n'existe pas » de « n'est pas à vous »."""
++    query = Epreuve.query.filter_by(id=epreuve_id, etablissement_id=etablissement_id)
++    if enseignant_id is not None:
++        query = query.filter_by(enseignant_id=enseignant_id)
++    return query.first()
++
++
++def epreuve_en_dict(epreuve):
++    """Épreuve enrichie (classe, matière, enseignant), au format des listes."""
++    ligne = (
++        _requete_base(epreuve.etablissement_id)
++        .filter(Epreuve.id == epreuve.id)
++        .with_entities(*_COLONNES)
++        .first()
++    )
++    return _ligne_vers_dict(ligne) if ligne else epreuve.to_dict()
++
++
++# ---------------------------------------------------------------------------
++# Écriture
++# ---------------------------------------------------------------------------
++
++def _entier(valeur):
++    """int strict ou None : refuse les booléens, les décimaux, les chaînes non
++    numériques (les champs d'un multipart arrivent tous en texte)."""
++    if isinstance(valeur, bool):
++        return None
++    try:
++        return int(str(valeur).strip())
++    except (TypeError, ValueError):
++        return None
++
++
++def _resoudre_matiere_classe(etablissement_id, form, enseignant_id):
++    """MatiereClasse visée par le dépôt : par matiere_classe_id, ou à défaut
++    par le couple classe_id + matiere_id (ce que choisit l'administration dans
++    la fenêtre d'ajout). Toujours limitée à l'établissement ; pour un
++    enseignant, aux SEULES matières-classe qui lui sont attribuées.
++
++    Retourne (matiere_classe, None) ou (None, (dict_erreur, status))."""
++    mc_id = _entier(form.get('matiere_classe_id'))
++    classe_id = _entier(form.get('classe_id'))
++    matiere_id = _entier(form.get('matiere_id'))
++
++    query = (
++        MatiereClasse.query
++        .join(Classe, Classe.id == MatiereClasse.classe_id)
++        .filter(Classe.etablissement_id == etablissement_id)
++    )
++    if mc_id is not None:
++        query = query.filter(MatiereClasse.id == mc_id)
++    elif classe_id is not None and matiere_id is not None:
++        query = query.filter(MatiereClasse.classe_id == classe_id, MatiereClasse.matiere_id == matiere_id)
++    else:
++        return None, ({"erreur": "matiere_classe_id (ou classe_id et matiere_id) requis"}, 400)
++
++    if enseignant_id is not None:
++        # Enseignant : tout ce qui n'est pas à lui — matière d'un collègue,
++        # d'un autre établissement, ou inexistante — donne le même refus.
++        query = query.filter(MatiereClasse.enseignant_id == enseignant_id)
++        mc = query.first()
++        if mc is None:
++            return None, ({"erreur": "Cette matière ne vous est pas attribuée dans cette classe"}, 403)
++        return mc, None
++
++    mc = query.first()
++    if mc is None:
++        return None, ({"erreur": "Matière non enseignée dans cette classe"}, 404)
++    return mc, None
++
++
++def deposer_epreuve(etablissement_id, form, file_storage, enseignant_id=None):
++    """Dépose une épreuve.
++
++    - enseignant_id renseigné (espace enseignant) : la matière-classe doit être
++      la sienne, sinon 403 ;
++    - enseignant_id None (administration) : toute matière-classe de
++      l'établissement ; l'enseignant de l'épreuve est celui de la
++      MatiereClasse.
++
++    `form` est le formulaire multipart (titre + matiere_classe_id, ou
++    classe_id + matiere_id). L'établissement vient toujours du JWT / du
++    contexte SuperAdmin, jamais du formulaire. Retourne (dict, status)."""
++    titre = (form.get('titre') or '').strip()
++    if not titre:
++        return {"erreur": "Le titre est requis"}, 400
++    if len(titre) > TITRE_MAX:
++        return {"erreur": f"Le titre ne doit pas dépasser {TITRE_MAX} caractères"}, 400
++
++    mc, erreur = _resoudre_matiere_classe(etablissement_id, form, enseignant_id)
++    if erreur:
++        return erreur
++
++    annee = annee_active(etablissement_id)
++    if annee is None:
++        return {"erreur": "Aucune année scolaire n'est définie pour cet établissement"}, 400
++
++    resultat = valider_fichier(file_storage)
++    if isinstance(resultat[0], dict):
++        return resultat
++    contenu, fmt, nom_original = resultat
++
++    dossier = epreuves_dir_of(etablissement_id)
++    filename = f"{uuid.uuid4().hex}.{fmt}"
++    try:
++        os.makedirs(dossier, exist_ok=True)
++        with open(os.path.join(dossier, filename), 'wb') as f:
++            f.write(contenu)
++    except OSError:
++        delete_epreuve_file(etablissement_id, filename)
++        return {"erreur": "Impossible d'enregistrer le fichier"}, 500
++
++    epreuve = Epreuve(
++        etablissement_id=etablissement_id,
++        matiere_classe_id=mc.id,
++        enseignant_id=mc.enseignant_id,
++        annee_scolaire_id=annee.id,
++        titre=titre,
++        nom_original=nom_original,
++        fichier=filename,
++        mime=MIME_PAR_FORMAT[fmt],
++        taille=len(contenu),
++    )
++    db.session.add(epreuve)
++    try:
++        db.session.commit()
++    except Exception:
++        db.session.rollback()
++        delete_epreuve_file(etablissement_id, filename)
++        return {"erreur": "Impossible d'enregistrer l'épreuve"}, 500
++    return epreuve_en_dict(epreuve), 201
++
++
++def supprimer_epreuve(epreuve):
++    etablissement_id, fichier = epreuve.etablissement_id, epreuve.fichier
++    try:
++        db.session.delete(epreuve)
++        db.session.commit()
++    except Exception:
++        db.session.rollback()
++        return {"erreur": "Erreur lors de la suppression"}, 500
++    delete_epreuve_file(etablissement_id, fichier)
++    return {"message": "Supprimé avec succès"}, 200
+diff --git a/server/tests/test_epreuves.py b/server/tests/test_epreuves.py
+new file mode 100644
+index 0000000..a885985
+--- /dev/null
++++ b/server/tests/test_epreuves.py
+@@ -0,0 +1,612 @@
++"""Épreuves : dépôt (formats, taille, signature), isolation entre enseignants et
++entre établissements, pagination serveur (6 enseignant / 10 admin), filtres,
++téléchargement, suppression et audit."""
++import io
++import os
++import zipfile
++from datetime import datetime, timedelta
++from types import SimpleNamespace
++
++import pytest
++
++from extensions import db
++from models.audit_models import JournalAudit
++from models.authentification_models import Role
++from models.epreuve_models import Epreuve
++from models.pedagogie_models import Departement, Enseignant, Grade, Matiere, MatiereClasse
++from models.structure_models import Classe, Cycle, Etablissement
++from services.authentification_services import create_utilisateur
++import services.epreuve_services as epreuve_services
++
++URL_ENSEIGNANT = '/api/enseignant/epreuves'
++URL_ADMIN = '/api/epreuves/'
++
++PDF = b'%PDF-1.4\n' + b'0' * 64
++PNG = b'\x89PNG\r\n\x1a\n' + b'\x00' * 64
++JPG = b'\xff\xd8\xff\xe0' + b'\x00' * 64
++WEBP = b'RIFF\x00\x00\x00\x00WEBP' + b'\x00' * 32
++DOC = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1' + b'\x00' * 64
++MO = 1024 * 1024
++
++
++def _zip(noms):
++    tampon = io.BytesIO()
++    with zipfile.ZipFile(tampon, 'w') as archive:
++        for nom in noms:
++            archive.writestr(nom, '<x/>')
++    return tampon.getvalue()
++
++
++DOCX = _zip(['[Content_Types].xml', 'word/document.xml'])
++XLSX = _zip(['[Content_Types].xml', 'xl/workbook.xml'])  # un ZIP Office, mais pas du Word
++
++
++@pytest.fixture(autouse=True)
++def dossier_epreuves(appli, tmp_path):
++    # Jamais dans le vrai storage/ pendant les tests.
++    appli.config['EPREUVES_STORAGE_PATH'] = str(tmp_path)
++    return tmp_path
++
++
++# ---------------------------------------------------------------------------
++# Outils
++# ---------------------------------------------------------------------------
++
++def _deposer(api, url, contenu=PDF, nom='epreuve.pdf', **champs):
++    data = {cle: str(valeur) for cle, valeur in champs.items() if valeur is not None}
++    if contenu is not None:
++        data['fichier'] = (io.BytesIO(contenu), nom)
++    return api.client.post(url, data=data, headers=api._entetes(), content_type='multipart/form-data')
++
++
++def _fichiers(dossier, etab_id):
++    d = dossier / str(etab_id)
++    return sorted(os.listdir(d)) if d.exists() else []
++
++
++def _role_id(nom):
++    return Role.query.filter_by(libelle=nom).first().id
++
++
++def _en_base(monde, n, mc_id=None, enseignant_id=None, prefixe='Ep', debut=None):
++    """n épreuves insérées directement (sans fichier), de la plus ancienne à la
++    plus récente — pour les tests de pagination et de filtres."""
++    debut = debut or datetime(2026, 11, 1)
++    for i in range(n):
++        db.session.add(Epreuve(
++            etablissement_id=monde.etab_id, matiere_classe_id=mc_id or monde.mc_id,
++            enseignant_id=enseignant_id or monde.enseignant_id, annee_scolaire_id=monde.annee_id,
++            titre=f'{prefixe} {i + 1}', nom_original=f'{prefixe}{i + 1}.pdf', fichier=f'{prefixe}{i + 1}.pdf',
++            mime='application/pdf', taille=10, created_at=debut + timedelta(minutes=i),
++        ))
++    db.session.commit()
++
++
++@pytest.fixture()
++def collegue(monde):
++    """Second enseignant du même établissement, titulaire d'une autre matière
++    dans la même classe : (compte, enseignant_id, matiere_classe_id)."""
++    compte, status = create_utilisateur(
++        {'nom': 'Collegue Test', 'role_ids': [_role_id('Enseignant')], 'etablissement_id': monde.etab_id})
++    assert status == 201, compte
++    dep = Departement.query.filter_by(etablissement_id=monde.etab_id).first()
++    grade = Grade.query.filter_by(etablissement_id=monde.etab_id).first()
++    ens = Enseignant(etablissement_id=monde.etab_id, nom='Collegue', prenom='Test',
++                     departement_id=dep.id, grade_id=grade.id, utilisateur_id=compte['id'])
++    matiere = Matiere(etablissement_id=monde.etab_id, libelle='Physique',
++                      groupe_id=db.session.get(Matiere, monde.matiere_id).groupe_id)
++    db.session.add_all([ens, matiere])
++    db.session.flush()
++    mc = MatiereClasse(classe_id=monde.classe_id, matiere_id=matiere.id, enseignant_id=ens.id, coefficient=2)
++    db.session.add(mc)
++    db.session.commit()
++    return SimpleNamespace(compte=compte, enseignant_id=ens.id, mc_id=mc.id, matiere_id=matiere.id)
++
++
++@pytest.fixture()
++def seconde_classe(monde):
++    """Autre classe du même établissement où le MÊME enseignant donne la même
++    matière : (classe_id, matiere_classe_id)."""
++    cycle = Cycle(etablissement_id=monde.etab_id, libelle='5e')
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=monde.etab_id, cycle_id=cycle.id, option='B')
++    db.session.add(classe)
++    db.session.flush()
++    mc = MatiereClasse(classe_id=classe.id, matiere_id=monde.matiere_id,
++                       enseignant_id=monde.enseignant_id, coefficient=3)
++    db.session.add(mc)
++    db.session.commit()
++    return SimpleNamespace(classe_id=classe.id, mc_id=mc.id)
++
++
++@pytest.fixture()
++def etablissement_b(monde):
++    """Un AUTRE établissement : un admin, un enseignant et sa matière-classe."""
++    etab = Etablissement(code='TST2', nom='Autre lycée')
++    db.session.add(etab)
++    db.session.flush()
++    cycle = Cycle(etablissement_id=etab.id, libelle='6e')
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=etab.id, cycle_id=cycle.id)
++    dep = Departement(etablissement_id=etab.id, libelle='Maths')
++    grade = Grade(etablissement_id=etab.id, libelle='PLEG')
++    db.session.add_all([classe, dep, grade])
++    db.session.flush()
++    from models.structure_models import AnneeScolaire
++    from models.pedagogie_models import GroupeMatiere
++    annee = AnneeScolaire(etablissement_id=etab.id, libelle='2026-2027', active=True)
++    groupe = GroupeMatiere(etablissement_id=etab.id, libelle='Sciences')
++    db.session.add_all([annee, groupe])
++    db.session.flush()
++    matiere = Matiere(etablissement_id=etab.id, libelle='Maths B', groupe_id=groupe.id)
++    db.session.add(matiere)
++    db.session.flush()
++
++    compte_ens, _ = create_utilisateur({'nom': 'Prof B', 'role_ids': [_role_id('Enseignant')], 'etablissement_id': etab.id})
++    compte_admin, _ = create_utilisateur({'nom': 'Admin B', 'role_ids': [_role_id('Admin')], 'etablissement_id': etab.id})
++    ens = Enseignant(etablissement_id=etab.id, nom='Prof', prenom='B', departement_id=dep.id, grade_id=grade.id,
++                     utilisateur_id=compte_ens['id'])
++    db.session.add(ens)
++    db.session.flush()
++    mc = MatiereClasse(classe_id=classe.id, matiere_id=matiere.id, enseignant_id=ens.id, coefficient=2)
++    db.session.add(mc)
++    db.session.commit()
++    return SimpleNamespace(etab_id=etab.id, classe_id=classe.id, mc_id=mc.id, enseignant_id=ens.id,
++                           compte_enseignant=compte_ens, compte_admin=compte_admin, annee_id=annee.id)
++
++
++# ---------------------------------------------------------------------------
++# Dépôt par l'enseignant
++# ---------------------------------------------------------------------------
++
++def test_depot_enseignant_valide(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, 'Devoir séquence 1.pdf',
++                   matiere_classe_id=monde.mc_id, titre='  Devoir de maths  ')
++    assert rep.status_code == 201, rep.get_json()
++    data = rep.get_json()
++    assert data['titre'] == 'Devoir de maths'
++    assert data['nom_original'] == 'Devoir séquence 1.pdf'
++    assert data['mime'] == 'application/pdf'
++    assert data['taille'] == len(PDF)
++    assert data['matiere_classe_id'] == monde.mc_id
++    assert data['classe_id'] == monde.classe_id
++    assert data['classe_label'] == '6e'
++    assert data['matiere_id'] == monde.matiere_id
++    assert data['matiere_libelle'] == 'Mathématiques'
++    assert data['enseignant_id'] == monde.enseignant_id
++    assert data['enseignant_nom'] == 'Prof Test'
++    assert data['annee_scolaire_id'] == monde.annee_id
++    # Le nom du fichier sur disque n'est jamais exposé.
++    assert 'fichier' not in data
++
++    fichiers = _fichiers(dossier_epreuves, monde.etab_id)
++    assert len(fichiers) == 1 and fichiers[0].endswith('.pdf')
++    assert fichiers[0] != 'Devoir séquence 1.pdf'
++    assert db.session.get(Epreuve, data['id']).etablissement_id == monde.etab_id
++
++
++@pytest.mark.parametrize('contenu,nom,mime', [
++    (PDF, 'a.pdf', 'application/pdf'),
++    (PDF, 'A.PDF', 'application/pdf'),
++    (DOC, 'a.doc', 'application/msword'),
++    (DOCX, 'a.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
++    (JPG, 'a.jpg', 'image/jpeg'),
++    (JPG, 'a.jpeg', 'image/jpeg'),
++    (PNG, 'a.png', 'image/png'),
++    (WEBP, 'a.webp', 'image/webp'),
++])
++def test_formats_acceptes(monde, connecter, contenu, nom, mime):
++    prof = connecter(monde.enseignant_compte)
++    rep = _deposer(prof, URL_ENSEIGNANT, contenu, nom, matiere_classe_id=monde.mc_id, titre='Épreuve')
++    assert rep.status_code == 201, rep.get_json()
++    assert rep.get_json()['mime'] == mime
++
++
++@pytest.mark.parametrize('contenu,nom', [
++    (b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'x.svg'),
++    (b'GIF89a' + b'\x00' * 32, 'x.gif'),
++    (b'MZ\x90\x00' + b'\x00' * 64, 'virus.exe'),
++    (b'MZ\x90\x00' + b'\x00' * 64, 'virus.pdf'),   # extension trompeuse : c'est la signature qui compte
++    (b'pas un pdf du tout', 'x.pdf'),
++    (XLSX, 'classeur.docx'),                       # ZIP Office, mais pas du Word
++    (b'PK\x03\x04pas une archive', 'x.docx'),
++    (PNG, 'x.pdf'),                                # extension et contenu discordants
++    (PDF, 'x.png'),
++    (DOCX, 'x.doc'),
++    (PDF, 'sans_extension'),
++    (b'', 'vide.pdf'),
++])
++def test_formats_refuses(monde, connecter, dossier_epreuves, contenu, nom):
++    prof = connecter(monde.enseignant_compte)
++    rep = _deposer(prof, URL_ENSEIGNANT, contenu, nom, matiere_classe_id=monde.mc_id, titre='Épreuve')
++    assert rep.status_code == 400, rep.get_json()
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++    assert Epreuve.query.count() == 0
++
++
++def test_taille_maximale(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    trop_gros = PDF + b'0' * (15 * MO)
++    rep = _deposer(prof, URL_ENSEIGNANT, trop_gros, matiere_classe_id=monde.mc_id, titre='Gros')
++    assert rep.status_code == 400
++    assert '15 Mo' in rep.get_json()['erreur']
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++
++    # Pile 15 Mo : accepté.
++    limite = PDF + b'0' * (15 * MO - len(PDF))
++    assert len(limite) == 15 * MO
++    rep = _deposer(prof, URL_ENSEIGNANT, limite, matiere_classe_id=monde.mc_id, titre='Limite')
++    assert rep.status_code == 201, rep.get_json()
++
++
++def test_champs_obligatoires(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    assert _deposer(prof, URL_ENSEIGNANT, matiere_classe_id=monde.mc_id).status_code == 400            # titre
++    assert _deposer(prof, URL_ENSEIGNANT, matiere_classe_id=monde.mc_id, titre='   ').status_code == 400
++    assert _deposer(prof, URL_ENSEIGNANT, matiere_classe_id=monde.mc_id,
++                    titre='x' * 151).status_code == 400
++    assert _deposer(prof, URL_ENSEIGNANT, contenu=None, matiere_classe_id=monde.mc_id,
++                    titre='Sans fichier').status_code == 400
++    assert _deposer(prof, URL_ENSEIGNANT, titre='Sans matière').status_code == 400
++    assert _deposer(prof, URL_ENSEIGNANT, matiere_classe_id='abc', titre='Id invalide').status_code == 400
++    assert Epreuve.query.count() == 0
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++
++
++def test_nom_original_hostile_ne_sert_jamais_de_chemin(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, '../../etc/passwd.pdf', matiere_classe_id=monde.mc_id, titre='Hostile')
++    assert rep.status_code == 201, rep.get_json()
++    assert rep.get_json()['nom_original'] == 'passwd.pdf'
++    fichiers = _fichiers(dossier_epreuves, monde.etab_id)
++    assert len(fichiers) == 1 and '..' not in fichiers[0] and 'passwd' not in fichiers[0]
++    # Rien n'a été écrit en dehors du dossier de l'établissement.
++    assert sorted(os.listdir(dossier_epreuves)) == [str(monde.etab_id)]
++
++
++def test_echec_du_commit_supprime_le_fichier(monde, connecter, dossier_epreuves, monkeypatch):
++    prof = connecter(monde.enseignant_compte)
++
++    def commit_en_echec():
++        raise RuntimeError('base indisponible')
++
++    monkeypatch.setattr(epreuve_services.db.session, 'commit', commit_en_echec)
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Echec')
++    assert rep.status_code == 500
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++
++
++def test_sans_annee_scolaire(monde, connecter, dossier_epreuves, monkeypatch):
++    monkeypatch.setattr(epreuve_services, 'annee_active', lambda etab_id: None)
++    prof = connecter(monde.enseignant_compte)
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Sans année')
++    assert rep.status_code == 400
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++
++
++# ---------------------------------------------------------------------------
++# Isolation
++# ---------------------------------------------------------------------------
++
++def test_enseignant_ne_depose_que_dans_ses_matieres(monde, connecter, collegue, etablissement_b, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    # Matière d'un collègue (même classe, même établissement) : 403.
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=collegue.mc_id, titre='Intrus')
++    assert rep.status_code == 403
++    # Matière d'un autre établissement : même refus, rien ne fuite.
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=etablissement_b.mc_id, titre='Intrus')
++    assert rep.status_code == 403
++    # Matière-classe inexistante : même refus.
++    assert _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=99999, titre='Intrus').status_code == 403
++    # Le couple classe + matière du collègue est refusé de la même façon.
++    rep = _deposer(prof, URL_ENSEIGNANT, PDF, classe_id=monde.classe_id, matiere_id=collegue.matiere_id, titre='Intrus')
++    assert rep.status_code == 403
++    assert Epreuve.query.count() == 0
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++
++
++def test_isolation_entre_enseignants(monde, connecter, collegue):
++    prof = connecter(monde.enseignant_compte)
++    autre = connecter(collegue.compte)
++    id_prof = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Du prof').get_json()['id']
++    id_autre = _deposer(autre, URL_ENSEIGNANT, PDF, matiere_classe_id=collegue.mc_id, titre='Du collègue').get_json()['id']
++
++    assert [e['id'] for e in prof.get(URL_ENSEIGNANT).get_json()['items']] == [id_prof]
++    assert [e['id'] for e in autre.get(URL_ENSEIGNANT).get_json()['items']] == [id_autre]
++
++    # Un enseignant_id passé en paramètre n'ouvre rien.
++    items = prof.get(f'{URL_ENSEIGNANT}?enseignant_id={collegue.enseignant_id}').get_json()['items']
++    assert [e['id'] for e in items] == [id_prof]
++
++    # Suppression de l'épreuve d'un collègue : introuvable, et toujours là.
++    assert prof.delete(f'{URL_ENSEIGNANT}/{id_autre}').status_code == 404
++    assert db.session.get(Epreuve, id_autre) is not None
++
++
++def test_isolation_entre_etablissements(monde, connecter, etablissement_b, dossier_epreuves):
++    prof_a = connecter(monde.enseignant_compte)
++    prof_b = connecter(etablissement_b.compte_enseignant)
++    admin_a = connecter(monde.admin_compte)
++    admin_b = connecter(etablissement_b.compte_admin)
++
++    id_a = _deposer(prof_a, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Lycée A').get_json()['id']
++    id_b = _deposer(prof_b, URL_ENSEIGNANT, PDF, matiere_classe_id=etablissement_b.mc_id, titre='Lycée B').get_json()['id']
++    assert _fichiers(dossier_epreuves, monde.etab_id) != _fichiers(dossier_epreuves, etablissement_b.etab_id)
++
++    assert [e['id'] for e in admin_a.get(URL_ADMIN).get_json()['items']] == [id_a]
++    assert [e['id'] for e in admin_b.get(URL_ADMIN).get_json()['items']] == [id_b]
++
++    # Téléchargement et suppression d'une épreuve d'un autre établissement : 404.
++    assert admin_b.get(f'/api/epreuves/{id_a}/fichier').status_code == 404
++    assert admin_b.delete(f'/api/epreuves/{id_a}').status_code == 404
++    assert db.session.get(Epreuve, id_a) is not None
++
++    # L'admin ne peut pas déposer dans une matière-classe d'un autre établissement.
++    rep = _deposer(admin_a, URL_ADMIN, PDF, matiere_classe_id=etablissement_b.mc_id, titre='Intrus')
++    assert rep.status_code == 404
++    # Ni choisir un autre établissement par paramètre : seul le SuperAdmin le peut.
++    items = admin_a.get(f'{URL_ADMIN}?etablissement_id={etablissement_b.etab_id}').get_json()['items']
++    assert [e['id'] for e in items] == [id_a]
++
++
++def test_acces_par_role(monde, connecter, appli):
++    prof = connecter(monde.enseignant_compte)
++    admin = connecter(monde.admin_compte)
++    censeur = connecter(monde.censeur_compte)
++
++    # Espace admin : ni l'enseignant ni le censeur.
++    for api in (prof, censeur):
++        assert api.get(URL_ADMIN).status_code == 403
++        assert _deposer(api, URL_ADMIN, PDF, matiere_classe_id=monde.mc_id, titre='x').status_code == 403
++        assert api.get('/api/epreuves/1/fichier').status_code == 403
++        assert api.delete('/api/epreuves/1').status_code == 403
++    # Espace enseignant : réservé au rôle Enseignant.
++    for api in (admin, censeur):
++        assert api.get(URL_ENSEIGNANT).status_code == 403
++        assert _deposer(api, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='x').status_code == 403
++    # Sans session.
++    anonyme = appli.test_client()
++    assert anonyme.get(URL_ADMIN).status_code == 401
++    assert anonyme.get(URL_ENSEIGNANT).status_code == 401
++    assert anonyme.get('/api/epreuves/1/fichier').status_code == 401
++
++
++def test_enseignant_sans_profil_relie(monde, connecter):
++    compte, status = create_utilisateur(
++        {'nom': 'Sans Profil', 'role_ids': [_role_id('Enseignant')], 'etablissement_id': monde.etab_id})
++    assert status == 201
++    api = connecter(compte)
++    assert api.get(URL_ENSEIGNANT).status_code == 404
++    assert _deposer(api, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='x').status_code == 404
++
++
++def test_superadmin_choisit_l_etablissement(monde, connecter, connecter_superadmin, etablissement_b):
++    prof = connecter(monde.enseignant_compte)
++    id_a = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Lycée A').get_json()['id']
++    sa = connecter_superadmin()
++
++    assert sa.get(URL_ADMIN).status_code == 400  # etablissement_id requis
++    items = sa.get(f'{URL_ADMIN}?etablissement_id={monde.etab_id}').get_json()['items']
++    assert [e['id'] for e in items] == [id_a]
++    assert sa.get(f'{URL_ADMIN}?etablissement_id={etablissement_b.etab_id}').get_json()['total'] == 0
++
++    rep = _deposer(sa, f'{URL_ADMIN}?etablissement_id={etablissement_b.etab_id}', PDF,
++                   matiere_classe_id=etablissement_b.mc_id, titre='Posé par le SuperAdmin')
++    assert rep.status_code == 201, rep.get_json()
++    assert rep.get_json()['etablissement_id'] == etablissement_b.etab_id
++    # La matière-classe du lycée A n'est pas atteignable depuis le lycée B.
++    rep = _deposer(sa, f'{URL_ADMIN}?etablissement_id={etablissement_b.etab_id}', PDF,
++                   matiere_classe_id=monde.mc_id, titre='Mauvais établissement')
++    assert rep.status_code == 404
++
++
++# ---------------------------------------------------------------------------
++# Dépôt par l'administration
++# ---------------------------------------------------------------------------
++
++def test_depot_admin_deduit_l_enseignant(monde, connecter, collegue):
++    admin = connecter(monde.admin_compte)
++
++    # Par matiere_classe_id.
++    rep = _deposer(admin, URL_ADMIN, PDF, matiere_classe_id=collegue.mc_id, titre='Pour le collègue')
++    assert rep.status_code == 201, rep.get_json()
++    data = rep.get_json()
++    assert data['enseignant_id'] == collegue.enseignant_id
++    assert data['enseignant_nom'] == 'Collegue Test'
++    assert data['matiere_libelle'] == 'Physique'
++
++    # Par classe + matière : même résultat, enseignant déduit de MatiereClasse.
++    rep = _deposer(admin, URL_ADMIN, PDF, classe_id=monde.classe_id, matiere_id=monde.matiere_id, titre='Maths')
++    assert rep.status_code == 201, rep.get_json()
++    assert rep.get_json()['enseignant_id'] == monde.enseignant_id
++    assert rep.get_json()['matiere_classe_id'] == monde.mc_id
++
++    # Le collègue la voit dans SA liste ; le premier enseignant ne voit pas celle du collègue.
++    ids_collegue = [e['titre'] for e in connecter(collegue.compte).get(URL_ENSEIGNANT).get_json()['items']]
++    assert ids_collegue == ['Pour le collègue']
++
++
++def test_depot_admin_erreurs(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    assert _deposer(admin, URL_ADMIN, PDF, matiere_classe_id=99999, titre='x').status_code == 404
++    assert _deposer(admin, URL_ADMIN, PDF, classe_id=monde.classe_id, matiere_id=99999, titre='x').status_code == 404
++    assert _deposer(admin, URL_ADMIN, PDF, classe_id=monde.classe_id, titre='x').status_code == 400
++    assert _deposer(admin, URL_ADMIN, PDF, titre='x').status_code == 400
++    assert Epreuve.query.count() == 0
++
++
++# ---------------------------------------------------------------------------
++# Pagination et filtres
++# ---------------------------------------------------------------------------
++
++def test_pagination_enseignant_par_6(monde, connecter):
++    _en_base(monde, 14)
++    prof = connecter(monde.enseignant_compte)
++
++    p1 = prof.get(URL_ENSEIGNANT).get_json()
++    assert (p1['total'], p1['page'], p1['pages'], p1['per_page']) == (14, 1, 3, 6)
++    assert [e['titre'] for e in p1['items']] == [f'Ep {i}' for i in range(14, 8, -1)]  # plus récentes d'abord
++
++    p2 = prof.get(f'{URL_ENSEIGNANT}?page=2').get_json()
++    assert p2['page'] == 2 and len(p2['items']) == 6
++    p3 = prof.get(f'{URL_ENSEIGNANT}?page=3').get_json()
++    assert [e['titre'] for e in p3['items']] == ['Ep 2', 'Ep 1']
++
++    # Aucune épreuve en double ni oubliée d'une page à l'autre.
++    ids = [e['id'] for p in (p1, p2, p3) for e in p['items']]
++    assert len(ids) == len(set(ids)) == 14
++
++    # Page trop grande : la dernière ; paramètre invalide : la première.
++    assert prof.get(f'{URL_ENSEIGNANT}?page=99').get_json()['page'] == 3
++    assert prof.get(f'{URL_ENSEIGNANT}?page=0').get_json()['page'] == 1
++    assert prof.get(f'{URL_ENSEIGNANT}?page=abc').get_json()['page'] == 1
++
++
++def test_pagination_admin_par_10(monde, connecter):
++    _en_base(monde, 14)
++    admin = connecter(monde.admin_compte)
++
++    p1 = admin.get(URL_ADMIN).get_json()
++    assert (p1['total'], p1['page'], p1['pages'], p1['per_page']) == (14, 1, 2, 10)
++    assert len(p1['items']) == 10
++    p2 = admin.get(f'{URL_ADMIN}?page=2').get_json()
++    assert [e['titre'] for e in p2['items']] == ['Ep 4', 'Ep 3', 'Ep 2', 'Ep 1']
++
++    # per_page explicite, borné à 50.
++    assert len(admin.get(f'{URL_ADMIN}?per_page=3').get_json()['items']) == 3
++    assert admin.get(f'{URL_ADMIN}?per_page=1000').get_json()['per_page'] == 50
++
++
++def test_liste_vide(monde, connecter):
++    for api, url in ((connecter(monde.enseignant_compte), URL_ENSEIGNANT), (connecter(monde.admin_compte), URL_ADMIN)):
++        data = api.get(url).get_json()
++        assert (data['items'], data['total'], data['page'], data['pages']) == ([], 0, 1, 1)
++
++
++def test_filtres(monde, connecter, collegue, seconde_classe):
++    _en_base(monde, 3, mc_id=monde.mc_id, prefixe='Maths6')                            # prof, maths, 6e
++    _en_base(monde, 2, mc_id=seconde_classe.mc_id, prefixe='Maths5')                   # prof, maths, 5e B
++    _en_base(monde, 4, mc_id=collegue.mc_id, enseignant_id=collegue.enseignant_id, prefixe='Phys6')  # collègue, physique, 6e
++
++    admin = connecter(monde.admin_compte)
++    prof = connecter(monde.enseignant_compte)
++
++    def total(api, url, **params):
++        qs = '&'.join(f'{k}={v}' for k, v in params.items())
++        return api.get(f'{url}?{qs}').get_json()['total']
++
++    # Admin : tous les filtres, seuls ou combinés.
++    assert total(admin, URL_ADMIN) == 9
++    assert total(admin, URL_ADMIN, classe_id=monde.classe_id) == 7
++    assert total(admin, URL_ADMIN, classe_id=seconde_classe.classe_id) == 2
++    assert total(admin, URL_ADMIN, matiere_id=monde.matiere_id) == 5
++    assert total(admin, URL_ADMIN, matiere_id=collegue.matiere_id) == 4
++    assert total(admin, URL_ADMIN, enseignant_id=monde.enseignant_id) == 5
++    assert total(admin, URL_ADMIN, enseignant_id=collegue.enseignant_id) == 4
++    assert total(admin, URL_ADMIN, classe_id=monde.classe_id, matiere_id=monde.matiere_id) == 3
++    assert total(admin, URL_ADMIN, classe_id=monde.classe_id, enseignant_id=collegue.enseignant_id) == 4
++    assert total(admin, URL_ADMIN, classe_id=seconde_classe.classe_id, matiere_id=collegue.matiere_id) == 0
++    assert total(admin, URL_ADMIN, annee_scolaire_id=monde.annee_id) == 9
++    assert total(admin, URL_ADMIN, annee_scolaire_id=99999) == 0
++
++    # Le filtre porte aussi sur la pagination : total et pages suivent.
++    data = admin.get(f'{URL_ADMIN}?classe_id={monde.classe_id}&per_page=3').get_json()
++    assert (data['total'], data['pages'], len(data['items'])) == (7, 3, 3)
++
++    # Enseignant : filtres classe et matière, sur SES épreuves seulement.
++    assert total(prof, URL_ENSEIGNANT) == 5
++    assert total(prof, URL_ENSEIGNANT, classe_id=monde.classe_id) == 3
++    assert total(prof, URL_ENSEIGNANT, classe_id=seconde_classe.classe_id) == 2
++    assert total(prof, URL_ENSEIGNANT, matiere_id=monde.matiere_id) == 5
++    assert total(prof, URL_ENSEIGNANT, matiere_id=collegue.matiere_id) == 0   # matière d'un collègue : rien
++
++
++def test_liste_enrichie(monde, connecter, seconde_classe):
++    _en_base(monde, 1, mc_id=seconde_classe.mc_id)
++    item = connecter(monde.admin_compte).get(URL_ADMIN).get_json()['items'][0]
++    assert item['classe_label'] == '5e B'
++    assert item['matiere_libelle'] == 'Mathématiques'
++    assert item['enseignant_nom'] == 'Prof Test'
++    assert 'fichier' not in item
++
++
++# ---------------------------------------------------------------------------
++# Téléchargement et suppression
++# ---------------------------------------------------------------------------
++
++@pytest.mark.parametrize('contenu,nom,mime', [
++    (PDF, 'Épreuve séquence 1.pdf', 'application/pdf'),
++    (DOCX, 'sujet.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
++    (JPG, 'scan.jpg', 'image/jpeg'),
++])
++def test_telechargement(monde, connecter, contenu, nom, mime):
++    prof = connecter(monde.enseignant_compte)
++    epreuve_id = _deposer(prof, URL_ENSEIGNANT, contenu, nom, matiere_classe_id=monde.mc_id, titre='À télécharger').get_json()['id']
++
++    rep = connecter(monde.admin_compte).get(f'/api/epreuves/{epreuve_id}/fichier')
++    assert rep.status_code == 200
++    assert rep.data == contenu
++    assert rep.mimetype == mime
++    disposition = rep.headers['Content-Disposition']
++    assert disposition.startswith('attachment')
++    if nom.isascii():
++        assert f'filename={nom}' in disposition
++    else:
++        assert "filename*=UTF-8''" in disposition   # nom accentué encodé (RFC 5987)
++    assert rep.headers['X-Content-Type-Options'] == 'nosniff'
++    assert rep.headers['Cache-Control'] == 'private, no-store'
++
++
++def test_telechargement_introuvable(monde, connecter, dossier_epreuves):
++    admin = connecter(monde.admin_compte)
++    assert admin.get('/api/epreuves/99999/fichier').status_code == 404
++
++    # Ligne en base mais fichier disparu du disque : 404 explicite, pas de 500.
++    _en_base(monde, 1)
++    epreuve = Epreuve.query.first()
++    rep = admin.get(f'/api/epreuves/{epreuve.id}/fichier')
++    assert rep.status_code == 404
++    assert 'introuvable' in rep.get_json()['erreur'].lower()
++
++
++def test_suppression_par_l_enseignant(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    epreuve_id = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='À supprimer').get_json()['id']
++    assert len(_fichiers(dossier_epreuves, monde.etab_id)) == 1
++
++    assert prof.delete(f'{URL_ENSEIGNANT}/{epreuve_id}').status_code == 200
++    assert db.session.get(Epreuve, epreuve_id) is None
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++    assert prof.delete(f'{URL_ENSEIGNANT}/{epreuve_id}').status_code == 404
++
++
++def test_suppression_par_l_admin(monde, connecter, dossier_epreuves):
++    prof = connecter(monde.enseignant_compte)
++    admin = connecter(monde.admin_compte)
++    epreuve_id = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='À supprimer').get_json()['id']
++
++    assert admin.delete(f'/api/epreuves/{epreuve_id}').status_code == 200
++    assert db.session.get(Epreuve, epreuve_id) is None
++    assert _fichiers(dossier_epreuves, monde.etab_id) == []
++    assert admin.delete(f'/api/epreuves/{epreuve_id}').status_code == 404
++
++
++# ---------------------------------------------------------------------------
++# Audit
++# ---------------------------------------------------------------------------
++
++def test_audit_automatique(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    epreuve_id = _deposer(prof, URL_ENSEIGNANT, PDF, matiere_classe_id=monde.mc_id, titre='Tracée').get_json()['id']
++    prof.delete(f'{URL_ENSEIGNANT}/{epreuve_id}')
++
++    lignes = (JournalAudit.query.filter_by(table_nom='epreuve', ligne_id=str(epreuve_id))
++              .order_by(JournalAudit.id).all())
++    assert [ligne.action for ligne in lignes] == ['creation', 'suppression']
++    creation = lignes[0]
++    assert creation.etablissement_id == monde.etab_id
++    assert creation.auteur_role == 'Enseignant'
++    assert creation.changements['titre'] == [None, 'Tracée']

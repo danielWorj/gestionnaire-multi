@@ -1,0 +1,874 @@
+diff --git a/web/src/App.jsx b/web/src/App.jsx
+index f4e6227..cbd1036 100644
+--- a/web/src/App.jsx
++++ b/web/src/App.jsx
+@@ -25,6 +25,8 @@ import BulletinsPage from './pages/BulletinsPage';
+ import EnseignantNotesPage from './pages/EnseignantNotesPage';
+ import EnseignantHorairePage from './pages/EnseignantHorairePage';
+ import EnseignantClassesPage from './pages/EnseignantClassesPage';
++import EnseignantEpreuvesPage from './pages/EnseignantEpreuvesPage';
++import EpreuvesPage from './pages/EpreuvesPage';
+ import EspaceAccueilPage from './pages/EspaceAccueilPage';
+ import ChoixEspacePage from './pages/ChoixEspacePage';
+ import AccesRefusePage from './pages/AccesRefusePage';
+@@ -133,6 +135,10 @@ const PAGES = [
+   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
+   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
+   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
++  // Épreuves : l'enseignant dépose et gère les siennes ; l'administration voit,
++  // filtre, ajoute et télécharge celles de tout l'établissement.
++  { path: 'enseignant/epreuves', element: <EnseignantEpreuvesPage />, roles: ['Enseignant'] },
++  { path: 'epreuves', element: <EpreuvesPage />, roles: ADMIN },
+   { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur'] },
+   // Espace parent : uniquement les enfants de la famille connectée.
+   { path: 'parent/paiements', element: <ParentPaiementsPage />, roles: ['Parent'] },
+diff --git a/web/src/components/EpreuveModal.jsx b/web/src/components/EpreuveModal.jsx
+new file mode 100644
+index 0000000..1033d3e
+--- /dev/null
++++ b/web/src/components/EpreuveModal.jsx
+@@ -0,0 +1,157 @@
++import { useMemo, useState } from 'react';
++import Modal from './Modal';
++import Select from './Select';
++import { Field, FormFooter, useToast } from './ui';
++import {
++  EPREUVE_ACCEPT, EPREUVE_FORMATS_AIDE, EPREUVE_TITRE_MAX,
++  classesDe, deposerEpreuve, formaterTaille, matieresDe, verifierFichierLocal,
++} from '../lib/epreuves';
++
++// Fenêtre d'ajout d'une épreuve : classe → matière (limitée à la classe) →
++// titre → fichier.
++//
++// `espace` : 'enseignant' (ses propres classes/matières) ou 'admin' (toutes ;
++// l'enseignant est celui de l'affectation, affiché dès la matière choisie).
++// `mcs` : affectations normalisées (cf. lib/epreuves.js). Le serveur reste
++// juge : il refuse une matière qui n'est pas celle de l'enseignant (403),
++// un format ou une taille invalide (400).
++export default function EpreuveModal({ espace, mcs, onClose, onSaved }) {
++  const toast = useToast();
++  const [classeId, setClasseId] = useState('');
++  const [matiereId, setMatiereId] = useState('');
++  const [titre, setTitre] = useState('');
++  const [fichier, setFichier] = useState(null);
++  const [erreurs, setErreurs] = useState({});
++  const [erreurServeur, setErreurServeur] = useState('');
++  const [saving, setSaving] = useState(false);
++
++  const classes = useMemo(() => classesDe(mcs), [mcs]);
++  // Une seule classe (ou une seule matière dans la classe) : choisie d'office.
++  const classeEff = classeId || (classes.length === 1 ? String(classes[0].id) : '');
++  const matieres = useMemo(() => (classeEff ? matieresDe(mcs, classeEff) : []), [mcs, classeEff]);
++  const matiereEff = matieres.some((m) => String(m.id) === matiereId)
++    ? matiereId
++    : (matieres.length === 1 ? String(matieres[0].id) : '');
++  const mc = useMemo(
++    () => mcs.find((x) => String(x.classe_id) === classeEff && String(x.matiere_id) === matiereEff),
++    [mcs, classeEff, matiereEff],
++  );
++
++  const effacer = (champ) => setErreurs((e) => ({ ...e, [champ]: undefined }));
++
++  const choisirClasse = (valeur) => {
++    setClasseId(valeur);
++    setMatiereId('');
++    setErreurs((e) => ({ ...e, classe: undefined, matiere: undefined }));
++  };
++
++  const choisirFichier = (event) => {
++    const choisi = event.target.files?.[0] || null;
++    setFichier(choisi);
++    effacer('fichier');
++    // Titre proposé d'après le nom du fichier, s'il n'est pas déjà saisi.
++    if (choisi && !titre.trim()) {
++      setTitre(choisi.name.replace(/\.[^.]+$/, '').slice(0, EPREUVE_TITRE_MAX));
++      effacer('titre');
++    }
++  };
++
++  const submit = async () => {
++    const e = {};
++    if (!classeEff) e.classe = 'Choisissez une classe.';
++    if (!matiereEff || !mc) e.matiere = 'Choisissez une matière.';
++    if (!titre.trim()) e.titre = 'Saisissez un titre.';
++    if (!fichier) e.fichier = 'Choisissez un fichier.';
++    else {
++      const probleme = verifierFichierLocal(fichier);
++      if (probleme) e.fichier = probleme;
++    }
++    setErreurs(e);
++    setErreurServeur('');
++    if (Object.keys(e).length) return;
++
++    setSaving(true);
++    try {
++      const epreuve = await deposerEpreuve(espace, { matiereClasseId: mc.id, titre, fichier });
++      toast('Épreuve ajoutée.');
++      onSaved(epreuve);
++    } catch (err) {
++      setErreurServeur(err.message);
++      setSaving(false);
++    }
++  };
++
++  const cls = (base, champ) => `${base} ${erreurs[champ] ? 'is-invalid' : ''}`;
++
++  return (
++    <Modal
++      title="Ajouter une épreuve"
++      subtitle={espace === 'admin' ? "L'enseignant est celui affecté à la matière dans la classe." : 'Dans l\'une de vos classes'}
++      size=""
++      onClose={saving ? () => {} : onClose}
++      onSubmit={submit}
++      footer={<FormFooter onCancel={onClose} saving={saving} label="Ajouter" icon="bx-upload" />}
++    >
++      {erreurServeur && (
++        <div className="alert alert-danger d-flex gap-2 py-2" role="alert">
++          <i className="bx bx-error-circle mt-1" />
++          <div>{erreurServeur}</div>
++        </div>
++      )}
++
++      <Field label="Classe" required invalid={erreurs.classe}>
++        <Select className={cls('form-select', 'classe')} value={classeEff} onChange={(e) => choisirClasse(e.target.value)} disabled={saving}>
++          <option value="">{classes.length ? 'Choisir une classe' : 'Aucune classe disponible'}</option>
++          {classes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
++        </Select>
++      </Field>
++
++      <Field label="Matière" required invalid={erreurs.matiere}>
++        <Select
++          className={cls('form-select', 'matiere')}
++          value={matiereEff}
++          onChange={(e) => { setMatiereId(e.target.value); effacer('matiere'); }}
++          disabled={saving || !classeEff}
++        >
++          <option value="">{classeEff ? 'Choisir une matière' : "Choisissez d'abord une classe"}</option>
++          {matieres.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}
++        </Select>
++      </Field>
++
++      {espace === 'admin' && (
++        <Field label="Enseignant">
++          <input
++            type="text"
++            className="form-control"
++            value={mc?.enseignant_nom || ''}
++            placeholder="Affiché après le choix de la matière"
++            readOnly
++            disabled
++          />
++        </Field>
++      )}
++
++      <Field label="Titre" required invalid={erreurs.titre}>
++        <input
++          type="text"
++          className={cls('form-control', 'titre')}
++          maxLength={EPREUVE_TITRE_MAX}
++          placeholder="Ex. Devoir de mathématiques n°2"
++          value={titre}
++          onChange={(e) => { setTitre(e.target.value); effacer('titre'); }}
++          disabled={saving}
++        />
++      </Field>
++
++      <Field label="Fichier" required className="mb-0" invalid={erreurs.fichier} hint={fichier && !erreurs.fichier ? `${fichier.name} · ${formaterTaille(fichier.size)}` : EPREUVE_FORMATS_AIDE}>
++        <input
++          type="file"
++          className={cls('form-control', 'fichier')}
++          accept={EPREUVE_ACCEPT}
++          onChange={choisirFichier}
++          disabled={saving}
++        />
++      </Field>
++    </Modal>
++  );
++}
+diff --git a/web/src/components/Layout.jsx b/web/src/components/Layout.jsx
+index 53047c5..05fd71e 100644
+--- a/web/src/components/Layout.jsx
++++ b/web/src/components/Layout.jsx
+@@ -47,9 +47,11 @@ export const MENU_SECTIONS = [
+     items: [
+       { to: '/matieres', label: 'Matières', icon: 'bx-book-open', roles: ADMIN },
+       { to: '/enseignants', label: 'Enseignants', icon: 'bx-user-voice', roles: ADMIN },
++      { to: '/epreuves', label: 'Épreuves', icon: 'bx-file', roles: ADMIN },
+       { to: '/pedagogie', label: 'Pédagogie', icon: 'bx-git-branch', roles: CENSEUR },
+       { to: '/enseignant/notes', label: 'Notes', icon: 'bx-edit', roles: ['Enseignant'] },
+       { to: '/enseignant/classes', label: 'Mes classes', icon: 'bx-group', roles: ['Enseignant'] },
++      { to: '/enseignant/epreuves', label: 'Épreuves', icon: 'bx-file', roles: ['Enseignant'] },
+     ],
+   },
+   {
+diff --git a/web/src/components/PagerServeur.jsx b/web/src/components/PagerServeur.jsx
+new file mode 100644
+index 0000000..4bbcd21
+--- /dev/null
++++ b/web/src/components/PagerServeur.jsx
+@@ -0,0 +1,33 @@
++// Barre de pagination pour une liste paginée côté serveur
++// (cf. lib/paginationServeur.js). Même gabarit que <Pager> (components/ui.jsx),
++// sans choix du nombre d'éléments par page : il est fixé par la page.
++export default function PagerServeur({ pagination, unite = 'épreuves', vide = 'Aucune épreuve', bordure = true }) {
++  const { page, pages, start, end, total, loading, setPage } = pagination;
++  const debut = Math.max(1, page - 2);
++  const fin = Math.min(pages, debut + 4);
++  const numeros = [];
++  for (let i = debut; i <= fin; i++) numeros.push(i);
++
++  return (
++    <div className={`pager d-flex flex-wrap align-items-center justify-content-between gap-2 px-3 py-2${bordure ? ' border-top' : ''}`}>
++      <small className="text-muted">{total ? `${start + 1}–${end} sur ${total} ${unite}` : vide}</small>
++      {pages > 1 && (
++        <div className="pager-actions d-flex align-items-center gap-2">
++          <ul className="pagination pagination-sm mb-0">
++            <li className={`page-item prev ${page === 1 || loading ? 'disabled' : ''}`}>
++              <button type="button" className="page-link" aria-label="Page précédente" onClick={() => setPage(page - 1)}><i className="bx bx-chevron-left" /></button>
++            </li>
++            {numeros.map((n) => (
++              <li key={n} className={`page-item ${n === page ? 'active' : ''}`}>
++                <button type="button" className="page-link" aria-current={n === page ? 'page' : undefined} disabled={loading && n !== page} onClick={() => setPage(n)}>{n}</button>
++              </li>
++            ))}
++            <li className={`page-item next ${page === pages || loading ? 'disabled' : ''}`}>
++              <button type="button" className="page-link" aria-label="Page suivante" onClick={() => setPage(page + 1)}><i className="bx bx-chevron-right" /></button>
++            </li>
++          </ul>
++        </div>
++      )}
++    </div>
++  );
++}
+diff --git a/web/src/lib/epreuves.js b/web/src/lib/epreuves.js
+new file mode 100644
+index 0000000..b508afc
+--- /dev/null
++++ b/web/src/lib/epreuves.js
+@@ -0,0 +1,187 @@
++import { useEffect, useState } from 'react';
++import { api, apiRequest } from './api';
++
++// Épreuves : documents (PDF, Word, images) déposés par les enseignants.
++//
++// Deux jeux de routes côté serveur (cf. server/api/epreuve_api.py et
++// server/api/evaluation_api.py) :
++//   - espace « enseignant » : /api/enseignant/epreuves (uniquement les siennes)
++//   - espace « admin »      : /api/epreuves/ (Admin et SuperAdmin, tout l'établissement)
++//
++// Ces requêtes ne sont jamais mises en cache pour le mode hors connexion
++// (cf. PREFIXES_EXCLUS dans stockageLocal.js) et un dépôt ne peut pas être
++// mis en file d'attente : un fichier ne se rejoue pas comme une note.
++
++export const EPREUVES_PAR_PAGE_ENSEIGNANT = 6;
++export const EPREUVES_PAR_PAGE_ADMIN = 10;
++
++// Mêmes bornes que le serveur (services/epreuve_services.py), pour répondre
++// tout de suite ; le serveur reste juge (extension ET signature du fichier).
++export const EPREUVE_TAILLE_MAX = 15 * 1024 * 1024;
++export const EPREUVE_TITRE_MAX = 150;
++const EXTENSIONS = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png', 'webp'];
++// Les types MIME (et non « image/* ») excluent GIF/SVG tout en laissant le
++// téléphone proposer l'appareil photo.
++export const EPREUVE_ACCEPT = '.pdf,.doc,.docx,image/jpeg,image/png,image/webp';
++export const EPREUVE_FORMATS_AIDE = 'PDF, Word (DOC, DOCX) ou image (JPEG, PNG, WEBP) · 15 Mo maximum';
++
++const ROUTES = {
++  enseignant: { liste: '/enseignant/epreuves', element: (id) => `/enseignant/epreuves/${id}` },
++  // Route Flask « /api/epreuves/ » : le slash final est conservé par api.js.
++  admin: { liste: '/epreuves/', element: (id) => `/epreuves/${id}` },
++};
++
++function requete(params) {
++  const q = new URLSearchParams();
++  Object.entries(params).forEach(([cle, valeur]) => {
++    if (valeur !== '' && valeur != null) q.set(cle, String(valeur));
++  });
++  const texte = q.toString();
++  return texte ? `?${texte}` : '';
++}
++
++// → { items, total, page, pages, per_page }. `enseignantId` n'a d'effet que
++// côté admin (le serveur ignore ce paramètre pour un enseignant).
++export function listerEpreuves(espace, { page = 1, perPage, classeId = '', matiereId = '', enseignantId = '' }) {
++  return api.get(`${ROUTES[espace].liste}${requete({
++    page,
++    per_page: perPage,
++    classe_id: classeId,
++    matiere_id: matiereId,
++    enseignant_id: espace === 'admin' ? enseignantId : '',
++  })}`);
++}
++
++// Envoi multipart : api.js laisse le navigateur fixer le Content-Type (avec
++// sa frontière) quand le corps est un FormData.
++export function deposerEpreuve(espace, { matiereClasseId, titre, fichier }) {
++  const body = new FormData();
++  body.append('matiere_classe_id', String(matiereClasseId));
++  body.append('titre', titre.trim());
++  body.append('fichier', fichier);
++  return apiRequest(ROUTES[espace].liste, { method: 'POST', body });
++}
++
++export const supprimerEpreuve = (espace, id) => api.del(ROUTES[espace].element(id));
++
++// Téléchargement (administration) du fichier d'origine, sous son nom d'origine.
++export async function telechargerEpreuve(epreuve) {
++  const blob = await api.blob(`/epreuves/${epreuve.id}/fichier`);
++  const url = URL.createObjectURL(blob);
++  const lien = document.createElement('a');
++  lien.href = url;
++  lien.download = epreuve.nom_original || `epreuve-${epreuve.id}`;
++  document.body.appendChild(lien);
++  lien.click();
++  lien.remove();
++  setTimeout(() => URL.revokeObjectURL(url), 1000);
++}
++
++/* ── Contrôle local du fichier choisi ─────────────────────────────────── */
++
++export const extensionDe = (nom) => (nom || '').split('.').pop().toLowerCase();
++
++// Message d'erreur, ou '' si le fichier peut partir.
++export function verifierFichierLocal(fichier) {
++  if (!EXTENSIONS.includes(extensionDe(fichier.name)) || !fichier.name.includes('.')) {
++    return 'Format non pris en charge (PDF, DOC, DOCX, JPEG, PNG ou WEBP uniquement).';
++  }
++  if (fichier.size === 0) return 'Le fichier est vide.';
++  if (fichier.size > EPREUVE_TAILLE_MAX) {
++    return `Fichier trop volumineux (${formaterTaille(fichier.size)}) : 15 Mo maximum.`;
++  }
++  return '';
++}
++
++/* ── Affichage ────────────────────────────────────────────────────────── */
++
++export function formaterTaille(octets) {
++  const n = Number(octets) || 0;
++  if (n < 1024) return `${n} o`;
++  if (n < 1024 * 1024) return `${Math.round(n / 1024)} Ko`;
++  return `${(n / (1024 * 1024)).toFixed(1).replace('.', ',')} Mo`;
++}
++
++// Icône Boxicons et teinte (bg-label-*) selon le type du fichier.
++export function styleEpreuve(mime) {
++  if (mime === 'application/pdf') return { icone: 'bxs-file-pdf', ton: 'danger' };
++  if (mime?.startsWith('image/')) return { icone: 'bxs-file-image', ton: 'success' };
++  if (mime?.includes('word')) return { icone: 'bxs-file-doc', ton: 'primary' };
++  return { icone: 'bxs-file-blank', ton: 'secondary' };
++}
++
++/* ── Classes / matières / enseignants à partir des affectations ──────────
++   Une « affectation » (MatiereClasse) normalisée :
++   { id, classe_id, classe_label, matiere_id, matiere_libelle,
++     enseignant_id?, enseignant_nom? }
++   Espace enseignant : /enseignant/mon-espace → matieres_classe (déjà de ce
++   format). Administration : useAffectationsAdmin ci-dessous. */
++
++const trier = (a, b) => a.localeCompare(b, 'fr', { numeric: true });
++
++export function classesDe(mcs) {
++  const map = new Map();
++  mcs.forEach((mc) => map.set(mc.classe_id, { id: mc.classe_id, label: mc.classe_label }));
++  return [...map.values()].sort((a, b) => trier(a.label, b.label));
++}
++
++// Matières, éventuellement limitées à une classe (classeId '' = toutes).
++export function matieresDe(mcs, classeId = '') {
++  const map = new Map();
++  mcs
++    .filter((mc) => !classeId || String(mc.classe_id) === String(classeId))
++    .forEach((mc) => map.set(mc.matiere_id, { id: mc.matiere_id, libelle: mc.matiere_libelle }));
++  return [...map.values()].sort((a, b) => trier(a.libelle, b.libelle));
++}
++
++export function enseignantsDe(mcs) {
++  const map = new Map();
++  mcs.filter((mc) => mc.enseignant_id).forEach((mc) => map.set(mc.enseignant_id, { id: mc.enseignant_id, nom: mc.enseignant_nom }));
++  return [...map.values()].sort((a, b) => trier(a.nom, b.nom));
++}
++
++// Administration : toutes les affectations de l'établissement, avec libellés.
++// `cle` (ex. l'établissement consulté par le SuperAdmin) relance le chargement.
++export function useAffectationsAdmin(cle) {
++  const [etat, setEtat] = useState({ mcs: [], loading: true, error: '' });
++
++  useEffect(() => {
++    let annule = false;
++    setEtat({ mcs: [], loading: true, error: '' });
++    Promise.all([
++      api.get('/matieres-classe/'),
++      api.get('/classes/'),
++      api.get('/cycles/'),
++      api.get('/matieres/'),
++      api.get('/enseignants/'),
++    ])
++      .then(([liens, classes, cycles, matieres, enseignants]) => {
++        if (annule) return;
++        const cycleLibelle = new Map((cycles || []).map((c) => [c.id, c.libelle]));
++        const classeLabel = new Map((classes || []).map((c) => [
++          c.id,
++          [cycleLibelle.get(c.cycle_id), c.option].filter(Boolean).join(' ') || `Classe #${c.id}`,
++        ]));
++        const matiereLibelle = new Map((matieres || []).map((m) => [m.id, m.libelle || m.nom]));
++        const enseignantNom = new Map((enseignants || []).map((e) => [e.id, `${e.nom || ''} ${e.prenom || ''}`.trim()]));
++        const mcs = (liens || [])
++          .filter((l) => classeLabel.has(l.classe_id))
++          .map((l) => ({
++            id: l.id,
++            classe_id: l.classe_id,
++            classe_label: classeLabel.get(l.classe_id),
++            matiere_id: l.matiere_id,
++            matiere_libelle: matiereLibelle.get(l.matiere_id) || `Matière #${l.matiere_id}`,
++            enseignant_id: l.enseignant_id,
++            enseignant_nom: enseignantNom.get(l.enseignant_id) || 'Enseignant',
++          }));
++        setEtat({ mcs, loading: false, error: '' });
++      })
++      .catch((e) => {
++        if (!annule) setEtat({ mcs: [], loading: false, error: e.message });
++      });
++    return () => { annule = true; };
++  }, [cle]);
++
++  return etat;
++}
+diff --git a/web/src/lib/espaces.js b/web/src/lib/espaces.js
+index 463c31d..d6ed12f 100644
+--- a/web/src/lib/espaces.js
++++ b/web/src/lib/espaces.js
+@@ -7,7 +7,7 @@ export const ROLES_INFO = {
+   Proviseur: { label: 'Proviseur', icon: 'bx-crown', color: 'primary', description: "Vue d'ensemble de l'établissement." },
+   Censeur: { label: 'Censeur', icon: 'bx-briefcase-alt-2', color: 'info', description: 'Suivez les notes, la discipline et les bulletins de vos classes.' },
+   Surveillant: { label: 'Surveillant', icon: 'bx-shield-alt-2', color: 'warning', description: 'Tenez à jour la discipline et suivez vos classes.' },
+-  Enseignant: { label: 'Enseignant', icon: 'bx-chalkboard', color: 'success', description: 'Saisissez vos notes, consultez vos classes et votre emploi du temps.' },
++  Enseignant: { label: 'Enseignant', icon: 'bx-chalkboard', color: 'success', description: 'Saisissez vos notes, déposez vos épreuves, consultez vos classes et votre emploi du temps.' },
+   Comptable: { label: 'Comptabilité', icon: 'bx-wallet', color: 'danger', description: 'Encaissez les paiements de scolarité et tenez la trésorerie.' },
+   Secretaire: { label: 'Secrétariat', icon: 'bx-folder-open', color: 'secondary', description: 'Gestion administrative des dossiers.' },
+   Infirmier: { label: 'Infirmerie', icon: 'bx-plus-medical', color: 'danger', description: 'Suivi de santé des élèves.' },
+@@ -34,6 +34,7 @@ export const RUBRIQUES = {
+   Enseignant: [
+     { to: '/enseignant/notes', label: 'Saisie des notes', icon: 'bx-edit', color: 'primary', description: 'Vos notes, classe par classe' },
+     { to: '/enseignant/classes', label: 'Mes classes', icon: 'bx-group', color: 'success', description: 'Listes des élèves de vos classes' },
++    { to: '/enseignant/epreuves', label: 'Épreuves', icon: 'bx-file', color: 'secondary', description: 'Déposez vos épreuves, classe par classe' },
+     { to: '/enseignant/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', color: 'warning', description: 'Vos cours de la semaine' },
+     { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', color: 'info', description: 'Imprimer ou télécharger la liste de vos classes' },
+   ],
+@@ -60,6 +61,7 @@ export const NAV_COURTE = {
+   '/configuration': 'Réglages',
+   '/enseignant/notes': 'Notes',
+   '/enseignant/classes': 'Classes',
++  '/enseignant/epreuves': 'Épreuves',
+   '/enseignant/emploi-du-temps': 'Horaires',
+   '/notes': 'Notes',
+   '/bulletins': 'Bulletins',
+@@ -77,7 +79,7 @@ export const NAV_MOBILE = {
+   Admin: ['/', '/eleves', '/inscriptions', '/paiements'],
+   Censeur: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
+   Surveillant: ['/', '/notes', '/bulletins', '/emploi-du-temps'],
+-  Enseignant: ['/', '/enseignant/notes', '/enseignant/classes', '/enseignant/emploi-du-temps'],
++  Enseignant: ['/', '/enseignant/notes', '/enseignant/classes', '/enseignant/epreuves'],
+   Comptable: ['/paiements', '/tresorerie'],
+   Secretaire: ['/inscriptions', '/eleves', '/parents'],
+   Parent: ['/', '/parent/paiements', '/parent/bulletins'],
+diff --git a/web/src/lib/paginationServeur.js b/web/src/lib/paginationServeur.js
+new file mode 100644
+index 0000000..71fbb1f
+--- /dev/null
++++ b/web/src/lib/paginationServeur.js
+@@ -0,0 +1,56 @@
++import { useEffect, useRef, useState } from 'react';
++
++// Pagination CÔTÉ SERVEUR (usePagination, dans components/ui.jsx, découpe une
++// liste déjà chargée en entier). Ici, chaque page est demandée à l'API :
++// {items, total, page, pages, per_page}.
++//
++// - `charger({ page, perPage })` : renvoie cette réponse ; il peut lire les
++//   filtres courants dans la portée de l'appelant (la dernière version est
++//   toujours utilisée).
++// - `filtres` : objet sérialisable ; tout changement ramène à la page 1 et
++//   recharge, sans requête intermédiaire sur l'ancienne page.
++// - Une page demandée trop loin (dernier élément supprimé…) est ramenée à la
++//   dernière page par le serveur : on affiche la page renvoyée.
++export function usePaginationServeur({ charger, perPage, filtres = {} }) {
++  const cle = JSON.stringify(filtres);
++  const [demande, setDemande] = useState({ cle, page: 1 });
++  const page = demande.cle === cle ? demande.page : 1;
++  const [version, setVersion] = useState(0);
++  const [etat, setEtat] = useState({ items: [], total: 0, pages: 1, page: 1, loading: true, error: '' });
++
++  // Dernier `charger` (et donc derniers filtres), sans relancer le chargement
++  // à chaque rendu. Déclaré avant l'effet de chargement : il s'exécute d'abord.
++  const chargerRef = useRef(charger);
++  useEffect(() => { chargerRef.current = charger; });
++
++  useEffect(() => {
++    let annule = false;
++    setEtat((s) => ({ ...s, loading: true, error: '' }));
++    Promise.resolve(chargerRef.current({ page, perPage }))
++      .then((data) => {
++        if (annule) return;
++        setEtat({
++          items: data?.items || [],
++          total: data?.total || 0,
++          pages: data?.pages || 1,
++          page: data?.page || page,
++          loading: false,
++          error: '',
++        });
++      })
++      .catch((e) => {
++        if (!annule) setEtat({ items: [], total: 0, pages: 1, page: 1, loading: false, error: e.message });
++      });
++    return () => { annule = true; };
++  }, [cle, page, perPage, version]);
++
++  const start = etat.total ? (etat.page - 1) * perPage : 0;
++  return {
++    ...etat,
++    perPage,
++    start,
++    end: Math.min(start + etat.items.length, etat.total),
++    setPage: (p) => setDemande({ cle, page: p }),
++    recharger: () => setVersion((v) => v + 1),
++  };
++}
+diff --git a/web/src/lib/stockageLocal.js b/web/src/lib/stockageLocal.js
+index f813997..e5268a7 100644
+--- a/web/src/lib/stockageLocal.js
++++ b/web/src/lib/stockageLocal.js
+@@ -51,8 +51,10 @@ export function setProprietaireCache(id) {
+ 
+ // GET mis en cache : toutes les données métier (espaces, notes, discipline,
+ // emplois du temps, élèves, inscriptions, paiements…), sauf l'authentification
+-// (session gérée à part, cf. offline.js), le journal d'audit et les imports.
+-const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/'];
++// (session gérée à part, cf. offline.js), le journal d'audit, les imports et
++// les épreuves (listes paginées et filtrées, fichiers : rien à rejouer hors
++// connexion, cf. lib/epreuves.js).
++const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/', '/epreuves', '/enseignant/epreuves'];
+ 
+ export function estCacheable(basePath) {
+   return !PREFIXES_EXCLUS.some((p) => basePath.startsWith(p));
+diff --git a/web/src/pages/EnseignantEpreuvesPage.jsx b/web/src/pages/EnseignantEpreuvesPage.jsx
+new file mode 100644
+index 0000000..22953b9
+--- /dev/null
++++ b/web/src/pages/EnseignantEpreuvesPage.jsx
+@@ -0,0 +1,131 @@
++import { useMemo, useState } from 'react';
++import { EspaceTitre, useMonEspace } from '../components/Espace';
++import EpreuveModal from '../components/EpreuveModal';
++import PagerServeur from '../components/PagerServeur';
++import Select from '../components/Select';
++import { SkelListe } from '../components/Skeleton';
++import { IconBtn, formatDate, useConfirm, useToast } from '../components/ui';
++import {
++  EPREUVES_PAR_PAGE_ENSEIGNANT, classesDe, formaterTaille, listerEpreuves, matieresDe,
++  styleEpreuve, supprimerEpreuve,
++} from '../lib/epreuves';
++import { usePaginationServeur } from '../lib/paginationServeur';
++
++// « Épreuves » de l'enseignant : ses épreuves, 6 par page (pagination côté
++// serveur), filtrables par classe et matière, et ajout d'une épreuve dans
++// l'une de ses classes. Les classes et matières viennent de /mon-espace.
++export default function EnseignantEpreuvesPage() {
++  const toast = useToast();
++  const [confirm, confirmNode] = useConfirm();
++  const espace = useMonEspace('/enseignant');
++  const mcs = useMemo(() => espace.data?.matieres_classe || [], [espace.data]);
++  const [filtres, setFiltres] = useState({ classe: '', matiere: '' });
++  const [modal, setModal] = useState(false);
++
++  const classes = useMemo(() => classesDe(mcs), [mcs]);
++  const matieres = useMemo(() => matieresDe(mcs, filtres.classe), [mcs, filtres.classe]);
++  const filtre = Boolean(filtres.classe || filtres.matiere);
++
++  const pagination = usePaginationServeur({
++    perPage: EPREUVES_PAR_PAGE_ENSEIGNANT,
++    filtres,
++    charger: ({ page, perPage }) => listerEpreuves('enseignant', {
++      page, perPage, classeId: filtres.classe, matiereId: filtres.matiere,
++    }),
++  });
++  const { items, loading, error } = pagination;
++
++  // Changer de classe retire le filtre matière s'il n'y est pas enseigné.
++  const changerClasse = (classe) => setFiltres((f) => ({
++    classe,
++    matiere: classe && f.matiere && !matieresDe(mcs, classe).some((m) => String(m.id) === f.matiere) ? '' : f.matiere,
++  }));
++
++  const supprimer = async (epreuve) => {
++    const ok = await confirm(`Supprimer l'épreuve « ${epreuve.titre} » ?`, { details: 'Le fichier sera définitivement supprimé.' });
++    if (!ok) return;
++    try {
++      await supprimerEpreuve('enseignant', epreuve.id);
++      toast('Épreuve supprimée.');
++      pagination.recharger();
++    } catch (e) {
++      toast(e.message, 'error');
++    }
++  };
++
++  const apresAjout = () => {
++    setModal(false);
++    pagination.setPage(1); // les plus récentes d'abord
++    pagination.recharger();
++  };
++
++  return (
++    <>
++      <EspaceTitre titre="Épreuves" sousTitre="Déposez vos épreuves, classe par classe" icon="bx-file">
++        <button type="button" className="btn btn-primary" onClick={() => setModal(true)} disabled={!mcs.length}>
++          <i className="bx bx-plus me-1" />Ajouter<span className="d-none d-sm-inline">&nbsp;une épreuve</span>
++        </button>
++      </EspaceTitre>
++
++      {espace.error && !espace.data && <div className="alert alert-warning"><i className="bx bx-error me-2" />{espace.error.message}</div>}
++
++      {mcs.length > 0 && (
++        <div className="esp-filtres">
++          <div className="flex-fill min-w-0">
++            <Select className="form-select" value={filtres.classe} onChange={(e) => changerClasse(e.target.value)} aria-label="Filtrer par classe">
++              <option value="">Toutes les classes</option>
++              {classes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
++            </Select>
++          </div>
++          <div className="flex-fill min-w-0">
++            <Select className="form-select" value={filtres.matiere} onChange={(e) => setFiltres((f) => ({ ...f, matiere: e.target.value }))} aria-label="Filtrer par matière">
++              <option value="">Toutes les matières</option>
++              {matieres.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}
++            </Select>
++          </div>
++          {filtre && (
++            <button type="button" className="btn btn-outline-secondary flex-shrink-0" onClick={() => setFiltres({ classe: '', matiere: '' })}>
++              <i className="bx bx-reset me-1" />Réinitialiser
++            </button>
++          )}
++        </div>
++      )}
++
++      {loading && !items.length ? (
++        <SkelListe lignes={4} label="Chargement des épreuves…" />
++      ) : error ? (
++        <div className="alert alert-danger"><i className="bx bx-error-circle me-2" />{error}</div>
++      ) : !items.length ? (
++        <div className="esp-vide">
++          <i className="bx bx-file-blank" />
++          {filtre ? 'Aucune épreuve ne correspond à ces filtres.' : "Vous n'avez pas encore déposé d'épreuve."}
++        </div>
++      ) : (
++        <>
++          <div className={`esp-liste-rapide${loading ? ' opacity-50' : ''}`} aria-busy={loading || undefined}>
++            {items.map((epreuve) => {
++              const { icone, ton } = styleEpreuve(epreuve.mime);
++              return (
++                <div key={epreuve.id} className="esp-ligne-rapide">
++                  <div className="avatar flex-shrink-0">
++                    <span className={`avatar-initial rounded bg-label-${ton}`}><i className={`bx ${icone}`} /></span>
++                  </div>
++                  <div className="esp-ligne-rapide-texte">
++                    <div className="esp-ligne-rapide-titre" title={epreuve.titre}>{epreuve.titre}</div>
++                    <small className="text-muted d-block text-truncate">{epreuve.matiere_libelle} · {epreuve.classe_label}</small>
++                    <small className="text-muted d-block text-truncate">{formatDate(epreuve.created_at)} · {formaterTaille(epreuve.taille)}</small>
++                  </div>
++                  <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(epreuve)} disabled={loading} />
++                </div>
++              );
++            })}
++          </div>
++          <PagerServeur pagination={pagination} bordure={false} />
++        </>
++      )}
++
++      {modal && <EpreuveModal espace="enseignant" mcs={mcs} onClose={() => setModal(false)} onSaved={apresAjout} />}
++      {confirmNode}
++    </>
++  );
++}
+diff --git a/web/src/pages/EpreuvesPage.jsx b/web/src/pages/EpreuvesPage.jsx
+new file mode 100644
+index 0000000..0d30aae
+--- /dev/null
++++ b/web/src/pages/EpreuvesPage.jsx
+@@ -0,0 +1,179 @@
++import { useMemo, useState } from 'react';
++import EpreuveModal from '../components/EpreuveModal';
++import PagerServeur from '../components/PagerServeur';
++import Select from '../components/Select';
++import { IconBtn, PageHeader, TBody, TableCard, formatDate, useConfirm, useToast } from '../components/ui';
++import { useAuth } from '../context/AuthContext';
++import {
++  EPREUVES_PAR_PAGE_ADMIN, classesDe, enseignantsDe, formaterTaille, listerEpreuves, matieresDe,
++  styleEpreuve, supprimerEpreuve, telechargerEpreuve, useAffectationsAdmin,
++} from '../lib/epreuves';
++import { usePaginationServeur } from '../lib/paginationServeur';
++
++const FILTRES_VIDES = { classe: '', matiere: '', enseignant: '' };
++
++// Épreuves de l'établissement (Admin / SuperAdmin) : 10 par page (pagination
++// côté serveur), filtres classe / matière / enseignant, ajout (l'enseignant
++// est celui de l'affectation) et téléchargement du fichier d'origine.
++export default function EpreuvesPage() {
++  const toast = useToast();
++  const [confirm, confirmNode] = useConfirm();
++  const { activeEtablissementId } = useAuth();
++  const { mcs, loading: chargementAffectations, error: erreurAffectations } = useAffectationsAdmin(activeEtablissementId);
++  const [filtres, setFiltres] = useState(FILTRES_VIDES);
++  const [modal, setModal] = useState(false);
++  const [telechargement, setTelechargement] = useState(null);
++
++  const classes = useMemo(() => classesDe(mcs), [mcs]);
++  const matieres = useMemo(() => matieresDe(mcs, filtres.classe), [mcs, filtres.classe]);
++  const enseignants = useMemo(() => enseignantsDe(mcs), [mcs]);
++  const filtre = Object.values(filtres).some(Boolean);
++
++  // L'établissement consulté (SuperAdmin) fait partie des filtres : en
++  // changer recharge la liste depuis la page 1.
++  const pagination = usePaginationServeur({
++    perPage: EPREUVES_PAR_PAGE_ADMIN,
++    filtres: { ...filtres, etablissement: activeEtablissementId },
++    charger: ({ page, perPage }) => listerEpreuves('admin', {
++      page, perPage, classeId: filtres.classe, matiereId: filtres.matiere, enseignantId: filtres.enseignant,
++    }),
++  });
++  const { items, loading, error } = pagination;
++
++  const changerClasse = (classe) => setFiltres((f) => ({
++    ...f,
++    classe,
++    matiere: classe && f.matiere && !matieresDe(mcs, classe).some((m) => String(m.id) === f.matiere) ? '' : f.matiere,
++  }));
++
++  const telecharger = async (epreuve) => {
++    setTelechargement(epreuve.id);
++    try {
++      await telechargerEpreuve(epreuve);
++    } catch (e) {
++      toast(`Téléchargement : ${e.message}`, 'error');
++    } finally {
++      setTelechargement(null);
++    }
++  };
++
++  const supprimer = async (epreuve) => {
++    const ok = await confirm(`Supprimer l'épreuve « ${epreuve.titre} » ?`, {
++      details: 'Le fichier sera définitivement supprimé.',
++    });
++    if (!ok) return;
++    try {
++      await supprimerEpreuve('admin', epreuve.id);
++      toast('Épreuve supprimée.');
++      pagination.recharger();
++    } catch (e) {
++      toast(e.message, 'error');
++    }
++  };
++
++  const apresAjout = () => {
++    setModal(false);
++    pagination.setPage(1); // les plus récentes d'abord
++    pagination.recharger();
++  };
++
++  return (
++    <>
++      <PageHeader title="Épreuves" subtitle="Épreuves déposées par les enseignants de l'établissement : consultez-les, filtrez-les et téléchargez-les.">
++        <button type="button" className="btn btn-primary" onClick={() => setModal(true)} disabled={chargementAffectations || !mcs.length}>
++          <i className="bx bx-plus me-1" /> Ajouter une épreuve
++        </button>
++      </PageHeader>
++
++      {erreurAffectations && <div className="alert alert-warning"><i className="bx bx-error me-2" />Classes et matières : {erreurAffectations}</div>}
++
++      <div className="card mb-3">
++        <div className="card-body py-3">
++          <div className="row g-2 align-items-end">
++            <div className="col-md-3">
++              <label className="form-label">Classe</label>
++              <Select className="form-select form-select-sm" value={filtres.classe} onChange={(e) => changerClasse(e.target.value)}>
++                <option value="">Toutes les classes</option>
++                {classes.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
++              </Select>
++            </div>
++            <div className="col-md-3">
++              <label className="form-label">Matière</label>
++              <Select className="form-select form-select-sm" value={filtres.matiere} onChange={(e) => setFiltres((f) => ({ ...f, matiere: e.target.value }))}>
++                <option value="">Toutes les matières</option>
++                {matieres.map((m) => <option key={m.id} value={m.id}>{m.libelle}</option>)}
++              </Select>
++            </div>
++            <div className="col-md-4">
++              <label className="form-label">Enseignant</label>
++              <Select className="form-select form-select-sm" value={filtres.enseignant} onChange={(e) => setFiltres((f) => ({ ...f, enseignant: e.target.value }))}>
++                <option value="">Tous les enseignants</option>
++                {enseignants.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
++              </Select>
++            </div>
++            <div className="col-md-2">
++              <button type="button" className="btn btn-outline-secondary btn-sm w-100" title="Réinitialiser les filtres" onClick={() => setFiltres(FILTRES_VIDES)} disabled={!filtre}>
++                <i className="bx bx-reset me-1" />Réinitialiser
++              </button>
++            </div>
++          </div>
++        </div>
++      </div>
++
++      <TableCard
++        title="Épreuves"
++        icon="bx-file"
++        count={error ? undefined : pagination.total}
++        footer={<PagerServeur pagination={pagination} bordure={false} />}
++      >
++        <table className={`table table-hover mb-0${loading && items.length ? ' opacity-50' : ''}`}>
++          <thead>
++            <tr><th>Épreuve</th><th>Classe</th><th>Matière</th><th>Enseignant</th><th>Déposée le</th><th>Taille</th><th className="text-end">Actions</th></tr>
++          </thead>
++          <TBody
++            colSpan={7}
++            loading={loading && !items.length}
++            error={error}
++            rows={items.length}
++            empty={filtre ? 'Aucune épreuve ne correspond à ces filtres' : "Aucune épreuve n'a encore été déposée"}
++            emptyIcon="bx-file-blank"
++            skeletonRows={EPREUVES_PAR_PAGE_ADMIN}
++          >
++            {items.map((epreuve) => {
++              const { icone, ton } = styleEpreuve(epreuve.mime);
++              return (
++                <tr key={epreuve.id}>
++                  <td>
++                    <div className="d-flex align-items-center gap-2">
++                      <span className={`avatar-initial rounded bg-label-${ton} flex-shrink-0 d-inline-flex align-items-center justify-content-center`} style={{ width: 32, height: 32 }}><i className={`bx ${icone}`} /></span>
++                      <div className="min-w-0">
++                        <div className="fw-semibold text-truncate" style={{ maxWidth: 280 }} title={epreuve.titre}>{epreuve.titre}</div>
++                        <small className="text-muted text-truncate d-block" style={{ maxWidth: 280 }} title={epreuve.nom_original}>{epreuve.nom_original}</small>
++                      </div>
++                    </div>
++                  </td>
++                  <td>{epreuve.classe_label}</td>
++                  <td>{epreuve.matiere_libelle}</td>
++                  <td>{epreuve.enseignant_nom}</td>
++                  <td>{formatDate(epreuve.created_at)}</td>
++                  <td>{formaterTaille(epreuve.taille)}</td>
++                  <td className="text-end">
++                    <button type="button" className="btn btn-sm btn-outline-primary" onClick={() => telecharger(epreuve)} disabled={telechargement === epreuve.id}>
++                      {telechargement === epreuve.id
++                        ? <><span className="spinner-border spinner-border-sm me-1" />Téléchargement…</>
++                        : <><i className="bx bx-download me-1" />Télécharger</>}
++                    </button>
++                    <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(epreuve)} />
++                  </td>
++                </tr>
++              );
++            })}
++          </TBody>
++        </table>
++      </TableCard>
++
++      {modal && <EpreuveModal espace="admin" mcs={mcs} onClose={() => setModal(false)} onSaved={apresAjout} />}
++      {confirmNode}
++    </>
++  );
++}

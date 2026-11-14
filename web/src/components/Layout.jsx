@@ -47,9 +47,11 @@ export const MENU_SECTIONS = [
     items: [
       { to: '/matieres', label: 'Matières', icon: 'bx-book-open', roles: ADMIN },
       { to: '/enseignants', label: 'Enseignants', icon: 'bx-user-voice', roles: ADMIN },
+      { to: '/epreuves', label: 'Épreuves', icon: 'bx-file', roles: ADMIN },
       { to: '/pedagogie', label: 'Pédagogie', icon: 'bx-git-branch', roles: CENSEUR },
       { to: '/enseignant/notes', label: 'Notes', icon: 'bx-edit', roles: ['Enseignant'] },
       { to: '/enseignant/classes', label: 'Mes classes', icon: 'bx-group', roles: ['Enseignant'] },
+      { to: '/enseignant/epreuves', label: 'Épreuves', icon: 'bx-file', roles: ['Enseignant'] },
     ],
   },
   {

@@ -122,6 +122,16 @@ class Config:
         "BULLETINS_STORAGE_PATH", os.path.join(BASE_DIR, "storage", "bulletins")
     )
 
+    # --- Stockage des épreuves (PDF, Word, images déposés par les enseignants) ---
+    # <EPREUVES_STORAGE_PATH>/<etablissement_id>/<uuid>.<ext>. Par défaut sous
+    # storage/, déjà monté sur le volume persistant en production
+    # (server-storage:/app/storage). Lu à l'exécution par
+    # services/epreuve_services.py (les tests le redirigent vers un dossier
+    # temporaire).
+    EPREUVES_STORAGE_PATH = os.environ.get(
+        "EPREUVES_STORAGE_PATH", os.path.join(BASE_DIR, "storage", "epreuves")
+    )
+
     @classmethod
     def validate(cls):
         """À appeler explicitement au démarrage de l'application (voir app.py) :

@@ -25,6 +25,8 @@ import BulletinsPage from './pages/BulletinsPage';
 import EnseignantNotesPage from './pages/EnseignantNotesPage';
 import EnseignantHorairePage from './pages/EnseignantHorairePage';
 import EnseignantClassesPage from './pages/EnseignantClassesPage';
+import EnseignantEpreuvesPage from './pages/EnseignantEpreuvesPage';
+import EpreuvesPage from './pages/EpreuvesPage';
 import EspaceAccueilPage from './pages/EspaceAccueilPage';
 import ChoixEspacePage from './pages/ChoixEspacePage';
 import AccesRefusePage from './pages/AccesRefusePage';
@@ -133,6 +135,10 @@ const PAGES = [
   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
+  // Épreuves : l'enseignant dépose et gère les siennes ; l'administration voit,
+  // filtre, ajoute et télécharge celles de tout l'établissement.
+  { path: 'enseignant/epreuves', element: <EnseignantEpreuvesPage />, roles: ['Enseignant'] },
+  { path: 'epreuves', element: <EpreuvesPage />, roles: ADMIN },
   { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur'] },
   // Espace parent : uniquement les enfants de la famille connectée.
   { path: 'parent/paiements', element: <ParentPaiementsPage />, roles: ['Parent'] },
