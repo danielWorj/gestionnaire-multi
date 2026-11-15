@@ -65,6 +65,7 @@ export const NAV_COURTE = {
   '/enseignant/emploi-du-temps': 'Horaires',
   '/notes': 'Notes',
   '/bulletins': 'Bulletins',
+  '/proces-verbal': 'PV',
   '/emploi-du-temps': 'Horaires',
   '/pedagogie': 'Pédagogie',
   '/parent/paiements': 'Paiements',

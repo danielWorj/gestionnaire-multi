@@ -22,6 +22,7 @@ import HorairePage from './pages/HorairePage';
 import PedagogiePage from './pages/PedagogiePage';
 import CenseurNotesPage from './pages/CenseurNotesPage';
 import BulletinsPage from './pages/BulletinsPage';
+import ProcesVerbalPage from './pages/ProcesVerbalPage';
 import EnseignantNotesPage from './pages/EnseignantNotesPage';
 import EnseignantHorairePage from './pages/EnseignantHorairePage';
 import EnseignantClassesPage from './pages/EnseignantClassesPage';
@@ -132,6 +133,9 @@ const PAGES = [
   // SuperAdmin : lecture ET saisie des notes de l'établissement choisi.
   { path: 'notes', element: <CenseurNotesPage />, roles: [...CENSEUR, 'SuperAdmin'] },
   { path: 'bulletins', element: <BulletinsPage />, roles: [...CENSEUR, ...ADMIN] },
+  // Procès-verbal d'évaluation d'une classe pour une séquence (aperçu,
+  // impression, PDF) : Admin et SuperAdmin uniquement, comme /api/pv.
+  { path: 'proces-verbal', element: <ProcesVerbalPage />, roles: ADMIN },
   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },

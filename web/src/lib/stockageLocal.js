@@ -53,8 +53,10 @@ export function setProprietaireCache(id) {
 // emplois du temps, élèves, inscriptions, paiements…), sauf l'authentification
 // (session gérée à part, cf. offline.js), le journal d'audit, les imports et
 // les épreuves (listes paginées et filtrées, fichiers : rien à rejouer hors
-// connexion, cf. lib/epreuves.js).
-const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/', '/epreuves', '/enseignant/epreuves'];
+// connexion, cf. lib/epreuves.js) et le procès-verbal d'évaluation (document
+// officiel : il doit toujours refléter les notes du serveur, jamais une
+// copie ancienne, cf. pages/ProcesVerbalPage.jsx).
+const PREFIXES_EXCLUS = ['/auth/', '/audit/', '/import', '/health', '/superadmin/', '/epreuves', '/enseignant/epreuves', '/pv/'];
 
 export function estCacheable(basePath) {
   return !PREFIXES_EXCLUS.some((p) => basePath.startsWith(p));

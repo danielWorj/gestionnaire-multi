@@ -1,0 +1,31 @@
+/* Styles de la page « Procès-verbal » (filtres, alertes, aperçu). La mise en
+   page du PV lui-même vient du gabarit serveur (pv/pv_evaluation.html). */
+
+/* ── Filtres et actions ── */
+.pv-filtres { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.875rem 1.25rem; }
+.pv-filtres-champs { display: grid; grid-template-columns: 1fr; gap: 0.75rem; flex: 1 1 520px; min-width: 0; }
+@media (min-width: 576px) { .pv-filtres-champs { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .pv-filtres-champs { grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 860px; } }
+.pv-filtres .form-label { margin-bottom: 0.3rem; }
+.pv-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+@media (max-width: 575.98px) {
+  .pv-actions { width: 100%; }
+  .pv-actions .btn:not(.btn-icon) { flex: 1 1 auto; }
+}
+
+/* ── Notes non saisies ── */
+.pv-alertes { font-size: 0.82rem; }
+.pv-alertes-titre { font-weight: 700; margin-bottom: 0.35rem; }
+.pv-alertes-liste { margin: 0 0 0.4rem; padding-left: 1.1rem; columns: 3 230px; column-gap: 2rem; }
+.pv-alertes-liste li { break-inside: avoid; }
+
+/* ── Aperçu : la feuille A4 paysage du gabarit, dans un iframe mis à
+   l'échelle de la largeur disponible (cf. ApercuPv). Sur petit écran,
+   l'échelle a un plancher : l'aperçu défile horizontalement. ── */
+.pv-apercu { overflow-x: auto; border: 1px solid #d9dee3; border-radius: 0.5rem; background: #e9ebee; transition: opacity .15s ease; }
+.pv-apercu.est-en-cours { opacity: .55; }
+.pv-apercu-feuille { margin: 0 auto; overflow: hidden; }
+.pv-apercu iframe { display: block; border: 0; background: #e9ebee; transform-origin: 0 0; }
+
+/* Iframe d'impression : hors écran mais rendu (le navigateur doit charger le logo). */
+.pv-impression { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; visibility: hidden; }

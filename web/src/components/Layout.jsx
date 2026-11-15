@@ -75,6 +75,7 @@ export const MENU_SECTIONS = [
     items: [
       { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: [...CENSEUR, 'SuperAdmin'] },
       { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: [...CENSEUR, ...ADMIN] },
+      { to: '/proces-verbal', label: 'Procès-verbal', icon: 'bx-table', roles: ADMIN },
     ],
   },
   {

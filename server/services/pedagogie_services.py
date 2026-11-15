@@ -4,7 +4,7 @@ from models.pedagogie_models import (
     GroupeMatiere, Matiere, Enseignant, TitulaireClasse, MatiereClasse,
     Departement, Grade, Censeur, Surveillant, CenseurClasse, SurveillantClasse
 )
-from models.structure_models import Classe, AnneeScolaire
+from models.structure_models import Classe, AnneeScolaire, annee_active
 # Utilisé UNIQUEMENT par _creer_profil_avec_compte plus bas, pour créer en
 # une seule transaction le profil (Censeur/Surveillant) ET son compte de
 # connexion (Utilisateur) — cf. docstring de Censeur/Surveillant dans
@@ -376,6 +376,116 @@ def modifier_coefficient_enseignant(enseignant, matiere_classe_id, valeur, etabl
             db.session.rollback()
             return {"erreur": "Erreur lors de la mise à jour"}, 500
     return mc.to_dict(), 200
+
+
+def _identifiant_entier(valeur):
+    """Entier strict (refuse booléens, décimaux et chaînes non numériques) ou
+    None. Un True/1.5 envoyé par erreur ne doit pas désigner la classe 1."""
+    if isinstance(valeur, bool):
+        return None
+    if isinstance(valeur, int):
+        return valeur
+    if isinstance(valeur, str) and valeur.strip().isdecimal():
+        return int(valeur.strip())
+    return None
+
+
+def definir_titulaire_classe(enseignant, classe_id, etablissement_id, remplacer=False):
+    """Désigne (ou retire) l'enseignant comme titulaire d'UNE classe pour
+    l'année scolaire ACTIVE de l'établissement (cf. structure_models.
+    annee_active, règle unique de l'application).
+
+    classe_id None  -> retire l'enseignant de toutes ses classes titularisées
+                       de l'année (décocher « enseignant principal »).
+    classe_id <id>  -> l'enseignant devient le titulaire de cette classe et
+                       de celle-là seulement pour l'année : une éventuelle
+                       autre classe titularisée l'an en cours est libérée.
+                       Choisir la classe qu'il a déjà est sans effet.
+
+    Une classe n'a qu'un titulaire par année (uq_titulaire_classe_annee) :
+    si un AUTRE enseignant l'est déjà, la désignation est refusée (409, avec
+    le titulaire actuel dans la réponse) tant que `remplacer` n'est pas vrai.
+
+    Tout est fait dans UNE transaction : en cas d'échec rien ne change.
+    L'historique des autres années n'est jamais touché ; le journal d'audit
+    trace chaque création/suppression automatiquement.
+    Retourne (résultat, status)."""
+    if enseignant is None or enseignant.etablissement_id != etablissement_id:
+        return {"erreur": "enseignant non trouvé"}, 404
+
+    annee = annee_active(etablissement_id)
+    if annee is None:
+        return {"erreur": "Aucune année scolaire n'est définie pour cet établissement"}, 400
+
+    actuelles = TitulaireClasse.query.filter_by(
+        enseignant_id=enseignant.id, annee_scolaire_id=annee.id).all()
+
+    def _resultat(titulaire):
+        return {
+            "enseignant_id": enseignant.id,
+            "annee_scolaire_id": annee.id,
+            "classe_id": titulaire.classe_id if titulaire else None,
+            "titulaire": titulaire.to_dict() if titulaire else None,
+        }
+
+    if classe_id is None or classe_id == '':
+        for t in actuelles:
+            db.session.delete(t)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            return {"erreur": "Erreur lors de la mise à jour"}, 500
+        return _resultat(None), 200
+
+    classe_id = _identifiant_entier(classe_id)
+    if classe_id is None:
+        return {"erreur": "classe_id invalide"}, 400
+    classe = db.session.get(Classe, classe_id)
+    if not classe or classe.etablissement_id != etablissement_id:
+        return {"erreur": "Classe invalide pour cet établissement"}, 400
+
+    deja = next((t for t in actuelles if t.classe_id == classe_id), None)
+    autres_classes = [t for t in actuelles if t.classe_id != classe_id]
+
+    occupant = None
+    if deja is None:
+        occupant = TitulaireClasse.query.filter_by(
+            classe_id=classe_id, annee_scolaire_id=annee.id).first()
+        if occupant and not remplacer:
+            ancien = occupant.enseignant
+            return {
+                "erreur": f"Cette classe a déjà pour titulaire {ancien.prenom} {ancien.nom}".strip(),
+                "code": "classe_deja_titulaire",
+                "titulaire_actuel": {"enseignant_id": ancien.id, "nom": ancien.nom, "prenom": ancien.prenom},
+            }, 409
+
+    if deja is not None and not autres_classes:
+        return _resultat(deja), 200
+
+    try:
+        for t in autres_classes:
+            db.session.delete(t)
+        if occupant is not None:
+            db.session.delete(occupant)
+        # La contrainte unique (classe, année) impose que les suppressions
+        # soient envoyées à la base AVANT l'insertion qui prend leur place.
+        db.session.flush()
+        titulaire = deja
+        if titulaire is None:
+            titulaire = TitulaireClasse(classe_id=classe_id, enseignant_id=enseignant.id,
+                                        annee_scolaire_id=annee.id)
+            db.session.add(titulaire)
+        db.session.commit()
+    except IntegrityError:
+        # Course : un autre administrateur a désigné la classe entre-temps.
+        db.session.rollback()
+        return {"erreur": "Cette classe vient d'être attribuée à un autre enseignant. Actualisez la page.",
+                "code": "classe_deja_titulaire"}, 409
+    except Exception:
+        db.session.rollback()
+        return {"erreur": "Erreur lors de la mise à jour"}, 500
+    return _resultat(titulaire), 200
 
 
 def resolve_classe_ids_restriction(role, user_id):

@@ -46,6 +46,7 @@ from api.tresorerie_api import tresorerie_bp
 # templates/censeur/notes.html et templates/censeur/bulletin.html.
 from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
 from api.bulletin_api import bulletin_bp
+from api.pv_api import pv_bp
 # Épreuves (documents déposés par les enseignants) : vue et dépôt de
 # l'administration sous /api/epreuves ; les routes de l'enseignant sont dans
 # enseignant_espace_bp (/api/enseignant/epreuves) — cf. api/epreuve_api.py.
@@ -235,6 +236,8 @@ def create_app(env=None):
     app.register_blueprint(censeur_espace_bp)
     # Bulletins séquentiels / trimestriels / annuels (aperçu HTML + PDF).
     app.register_blueprint(bulletin_bp)
+    # Procès-verbal d'évaluation (« Contrôle continu N°x ») : JSON, aperçu HTML et PDF paysage.
+    app.register_blueprint(pv_bp)
     # Épreuves : liste/dépôt/téléchargement/suppression pour Admin et
     # SuperAdmin. Les audits sont automatiques (activer_audit).
     app.register_blueprint(epreuve_bp)

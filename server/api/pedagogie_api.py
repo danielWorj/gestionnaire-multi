@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from services.pedagogie_services import (
     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
     update_entity_scoped, delete_entity_scoped, resolve_classe_ids_restriction,
-    create_censeur_avec_compte, create_surveillant_avec_compte,
+    create_censeur_avec_compte, create_surveillant_avec_compte, definir_titulaire_classe,
 )
 from models.pedagogie_models import (
     GroupeMatiere, Matiere, Enseignant, TitulaireClasse, MatiereClasse,
@@ -32,8 +32,10 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
     créer/modifier/supprimer — par défaut Admin et SuperAdmin seulement : un
     Censeur/Surveillant ne gère ni les enseignants (dont le lien
     utilisateur_id vers un compte de connexion), ni les matières, ni les
-    départements/grades. Seuls titulaire_classe_bp et matiere_classe_bp
-    l'ouvrent aux Censeur/Surveillant, limités à leurs classes.
+    départements/grades. Seul matiere_classe_bp l'ouvre aux
+    Censeur/Surveillant, limités à leurs classes. titulaire_classe_bp reste
+    réservé en écriture à Admin/SuperAdmin : seuls eux désignent les
+    titulaires de classe.
     Les blueprints censeur_bp/surveillant_bp/
     censeur_classe_bp/surveillant_classe_bp ci-dessous surchargent ce
     paramètre pour rester réservés à Admin/SuperAdmin : un Censeur ou un
@@ -141,18 +143,52 @@ departement_bp = make_pedagogie_scoped_blueprint('departement', Departement, '/a
 grade_bp = make_pedagogie_scoped_blueprint('grade', Grade, '/api/grades')
 enseignant_bp = make_pedagogie_scoped_blueprint('enseignant', Enseignant, '/api/enseignants')
 
-# classe_scoped=True : un Censeur/Surveillant n'accède (lecture ET écriture)
-# qu'aux classes qui lui ont été assignées (cf. CenseurClasse/SurveillantClasse
-# plus bas) — il y organise les matières (page Pédagogie).
+# classe_scoped=True : un Censeur/Surveillant n'accède qu'aux classes qui lui
+# ont été assignées (cf. CenseurClasse/SurveillantClasse plus bas). Il peut
+# organiser les matières de ses classes (matiere_classe_bp, page Pédagogie)
+# mais ne désigne PAS les titulaires de classe : titulaire_classe_bp lui est
+# en lecture seule, l'écriture est réservée à l'Admin et au SuperAdmin.
 ROLES_AFFECTATIONS = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
 titulaire_classe_bp = make_pedagogie_scoped_blueprint(
     'titulaire_classe', TitulaireClasse, '/api/titulaires-classe',
-    roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
+    roles_ecriture=("Admin", "SuperAdmin"), classe_scoped=True
 )
 matiere_classe_bp = make_pedagogie_scoped_blueprint(
     'matiere_classe', MatiereClasse, '/api/matieres-classe',
     roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
 )
+
+# ---------------------------------------------------------------------------
+# Enseignant principal (titulaire de classe) — PUT /api/enseignants/<id>/titulaire
+#
+# Réservé à l'Admin d'établissement et au SuperAdmin (le before_request de
+# enseignant_bp refuse déjà toute écriture aux autres rôles ; vérifié à
+# nouveau ici car la règle métier ne doit pas dépendre d'un réglage
+# générique). Body : {classe_id: int | null, remplacer?: bool}. Opère sur
+# l'année scolaire active ; null retire l'enseignant de sa classe. 409 si la
+# classe a déjà un autre titulaire, sauf remplacer=true — cf.
+# pedagogie_services.definir_titulaire_classe.
+# ---------------------------------------------------------------------------
+
+@enseignant_bp.route('/<int:id>/titulaire', methods=['PUT'])
+def enseignant_definir_titulaire(id):
+    claims = get_jwt()
+    if claims.get("role") not in ("Admin", "SuperAdmin"):
+        return jsonify({"erreur": "Seuls l'administrateur et le SuperAdmin peuvent désigner un titulaire de classe"}), 403
+    etab_id = (request.args.get("etablissement_id", type=int) if claims.get("role") == "SuperAdmin"
+               else claims.get("etablissement_id"))
+    if etab_id is None:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+    enseignant = get_entity_scoped(Enseignant, id, etab_id)
+    if not enseignant:
+        return jsonify({"erreur": "enseignant non trouvé"}), 404
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or 'classe_id' not in data:
+        return jsonify({"erreur": "classe_id requis (null pour retirer le titulariat)"}), 400
+    result, status = definir_titulaire_classe(
+        enseignant, data['classe_id'], etab_id, remplacer=data.get('remplacer') is True)
+    return jsonify(result), status
+
 
 # Gestion des profils Censeur/Surveillant : réservée à l'Admin d'établissement
 # (et au SuperAdmin), contrairement aux blueprints référentiels ci-dessus —

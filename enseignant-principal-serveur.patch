@@ -1,0 +1,524 @@
+diff --git a/server/api/pedagogie_api.py b/server/api/pedagogie_api.py
+index 27ef160..2a2b8ba 100644
+--- a/server/api/pedagogie_api.py
++++ b/server/api/pedagogie_api.py
+@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
+ from services.pedagogie_services import (
+     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
+     update_entity_scoped, delete_entity_scoped, resolve_classe_ids_restriction,
+-    create_censeur_avec_compte, create_surveillant_avec_compte,
++    create_censeur_avec_compte, create_surveillant_avec_compte, definir_titulaire_classe,
+ )
+ from models.pedagogie_models import (
+     GroupeMatiere, Matiere, Enseignant, TitulaireClasse, MatiereClasse,
+@@ -32,8 +32,10 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
+     créer/modifier/supprimer — par défaut Admin et SuperAdmin seulement : un
+     Censeur/Surveillant ne gère ni les enseignants (dont le lien
+     utilisateur_id vers un compte de connexion), ni les matières, ni les
+-    départements/grades. Seuls titulaire_classe_bp et matiere_classe_bp
+-    l'ouvrent aux Censeur/Surveillant, limités à leurs classes.
++    départements/grades. Seul matiere_classe_bp l'ouvre aux
++    Censeur/Surveillant, limités à leurs classes. titulaire_classe_bp reste
++    réservé en écriture à Admin/SuperAdmin : seuls eux désignent les
++    titulaires de classe.
+     Les blueprints censeur_bp/surveillant_bp/
+     censeur_classe_bp/surveillant_classe_bp ci-dessous surchargent ce
+     paramètre pour rester réservés à Admin/SuperAdmin : un Censeur ou un
+@@ -141,19 +143,53 @@ departement_bp = make_pedagogie_scoped_blueprint('departement', Departement, '/a
+ grade_bp = make_pedagogie_scoped_blueprint('grade', Grade, '/api/grades')
+ enseignant_bp = make_pedagogie_scoped_blueprint('enseignant', Enseignant, '/api/enseignants')
+ 
+-# classe_scoped=True : un Censeur/Surveillant n'accède (lecture ET écriture)
+-# qu'aux classes qui lui ont été assignées (cf. CenseurClasse/SurveillantClasse
+-# plus bas) — il y organise les matières (page Pédagogie).
++# classe_scoped=True : un Censeur/Surveillant n'accède qu'aux classes qui lui
++# ont été assignées (cf. CenseurClasse/SurveillantClasse plus bas). Il peut
++# organiser les matières de ses classes (matiere_classe_bp, page Pédagogie)
++# mais ne désigne PAS les titulaires de classe : titulaire_classe_bp lui est
++# en lecture seule, l'écriture est réservée à l'Admin et au SuperAdmin.
+ ROLES_AFFECTATIONS = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
+ titulaire_classe_bp = make_pedagogie_scoped_blueprint(
+     'titulaire_classe', TitulaireClasse, '/api/titulaires-classe',
+-    roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
++    roles_ecriture=("Admin", "SuperAdmin"), classe_scoped=True
+ )
+ matiere_classe_bp = make_pedagogie_scoped_blueprint(
+     'matiere_classe', MatiereClasse, '/api/matieres-classe',
+     roles_ecriture=ROLES_AFFECTATIONS, classe_scoped=True
+ )
+ 
++# ---------------------------------------------------------------------------
++# Enseignant principal (titulaire de classe) — PUT /api/enseignants/<id>/titulaire
++#
++# Réservé à l'Admin d'établissement et au SuperAdmin (le before_request de
++# enseignant_bp refuse déjà toute écriture aux autres rôles ; vérifié à
++# nouveau ici car la règle métier ne doit pas dépendre d'un réglage
++# générique). Body : {classe_id: int | null, remplacer?: bool}. Opère sur
++# l'année scolaire active ; null retire l'enseignant de sa classe. 409 si la
++# classe a déjà un autre titulaire, sauf remplacer=true — cf.
++# pedagogie_services.definir_titulaire_classe.
++# ---------------------------------------------------------------------------
++
++@enseignant_bp.route('/<int:id>/titulaire', methods=['PUT'])
++def enseignant_definir_titulaire(id):
++    claims = get_jwt()
++    if claims.get("role") not in ("Admin", "SuperAdmin"):
++        return jsonify({"erreur": "Seuls l'administrateur et le SuperAdmin peuvent désigner un titulaire de classe"}), 403
++    etab_id = (request.args.get("etablissement_id", type=int) if claims.get("role") == "SuperAdmin"
++               else claims.get("etablissement_id"))
++    if etab_id is None:
++        return jsonify({"erreur": "etablissement_id requis"}), 400
++    enseignant = get_entity_scoped(Enseignant, id, etab_id)
++    if not enseignant:
++        return jsonify({"erreur": "enseignant non trouvé"}), 404
++    data = request.get_json(silent=True)
++    if not isinstance(data, dict) or 'classe_id' not in data:
++        return jsonify({"erreur": "classe_id requis (null pour retirer le titulariat)"}), 400
++    result, status = definir_titulaire_classe(
++        enseignant, data['classe_id'], etab_id, remplacer=data.get('remplacer') is True)
++    return jsonify(result), status
++
++
+ # Gestion des profils Censeur/Surveillant : réservée à l'Admin d'établissement
+ # (et au SuperAdmin), contrairement aux blueprints référentiels ci-dessus —
+ # un Censeur/Surveillant ne doit pas pouvoir créer ou modifier ces profils,
+diff --git a/server/services/pedagogie_services.py b/server/services/pedagogie_services.py
+index eba02b7..e7f168b 100644
+--- a/server/services/pedagogie_services.py
++++ b/server/services/pedagogie_services.py
+@@ -4,7 +4,7 @@ from models.pedagogie_models import (
+     GroupeMatiere, Matiere, Enseignant, TitulaireClasse, MatiereClasse,
+     Departement, Grade, Censeur, Surveillant, CenseurClasse, SurveillantClasse
+ )
+-from models.structure_models import Classe, AnneeScolaire
++from models.structure_models import Classe, AnneeScolaire, annee_active
+ # Utilisé UNIQUEMENT par _creer_profil_avec_compte plus bas, pour créer en
+ # une seule transaction le profil (Censeur/Surveillant) ET son compte de
+ # connexion (Utilisateur) — cf. docstring de Censeur/Surveillant dans
+@@ -378,6 +378,116 @@ def modifier_coefficient_enseignant(enseignant, matiere_classe_id, valeur, etabl
+     return mc.to_dict(), 200
+ 
+ 
++def _identifiant_entier(valeur):
++    """Entier strict (refuse booléens, décimaux et chaînes non numériques) ou
++    None. Un True/1.5 envoyé par erreur ne doit pas désigner la classe 1."""
++    if isinstance(valeur, bool):
++        return None
++    if isinstance(valeur, int):
++        return valeur
++    if isinstance(valeur, str) and valeur.strip().isdecimal():
++        return int(valeur.strip())
++    return None
++
++
++def definir_titulaire_classe(enseignant, classe_id, etablissement_id, remplacer=False):
++    """Désigne (ou retire) l'enseignant comme titulaire d'UNE classe pour
++    l'année scolaire ACTIVE de l'établissement (cf. structure_models.
++    annee_active, règle unique de l'application).
++
++    classe_id None  -> retire l'enseignant de toutes ses classes titularisées
++                       de l'année (décocher « enseignant principal »).
++    classe_id <id>  -> l'enseignant devient le titulaire de cette classe et
++                       de celle-là seulement pour l'année : une éventuelle
++                       autre classe titularisée l'an en cours est libérée.
++                       Choisir la classe qu'il a déjà est sans effet.
++
++    Une classe n'a qu'un titulaire par année (uq_titulaire_classe_annee) :
++    si un AUTRE enseignant l'est déjà, la désignation est refusée (409, avec
++    le titulaire actuel dans la réponse) tant que `remplacer` n'est pas vrai.
++
++    Tout est fait dans UNE transaction : en cas d'échec rien ne change.
++    L'historique des autres années n'est jamais touché ; le journal d'audit
++    trace chaque création/suppression automatiquement.
++    Retourne (résultat, status)."""
++    if enseignant is None or enseignant.etablissement_id != etablissement_id:
++        return {"erreur": "enseignant non trouvé"}, 404
++
++    annee = annee_active(etablissement_id)
++    if annee is None:
++        return {"erreur": "Aucune année scolaire n'est définie pour cet établissement"}, 400
++
++    actuelles = TitulaireClasse.query.filter_by(
++        enseignant_id=enseignant.id, annee_scolaire_id=annee.id).all()
++
++    def _resultat(titulaire):
++        return {
++            "enseignant_id": enseignant.id,
++            "annee_scolaire_id": annee.id,
++            "classe_id": titulaire.classe_id if titulaire else None,
++            "titulaire": titulaire.to_dict() if titulaire else None,
++        }
++
++    if classe_id is None or classe_id == '':
++        for t in actuelles:
++            db.session.delete(t)
++        try:
++            db.session.commit()
++        except Exception:
++            db.session.rollback()
++            return {"erreur": "Erreur lors de la mise à jour"}, 500
++        return _resultat(None), 200
++
++    classe_id = _identifiant_entier(classe_id)
++    if classe_id is None:
++        return {"erreur": "classe_id invalide"}, 400
++    classe = db.session.get(Classe, classe_id)
++    if not classe or classe.etablissement_id != etablissement_id:
++        return {"erreur": "Classe invalide pour cet établissement"}, 400
++
++    deja = next((t for t in actuelles if t.classe_id == classe_id), None)
++    autres_classes = [t for t in actuelles if t.classe_id != classe_id]
++
++    occupant = None
++    if deja is None:
++        occupant = TitulaireClasse.query.filter_by(
++            classe_id=classe_id, annee_scolaire_id=annee.id).first()
++        if occupant and not remplacer:
++            ancien = occupant.enseignant
++            return {
++                "erreur": f"Cette classe a déjà pour titulaire {ancien.prenom} {ancien.nom}".strip(),
++                "code": "classe_deja_titulaire",
++                "titulaire_actuel": {"enseignant_id": ancien.id, "nom": ancien.nom, "prenom": ancien.prenom},
++            }, 409
++
++    if deja is not None and not autres_classes:
++        return _resultat(deja), 200
++
++    try:
++        for t in autres_classes:
++            db.session.delete(t)
++        if occupant is not None:
++            db.session.delete(occupant)
++        # La contrainte unique (classe, année) impose que les suppressions
++        # soient envoyées à la base AVANT l'insertion qui prend leur place.
++        db.session.flush()
++        titulaire = deja
++        if titulaire is None:
++            titulaire = TitulaireClasse(classe_id=classe_id, enseignant_id=enseignant.id,
++                                        annee_scolaire_id=annee.id)
++            db.session.add(titulaire)
++        db.session.commit()
++    except IntegrityError:
++        # Course : un autre administrateur a désigné la classe entre-temps.
++        db.session.rollback()
++        return {"erreur": "Cette classe vient d'être attribuée à un autre enseignant. Actualisez la page.",
++                "code": "classe_deja_titulaire"}, 409
++    except Exception:
++        db.session.rollback()
++        return {"erreur": "Erreur lors de la mise à jour"}, 500
++    return _resultat(titulaire), 200
++
++
+ def resolve_classe_ids_restriction(role, user_id):
+     """Calcule la restriction de périmètre "classes" à appliquer pour
+     l'utilisateur courant :
+diff --git a/server/tests/test_titulaire_classe.py b/server/tests/test_titulaire_classe.py
+new file mode 100644
+index 0000000..6ab8c03
+--- /dev/null
++++ b/server/tests/test_titulaire_classe.py
+@@ -0,0 +1,304 @@
++"""Désignation d'un enseignant principal (titulaire de classe) : réservée à
++l'Admin et au SuperAdmin, sur l'année active, une classe par enseignant et un
++titulaire par classe, avec remplacement explicite et trace d'audit."""
++import pytest
++
++from extensions import db
++from models.audit_models import JournalAudit
++from models.authentification_models import Role
++from models.pedagogie_models import Departement, Enseignant, Grade, TitulaireClasse
++from models.structure_models import AnneeScolaire, Classe, Cycle, Etablissement
++from services.authentification_services import create_utilisateur
++
++
++def _url(enseignant_id, etab=None):
++    return f'/api/enseignants/{enseignant_id}/titulaire' + (f'?etablissement_id={etab}' if etab else '')
++
++
++def _titulaires(annee_id=None):
++    db.session.expire_all()
++    q = TitulaireClasse.query
++    if annee_id:
++        q = q.filter_by(annee_scolaire_id=annee_id)
++    return sorted((t.classe_id, t.enseignant_id, t.annee_scolaire_id) for t in q.all())
++
++
++def _nouvelle_classe(etab_id, libelle='5e'):
++    cycle = Cycle(etablissement_id=etab_id, libelle=libelle)
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=etab_id, cycle_id=cycle.id)
++    db.session.add(classe)
++    db.session.commit()
++    return classe.id
++
++
++@pytest.fixture()
++def classe_b(monde):
++    return _nouvelle_classe(monde.etab_id)
++
++
++@pytest.fixture()
++def collegue(monde):
++    dep = Departement.query.filter_by(etablissement_id=monde.etab_id).first()
++    grade = Grade.query.filter_by(etablissement_id=monde.etab_id).first()
++    ens = Enseignant(etablissement_id=monde.etab_id, nom='Collegue', prenom='Paul',
++                     departement_id=dep.id, grade_id=grade.id)
++    db.session.add(ens)
++    db.session.commit()
++    return ens.id
++
++
++@pytest.fixture()
++def autre_etablissement(monde):
++    """(classe_id, enseignant_id) d'un AUTRE établissement."""
++    etab = Etablissement(code='TST2', nom='Autre lycée')
++    db.session.add(etab)
++    db.session.flush()
++    classe_id = _nouvelle_classe(etab.id)
++    dep = Departement(etablissement_id=etab.id, libelle='Maths')
++    grade = Grade(etablissement_id=etab.id, libelle='PLEG')
++    db.session.add_all([dep, grade])
++    db.session.flush()
++    ens = Enseignant(etablissement_id=etab.id, nom='Etranger', prenom='Prof',
++                     departement_id=dep.id, grade_id=grade.id)
++    db.session.add(ens)
++    db.session.commit()
++    return classe_id, ens.id
++
++
++# ── Désignation ─────────────────────────────────────────────────────────────
++
++def test_admin_designe_un_titulaire(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 200, rep.get_json()
++    corps = rep.get_json()
++    assert corps['classe_id'] == monde.classe_id
++    assert corps['annee_scolaire_id'] == monde.annee_id
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++    # L'API de lecture existante reflète le changement.
++    assert admin.get(f'/api/enseignants/{monde.enseignant_id}').get_json()['est_titulaire'] is True
++
++
++def test_superadmin_designe_un_titulaire(monde, connecter_superadmin):
++    sa = connecter_superadmin()
++    rep = sa.put(_url(monde.enseignant_id, monde.etab_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 200, rep.get_json()
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++
++
++def test_superadmin_sans_etablissement_refuse(monde, connecter_superadmin):
++    sa = connecter_superadmin()
++    rep = sa.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 400
++    assert _titulaires() == []
++
++
++def test_designation_idempotente(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    for _ in range(2):
++        assert admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id}).status_code == 200
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++    assert JournalAudit.query.filter_by(table_nom='titulaire_classe', action='creation').count() == 1
++
++
++def test_changer_de_classe_libere_l_ancienne(monde, connecter, classe_b):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': classe_b})
++    assert rep.status_code == 200, rep.get_json()
++    assert _titulaires() == [(classe_b, monde.enseignant_id, monde.annee_id)]
++
++
++def test_retirer_le_titulariat(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': None})
++    assert rep.status_code == 200
++    assert rep.get_json()['classe_id'] is None
++    assert _titulaires() == []
++    # Retirer alors qu'il n'est titulaire de rien reste sans erreur.
++    assert admin.put(_url(monde.enseignant_id), json={'classe_id': None}).status_code == 200
++
++
++# ── Conflit : une classe n'a qu'un titulaire ────────────────────────────────
++
++def test_classe_deja_prise_refusee(monde, connecter, collegue):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(collegue), json={'classe_id': monde.classe_id})
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 409
++    corps = rep.get_json()
++    assert corps['code'] == 'classe_deja_titulaire'
++    assert corps['titulaire_actuel']['enseignant_id'] == collegue
++    assert 'Paul Collegue' in corps['erreur']
++    assert _titulaires() == [(monde.classe_id, collegue, monde.annee_id)]
++
++
++def test_remplacement_explicite(monde, connecter, collegue):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(collegue), json={'classe_id': monde.classe_id})
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id, 'remplacer': True})
++    assert rep.status_code == 200, rep.get_json()
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++
++
++def test_remplacement_refuse_si_pas_booleen_vrai(monde, connecter, collegue):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(collegue), json={'classe_id': monde.classe_id})
++    for valeur in ('true', 1, 'oui'):
++        rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id, 'remplacer': valeur})
++        assert rep.status_code == 409
++    assert _titulaires() == [(monde.classe_id, collegue, monde.annee_id)]
++
++
++def test_remplacement_et_changement_de_classe_atomiques(monde, connecter, collegue, classe_b):
++    """L'enseignant quitte sa classe actuelle ET prend celle du collègue."""
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(monde.enseignant_id), json={'classe_id': classe_b})
++    admin.put(_url(collegue), json={'classe_id': monde.classe_id})
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id, 'remplacer': True})
++    assert rep.status_code == 200
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++
++
++# ── Périmètre : année et établissement ──────────────────────────────────────
++
++def test_historique_des_autres_annees_intact(monde, connecter):
++    ancienne = AnneeScolaire(etablissement_id=monde.etab_id, libelle='2025-2026', active=False)
++    db.session.add(ancienne)
++    db.session.flush()
++    db.session.add(TitulaireClasse(classe_id=monde.classe_id, enseignant_id=monde.enseignant_id,
++                                   annee_scolaire_id=ancienne.id))
++    db.session.commit()
++    ancienne_id = ancienne.id
++
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    admin.put(_url(monde.enseignant_id), json={'classe_id': None})
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, ancienne_id)]
++
++
++def test_sans_annee_scolaire(monde, connecter):
++    AnneeScolaire.query.delete()
++    db.session.commit()
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 400
++
++
++def test_classe_d_un_autre_etablissement(monde, connecter, autre_etablissement):
++    classe_etrangere, _ = autre_etablissement
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': classe_etrangere})
++    assert rep.status_code == 400
++    assert _titulaires() == []
++
++
++def test_enseignant_d_un_autre_etablissement(monde, connecter, autre_etablissement):
++    _, enseignant_etranger = autre_etablissement
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(enseignant_etranger), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 404
++    assert _titulaires() == []
++
++
++def test_enseignant_inexistant(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    assert admin.put(_url(99999), json={'classe_id': monde.classe_id}).status_code == 404
++
++
++# ── Validation du corps ─────────────────────────────────────────────────────
++
++@pytest.mark.parametrize('valeur', [True, 1.5, 'abc', -1, 0, 99999, [1], {'id': 1}])
++def test_classe_id_invalide(monde, connecter, valeur):
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': valeur})
++    assert rep.status_code == 400
++    assert _titulaires() == []
++
++
++def test_classe_id_obligatoire(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    assert admin.put(_url(monde.enseignant_id), json={}).status_code == 400
++
++
++def test_classe_id_en_chaine_numerique(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(_url(monde.enseignant_id), json={'classe_id': str(monde.classe_id)})
++    assert rep.status_code == 200
++    assert _titulaires() == [(monde.classe_id, monde.enseignant_id, monde.annee_id)]
++
++
++# ── Droits : Admin et SuperAdmin uniquement ─────────────────────────────────
++
++def test_censeur_ne_peut_pas_designer(monde, connecter):
++    censeur = connecter(monde.censeur_compte)
++    rep = censeur.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 403
++    assert _titulaires() == []
++
++
++def test_enseignant_ne_peut_pas_se_designer(monde, connecter):
++    prof = connecter(monde.enseignant_compte)
++    rep = prof.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 403
++    assert _titulaires() == []
++
++
++def test_non_connecte_refuse(monde, appli):
++    rep = appli.test_client().put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code == 401
++    assert _titulaires() == []
++
++
++@pytest.mark.parametrize('role', ['Surveillant', 'Secretaire', 'Comptable', 'Proviseur', 'Parent'])
++def test_autres_roles_refuses(monde, connecter, role):
++    compte, status = create_utilisateur({'nom': f'{role} Test',
++                                         'role_ids': [Role.query.filter_by(libelle=role).first().id],
++                                         'etablissement_id': monde.etab_id})
++    assert status == 201, compte
++    rep = connecter(compte).put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    assert rep.status_code in (401, 403)
++    assert _titulaires() == []
++
++
++def test_api_generique_fermee_au_censeur(monde, connecter):
++    """POST/PUT/DELETE /api/titulaires-classe/ ne servent plus au Censeur
++    (même pour une classe qui lui est assignée) ; la lecture reste ouverte."""
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id})
++    [t] = TitulaireClasse.query.all()
++
++    censeur = connecter(monde.censeur_compte)
++    assert censeur.get('/api/titulaires-classe/').status_code == 200
++    rep = censeur.post('/api/titulaires-classe/', json={
++        'classe_id': monde.classe_id, 'enseignant_id': monde.enseignant_id,
++        'annee_scolaire_id': monde.annee_id})
++    assert rep.status_code == 403
++    assert censeur.put(f'/api/titulaires-classe/{t.id}', json={'enseignant_id': monde.enseignant_id}).status_code == 403
++    assert censeur.delete(f'/api/titulaires-classe/{t.id}').status_code == 403
++    assert len(_titulaires()) == 1
++
++
++def test_api_generique_toujours_ouverte_a_l_admin(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    rep = admin.post('/api/titulaires-classe/', json={
++        'classe_id': monde.classe_id, 'enseignant_id': monde.enseignant_id,
++        'annee_scolaire_id': monde.annee_id})
++    assert rep.status_code == 201, rep.get_json()
++
++
++# ── Audit ───────────────────────────────────────────────────────────────────
++
++def test_designation_et_remplacement_traces(monde, connecter, collegue):
++    admin = connecter(monde.admin_compte)
++    admin.put(_url(collegue), json={'classe_id': monde.classe_id})
++    admin.put(_url(monde.enseignant_id), json={'classe_id': monde.classe_id, 'remplacer': True})
++
++    entrees = JournalAudit.query.filter_by(table_nom='titulaire_classe').all()
++    actions = sorted(e.action for e in entrees)
++    assert actions == ['creation', 'creation', 'suppression']
++    assert {e.auteur_id for e in entrees} == {monde.admin_compte['id']}
++    assert {e.auteur_role for e in entrees} == {'Admin'}

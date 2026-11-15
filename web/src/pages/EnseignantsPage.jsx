@@ -120,6 +120,23 @@ export default function EnseignantsPage() {
     return map;
   }, [titulaires, labels]);
 
+  // Titulariat de l'année ACTIVE (celle que le serveur utilise pour désigner
+  // un enseignant principal) : enseignant_id -> libellés des classes. Le
+  // badge, le filtre et les compteurs s'y alignent pour rester cohérents avec
+  // la case « Est un enseignant principal » du formulaire.
+  const anneeActifId = useMemo(() => anneeActiveId(annees), [annees]);
+  const titulairesActifs = useMemo(() => {
+    const map = {};
+    titulaires
+      .filter((tc) => tc.annee_scolaire_id === anneeActifId)
+      .forEach((tc) => { (map[tc.enseignant_id] ||= []).push(labels.classe(tc.classe_id)); });
+    return map;
+  }, [titulaires, anneeActifId, labels]);
+  const estTitulaire = useCallback(
+    (e) => (anneeActifId ? Boolean(titulairesActifs[e.id]?.length) : Boolean(e.est_titulaire)),
+    [anneeActifId, titulairesActifs],
+  );
+
   const topGrade = useMemo(() => {
     const counts = {};
     enseignants.forEach((e) => {
@@ -136,11 +153,11 @@ export default function EnseignantsPage() {
       if (filters.departement && e.departement_id !== Number(filters.departement)) return false;
       if (filters.grade && e.grade_id !== Number(filters.grade)) return false;
       if (filters.sexe && e.sexe !== filters.sexe) return false;
-      if (filters.statut === 'titulaire' && !e.est_titulaire) return false;
-      if (filters.statut === 'non-titulaire' && e.est_titulaire) return false;
+      if (filters.statut === 'titulaire' && !estTitulaire(e)) return false;
+      if (filters.statut === 'non-titulaire' && estTitulaire(e)) return false;
       return true;
     });
-  }, [enseignants, filters]);
+  }, [enseignants, filters, estTitulaire]);
 
   /* ── Graphiques ── */
   const charts = useMemo(() => {
@@ -290,13 +307,13 @@ export default function EnseignantsPage() {
       return;
     }
     downloadCsv('enseignants.csv', [
-      ['Nom', 'Prénom', 'Code de connexion', 'Email', 'Téléphone', 'Sexe', 'Département', 'Grade', 'Titulaire', 'Classes', 'Nb matières'],
+      ['Nom', 'Prénom', 'Code de connexion', 'Email', 'Téléphone', 'Sexe', 'Département', 'Grade', 'Titulaire', 'Classe titulaire', 'Nb matières'],
       ...enseignants.map((e) => [
         e.nom, e.prenom, e.code_connexion, e.email, e.telephone,
         e.sexe === 'M' ? 'Masculin' : e.sexe === 'F' ? 'Féminin' : '',
         labels.departement(e.departement_id), labels.grade(e.grade_id),
-        e.est_titulaire ? 'Oui' : 'Non',
-        (titulairesByEnseignant[e.id] || []).map((c) => c.classe).join(' | '),
+        estTitulaire(e) ? 'Oui' : 'Non',
+        (titulairesActifs[e.id] || []).join(' | '),
         (matieresByEnseignant[e.id] || []).length,
       ]),
     ]);
@@ -316,7 +333,7 @@ export default function EnseignantsPage() {
 
       <div className="row g-3 mb-4">
         <StatCard label="Enseignants" loading={loading} value={enseignants.length} icon="bx-user-voice" color="primary" />
-        <StatCard label="Titulaires de classe" loading={loading} value={enseignants.filter((e) => e.est_titulaire).length} icon="bx-chalkboard" color="success" />
+        <StatCard label="Titulaires de classe" loading={loading} value={enseignants.filter(estTitulaire).length} icon="bx-chalkboard" color="success" />
         <StatCard label="Affectations matière-classe" loading={loading} value={matieresClasse.length} icon="bx-book-open" color="info" />
         <StatCard label="Grade le plus représenté" loading={loading} value={<span className="fs-5">{topGrade}</span>} icon="bx-layer" color="warning" />
       </div>
@@ -460,7 +477,11 @@ export default function EnseignantsPage() {
                         </td>
                         <td>{labels.departement(e.departement_id) || '—'}</td>
                         <td>{labels.grade(e.grade_id) || '—'}</td>
-                        <td>{e.est_titulaire ? <span className="badge bg-label-success"><i className="bx bx-chalkboard me-1" />Titulaire</span> : <span className="badge bg-label-secondary">Non titulaire</span>}</td>
+                        <td>
+                          {estTitulaire(e)
+                            ? <span className="badge bg-label-success"><i className="bx bx-chalkboard me-1" />Titulaire{titulairesActifs[e.id]?.length ? ` · ${titulairesActifs[e.id].join(', ')}` : ''}</span>
+                            : <span className="badge bg-label-secondary">Non titulaire</span>}
+                        </td>
                         <td>
                           {mats.length ? (
                             <div className="d-flex flex-wrap gap-1">
@@ -532,6 +553,11 @@ export default function EnseignantsPage() {
           data={formModal.data}
           departements={[...departements].sort(byLibelle)}
           grades={[...grades].sort(byLibelle)}
+          classes={classes}
+          enseignants={enseignants}
+          titulaires={titulaires}
+          anneeId={anneeActifId}
+          anneeLabel={anneeActifId ? labels.annee(anneeActifId) : ''}
           onClose={() => setFormModal(null)}
           onManageRef={(tab) => { setFormModal(null); setRefTab(tab); }}
           onSaved={async (msg, created, codeExistant) => {
@@ -550,6 +576,7 @@ export default function EnseignantsPage() {
         <DetailModal
           e={detail}
           labels={labels}
+          titulaire={estTitulaire(detail)}
           classesTitu={titulairesByEnseignant[detail.id] || []}
           matieres={matieresByEnseignant[detail.id] || []}
           onClose={() => setDetail(null)}
@@ -572,7 +599,15 @@ export default function EnseignantsPage() {
   );
 }
 
-function EnseignantModal({ data, departements, grades, onClose, onSaved, onManageRef }) {
+function EnseignantModal({ data, departements, grades, classes, enseignants, titulaires, anneeId, anneeLabel, onClose, onSaved, onManageRef }) {
+  const toast = useToast();
+
+  // Titulariat de l'enseignant pour l'année active (état initial du formulaire).
+  const titulaireInitial = data
+    ? titulaires.find((t) => t.enseignant_id === data.id && t.annee_scolaire_id === anneeId)
+    : null;
+  const classeInitiale = titulaireInitial ? String(titulaireInitial.classe_id) : '';
+
   const [form, setForm] = useState({
     nom: data?.nom || '',
     prenom: data?.prenom || '',
@@ -582,18 +617,58 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
     departement_id: data?.departement_id ? String(data.departement_id) : '',
     grade_id: data?.grade_id ? String(data.grade_id) : '',
     codeExistant: '',
+    principal: Boolean(titulaireInitial),
+    classe_titulaire_id: classeInitiale,
   });
   const [validated, setValidated] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [save, saving] = useSave((msg, created) => onSaved(msg, created, form.codeExistant));
+
+  // Classes de l'année active déjà confiées à UN AUTRE enseignant.
+  const autreTitulaireDe = (classeId) => {
+    const t = titulaires.find((x) => x.classe_id === Number(classeId) && x.annee_scolaire_id === anneeId && x.enseignant_id !== data?.id);
+    const ens = t && enseignants.find((x) => x.id === t.enseignant_id);
+    return ens ? fullName(ens) : null;
+  };
+  const classesTriees = [...classes].sort((a, b) => (classeLabel(a) || '').localeCompare(classeLabel(b) || '', 'fr', { numeric: true }));
+  const classeChoisie = classes.find((c) => String(c.id) === form.classe_titulaire_id);
+  const remplace = form.principal && form.classe_titulaire_id ? autreTitulaireDe(form.classe_titulaire_id) : null;
+  const titulariatModifie = Boolean(data) && (
+    form.principal !== Boolean(titulaireInitial)
+    || (form.principal && form.classe_titulaire_id !== classeInitiale)
+  );
   const set = (name) => (e) => setForm((f) => ({ ...f, [name]: e.target.value }));
   // Email facultatif : seulement vérifié s'il est renseigné.
   const emailOk = !form.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
   const codeOk = !form.codeExistant || form.codeExistant.length === 4;
   const bad = (name) => validated && (name === 'email' ? !emailOk : name === 'codeExistant' ? !codeOk : !String(form[name]).trim());
+  const classeManquante = validated && form.principal && !form.classe_titulaire_id;
   const cls = (base, name) => `${base} ${bad(name) ? 'is-invalid' : ''}`;
 
-  const submit = () => {
-    if (['nom', 'prenom', 'sexe', 'departement_id', 'grade_id'].some((n) => !String(form[n]).trim()) || !emailOk || !codeOk) return setValidated(true);
+  const submit = async () => {
+    if (['nom', 'prenom', 'sexe', 'departement_id', 'grade_id'].some((n) => !String(form[n]).trim()) || !emailOk || !codeOk
+      || (data && form.principal && !form.classe_titulaire_id)) return setValidated(true);
+
+    // Titulariat d'abord : c'est lui qui peut être refusé (classe prise entre-temps).
+    // Opération idempotente côté serveur, donc sans risque si l'enregistrement
+    // de la fiche échoue ensuite et que l'on réessaie.
+    if (titulariatModifie) {
+      setApplying(true);
+      try {
+        await api.put(`/enseignants/${data.id}/titulaire`, {
+          classe_id: form.principal ? Number(form.classe_titulaire_id) : null,
+          remplacer: remplace ? true : undefined,
+        });
+      } catch (err) {
+        toast(err.message, 'error');
+        return;
+      } finally {
+        setApplying(false);
+      }
+    }
+    const messageMaj = !titulariatModifie ? 'Enseignant mis à jour avec succès.'
+      : form.principal ? `Enseignant mis à jour : titulaire de ${classeLabel(classeChoisie)}.`
+        : "Enseignant mis à jour : n'est plus enseignant principal.";
     return save('/enseignants/', data?.id, {
       nom: form.nom.trim(),
       prenom: form.prenom.trim(),
@@ -602,7 +677,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
       sexe: form.sexe,
       departement_id: parseInt(form.departement_id, 10),
       grade_id: parseInt(form.grade_id, 10),
-    }, ['Enseignant créé avec succès.', 'Enseignant mis à jour avec succès.']);
+    }, ['Enseignant créé avec succès.', messageMaj]);
   };
 
   return (
@@ -610,7 +685,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
       title={data ? <><i className="bx bx-edit-alt me-2 text-primary" />Modifier l'enseignant</> : <><i className="bx bx-user-voice me-2 text-primary" />Nouvel enseignant</>}
       onClose={onClose}
       onSubmit={submit}
-      footer={<FormFooter onCancel={onClose} saving={saving} label={data ? 'Enregistrer les modifications' : "Créer l'enseignant"} />}
+      footer={<FormFooter onCancel={onClose} saving={saving || applying} label={data ? 'Enregistrer les modifications' : "Créer l'enseignant"} />}
     >
       {!data && (
         <div className="alert alert-info d-flex align-items-start gap-2 py-2 small">
@@ -650,6 +725,51 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
             {grades.map((g) => <option key={g.id} value={g.id}>{g.libelle}</option>)}
           </Select>
         </Field>
+        {data && (
+          <div className="col-12">
+            <hr className="my-1" />
+            {anneeId ? (
+              <>
+                <div className="form-check mt-3">
+                  <input
+                    id="enseignantPrincipal"
+                    type="checkbox"
+                    className="form-check-input"
+                    checked={form.principal}
+                    onChange={(e) => setForm((f) => ({ ...f, principal: e.target.checked }))}
+                  />
+                  <label className="form-check-label fw-semibold" htmlFor="enseignantPrincipal">Est un enseignant principal</label>
+                  <div className="form-text mt-0">Titulaire d'une classe pour l'année scolaire {anneeLabel}.</div>
+                </div>
+                {form.principal && (
+                  <div className="mt-3">
+                    <Field className="mb-0" label="Classe dont il est titulaire" required invalid={classeManquante && 'Choisissez la classe.'}>
+                      <Select
+                        className={`form-select ${classeManquante ? 'is-invalid' : ''}`}
+                        value={form.classe_titulaire_id}
+                        onChange={set('classe_titulaire_id')}
+                      >
+                        <option value="">Sélectionner une classe…</option>
+                        {classesTriees.map((c) => {
+                          const autre = autreTitulaireDe(c.id);
+                          return <option key={c.id} value={c.id}>{`${classeLabel(c)}${autre ? ` — titulaire actuel : ${autre}` : ''}`}</option>;
+                        })}
+                      </Select>
+                    </Field>
+                    {remplace && (
+                      <div className="alert alert-warning d-flex align-items-start gap-2 py-2 small mt-2 mb-0">
+                        <i className="bx bx-error-circle mt-1" />
+                        <div>Cette classe a déjà pour titulaire <strong>{remplace}</strong>. En enregistrant, il ne sera plus titulaire de cette classe.</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="alert alert-warning py-2 small mt-3 mb-0">Aucune année scolaire n'est définie : créez-en une pour pouvoir désigner un enseignant principal.</div>
+            )}
+          </div>
+        )}
         {!data && (
           <Field className="col-12" label="A déjà un compte dans l'établissement ? (facultatif)" invalid={bad('codeExistant') && 'Le code comporte 4 caractères.'} hint="Ex : l'administrateur ou le censeur qui enseigne aussi. Indiquez son code de connexion : il garde son code et son PIN, et reçoit en plus l'espace Enseignant.">
             <input
@@ -667,7 +787,7 @@ function EnseignantModal({ data, departements, grades, onClose, onSaved, onManag
   );
 }
 
-function DetailModal({ e, labels, classesTitu, matieres, onClose }) {
+function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
   return (
     <Modal
       title={<><i className="bx bx-user-circle me-2 text-primary" />Fiche enseignant</>}
@@ -680,7 +800,7 @@ function DetailModal({ e, labels, classesTitu, matieres, onClose }) {
           <div className="fw-bold fs-6">{fullName(e)}</div>
           <div className="text-muted">{[labels.departement(e.departement_id), labels.grade(e.grade_id)].filter(Boolean).join(' · ') || 'Département / grade non renseignés'}</div>
         </div>
-        {e.est_titulaire && <span className="badge bg-label-success ms-auto"><i className="bx bx-chalkboard me-1" />Titulaire</span>}
+        {titulaire && <span className="badge bg-label-success ms-auto"><i className="bx bx-chalkboard me-1" />Titulaire</span>}
       </div>
       <div className="row g-3 mb-3">
         <div className="col-md-4"><label className="form-label">Code de connexion</label><div className="font-monospace fw-semibold">{e.code_connexion || '—'}</div></div>

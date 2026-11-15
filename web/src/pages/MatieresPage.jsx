@@ -13,6 +13,9 @@ import { roleDe } from '../components/Layout';
 // matières et affectations matière → classe (pedagogie_api.py, cloisonné
 // par établissement).
 
+// Longueur de matiere.abreviation côté serveur (models/pedagogie_models.py).
+const ABREVIATION_MAX = 12;
+
 // Filtres de l'onglet « Affectations Classe » (valeur vide = pas de filtre).
 const FILTRES_VIDES = { classe: '', matiere: '', enseignant: '' };
 
@@ -245,11 +248,12 @@ export default function MatieresPage() {
           )}
         >
           <table className="table table-hover mb-0">
-            <thead><tr><th>Libellé</th><th>Groupe</th><th className="text-end">Actions</th></tr></thead>
-            <TBody colSpan={3} loading={loading} error={errors.matieres} rows={matieres.length} empty="Aucune matière">
+            <thead><tr><th>Libellé</th><th>Abréviation</th><th>Groupe</th><th className="text-end">Actions</th></tr></thead>
+            <TBody colSpan={4} loading={loading} error={errors.matieres} rows={matieres.length} empty="Aucune matière">
               {matieres.map((m) => (
                 <tr key={m.id}>
                   <td><strong>{m.libelle}</strong></td>
+                  <td>{m.abreviation ? <span className="badge bg-label-secondary text-none">{m.abreviation}</span> : <span className="text-muted">—</span>}</td>
                   <td>{groupeLibelle(m.groupe_id)}</td>
                   <td className="text-end">
                     <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => openMatiere(m)} />
@@ -399,14 +403,23 @@ function GroupeModal({ data, ordreSuivant, onClose, onSaved }) {
 }
 
 function MatiereModal({ data, groupes, onClose, onSaved }) {
-  const [form, setForm] = useState({ libelle: data?.libelle || '', groupe_id: data?.groupe_id ? String(data.groupe_id) : '' });
+  const [form, setForm] = useState({
+    libelle: data?.libelle || '',
+    groupe_id: data?.groupe_id ? String(data.groupe_id) : '',
+    abreviation: data?.abreviation || '',
+  });
   const [validated, setValidated] = useState(false);
   const [save, saving] = useSave(onSaved);
   const inv = (cond) => (validated && cond ? 'is-invalid' : '');
 
   const submit = () => {
     if (!form.libelle.trim() || !form.groupe_id) return setValidated(true);
-    return save('/matieres/', data?.id, { libelle: form.libelle.trim(), groupe_id: parseInt(form.groupe_id, 10) }, ['Matière créée.', 'Matière mise à jour.']);
+    return save('/matieres/', data?.id, {
+      libelle: form.libelle.trim(),
+      groupe_id: parseInt(form.groupe_id, 10),
+      // Facultative : vide = NULL (le procès-verbal prend alors le début du libellé).
+      abreviation: form.abreviation.trim() || null,
+    }, ['Matière créée.', 'Matière mise à jour.']);
   };
 
   return (
@@ -414,11 +427,18 @@ function MatiereModal({ data, groupes, onClose, onSaved }) {
       <Field label="Libellé" required invalid={validated && !form.libelle.trim() && 'Le libellé est requis.'}>
         <input autoFocus type="text" className={`form-control ${inv(!form.libelle.trim())}`} placeholder="Ex : Mathématiques" value={form.libelle} onChange={(e) => setForm((f) => ({ ...f, libelle: e.target.value }))} />
       </Field>
-      <Field label="Groupe" required className="mb-1" invalid={validated && !form.groupe_id && 'Le groupe est requis.'}>
+      <Field label="Groupe" required invalid={validated && !form.groupe_id && 'Le groupe est requis.'}>
         <Select className={`form-select ${inv(!form.groupe_id)}`} value={form.groupe_id} onChange={(e) => setForm((f) => ({ ...f, groupe_id: e.target.value }))}>
           <option value="">-- Choisir --</option>
           {groupes.map((g) => <option key={g.id} value={g.id}>{g.libelle}</option>)}
         </Select>
+      </Field>
+      <Field
+        label="Abréviation (en-tête du procès-verbal)"
+        className="mb-1"
+        hint={`Facultatif, ${ABREVIATION_MAX} caractères au plus. Ex. : Angl, SVTEEHB. Sans abréviation, le procès-verbal affiche les 5 premiers caractères du libellé.`}
+      >
+        <input type="text" className="form-control" maxLength={ABREVIATION_MAX} placeholder="Ex : Angl" value={form.abreviation} onChange={(e) => setForm((f) => ({ ...f, abreviation: e.target.value }))} />
       </Field>
     </Modal>
   );

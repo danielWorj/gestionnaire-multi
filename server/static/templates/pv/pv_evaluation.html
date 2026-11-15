@@ -1,0 +1,148 @@
+{#- Procès-verbal d'évaluation (« Contrôle continu N°x »).
+    Gabarit unique pour l'aperçu HTML et le PDF (WeasyPrint), cf. api/pv_api.py.
+    Données : pv_services.construire_pv. AUCUN calcul ici : les chaînes
+    *_fmt viennent du serveur. Propre au PV (rien de commun avec le bulletin). -#}
+{%- set etab = data.etablissement -%}
+{%- set nb_mat = data.matieres | length -%}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>PV — {{ data.classe.label }} — {{ data.sequence.titre }}</title>
+<style>
+  @page {
+    size: A4 landscape; margin: 8mm;
+    @bottom-right { content: "Page " counter(page) " / " counter(pages); font-family: "DejaVu Sans", Arial, sans-serif; font-size: 6.5pt; color: #555; }
+  }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; color: #111;
+         font-size: {{ police }}pt; }
+  @media screen {
+    body { background: #e9ebee; padding: 14px 0; }
+    .page { width: 297mm; margin: 0 auto; padding: 8mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  }
+  table { border-collapse: collapse; width: 100%; }
+  .entete td { vertical-align: top; text-align: center; font-size: 7.4pt; line-height: 1.35; }
+  .entete .gauche { text-align: left; width: 33%; }
+  .entete .droite { text-align: right; width: 33%; }
+  .entete .etab { font-weight: 700; font-size: 8.6pt; text-transform: uppercase; }
+  .entete .logo { max-height: 15mm; max-width: 22mm; vertical-align: middle; margin-right: 2mm; }
+  h1 { text-align: center; font-size: 13pt; margin: 2mm 0 1.5mm; letter-spacing: .04em; }
+  .contexte td { font-weight: 700; font-size: 9.5pt; padding: 0 0 2mm; }
+  .contexte .c { text-align: center; }
+  .contexte .d { text-align: right; }
+
+  table.pv { table-layout: fixed; }
+  table.pv th, table.pv td { border: 0.4pt solid #222; text-align: center; padding: 0.6mm 0.3mm; }
+  table.pv thead { display: table-header-group; }
+  table.pv tr { break-inside: avoid; page-break-inside: avoid; }
+  table.pv th { font-weight: 700; background: #f1f1f1; }
+  th.num { width: 6mm; }
+  th.nom { width: 46mm; }
+  th.fin { width: 13mm; }
+  th.rang { width: 11mm; }
+  /* En-têtes de matières verticaux (comme sur le PV papier) */
+  th.mat { height: 19mm; padding: 0; position: relative; vertical-align: bottom; }
+  th.mat span { display: block; position: absolute; left: 50%; bottom: 1mm; white-space: nowrap;
+                transform-origin: 0 100%; transform: rotate(-90deg) translateY(50%); font-size: 6.6pt; }
+  tr.coef td, tr.coef th { background: #f7f7f7; font-weight: 700; }
+  table.pv td.nom { text-align: left; padding-left: 1.2mm; white-space: nowrap; overflow: hidden; }
+  td.nombre { font-variant-numeric: tabular-nums; }
+  .rouge { color: #c00; }
+  td.nc, td.nc-rang { color: #555; }
+  td.total, td.moy, td.rang { font-weight: 700; }
+
+  .pied { margin-top: 3mm; font-size: 7.4pt; break-inside: avoid; page-break-inside: avoid; }
+  .pied .stats { margin-bottom: 3mm; }
+  .pied .stats span { margin-right: 6mm; }
+  .signatures td { width: 33%; text-align: center; height: 20mm; vertical-align: top; font-weight: 700; border: 0; }
+  .edition { text-align: right; font-size: 6.8pt; color: #555; margin-top: 1mm; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <table class="entete"><tr>
+    <td class="gauche">
+      {%- if logo_src %}<img class="logo" src="{{ logo_src }}" alt="">{% endif -%}
+      <span class="etab">{{ etab.nom }}</span>
+    </td>
+    <td></td>
+    <td class="droite">
+      {%- if etab.bp %}{{ etab.bp }}{% if etab.region %} — {{ etab.region }}{% endif %}<br>{% endif -%}
+      {%- if etab.telephone %}Tél : {{ etab.telephone }}{% endif -%}
+    </td>
+  </tr></table>
+
+  <h1>PROCÈS VERBAL D'ÉVALUATION</h1>
+
+  <table class="contexte"><tr>
+    <td>{{ data.sequence.titre }}</td>
+    <td class="c">Classe : {{ data.classe.label }}</td>
+    <td class="d">Effectif : {{ data.effectif }}</td>
+  </tr></table>
+
+  <table class="pv">
+    <thead>
+      <tr>
+        <th class="num" rowspan="2">N°</th>
+        <th class="nom" rowspan="2">Noms et prénoms</th>
+        {%- for m in data.matieres %}
+        <th class="mat"><span>{{ m.abreviation }}</span></th>
+        {%- endfor %}
+        <th class="fin" rowspan="2">Totaux</th>
+        <th class="fin" rowspan="2">moy</th>
+        <th class="rang" rowspan="2">rang</th>
+      </tr>
+      <tr class="coef">
+        {%- for m in data.matieres %}
+        <td>{{ m.coefficient }}</td>
+        {%- endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {%- for e in data.eleves %}
+      <tr>
+        <td>{{ e.numero }}</td>
+        <td class="nom">{{ e.nom_affiche }}</td>
+        {%- for c in e.cellules %}
+        {%- if c.statut == 'manquante' %}
+        <td class="nc">/</td>
+        {%- else %}
+        <td class="nombre{{ ' rouge' if c.rouge }}">{{ (c.note_fmt if valeurs == 'notes' else c.points_fmt) }}</td>
+        {%- endif %}
+        {%- endfor %}
+        <td class="total nombre">{{ e.total_fmt }}</td>
+        {%- if e.classe %}
+        <td class="moy nombre{{ ' rouge' if e.moyenne_rouge }}">{{ e.moyenne_fmt }}</td>
+        <td class="rang">{{ e.rang_fmt }}</td>
+        {%- else %}
+        <td class="moy nc">/</td>
+        <td class="rang nc-rang">N.C.</td>
+        {%- endif %}
+      </tr>
+      {%- endfor %}
+    </tbody>
+  </table>
+
+  <div class="pied">
+    {%- if data.statistiques.nb_classes %}
+    <div class="stats">
+      <span>Moyenne de la classe : <b>{{ data.statistiques.moyenne_classe_fmt }}</b></span>
+      <span>Plus forte : <b>{{ data.statistiques.moyenne_max_fmt }}</b></span>
+      <span>Plus faible : <b>{{ data.statistiques.moyenne_min_fmt }}</b></span>
+      <span>Moyennes ≥ 10 : <b>{{ data.statistiques.nb_sup_10 }}</b> ({{ data.statistiques.taux_reussite_fmt }} %)</span>
+      {%- if data.statistiques.nb_non_classes %}<span>Non classés : <b>{{ data.statistiques.nb_non_classes }}</b></span>{% endif %}
+    </div>
+    {%- endif %}
+    <table class="signatures"><tr>
+      <td>Le professeur principal{% if data.titulaire %}<br><span style="font-weight:400">{{ data.titulaire }}</span>{% endif %}</td>
+      <td>Le censeur</td>
+      <td>Le chef d'établissement</td>
+    </tr></table>
+    <div class="edition">Édité le {{ date_edition }}</div>
+  </div>
+
+</div>
+</body>
+</html>

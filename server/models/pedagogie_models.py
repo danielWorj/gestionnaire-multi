@@ -52,6 +52,9 @@ class Matiere(db.Model):
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     libelle = db.Column(db.String(150), nullable=False)
     groupe_id = db.Column(db.Integer, db.ForeignKey('groupe_matiere.id'), nullable=False)
+    # Libellé court (en-tête de colonne du procès-verbal : « Angl », « SVTEEHB »…).
+    # Facultatif : à défaut, le PV prend les 5 premiers caractères du libellé.
+    abreviation = db.Column(db.String(12), nullable=True)
 
     __table_args__ = (
         db.UniqueConstraint('libelle', 'groupe_id', name='uq_matiere_groupe'),
@@ -62,7 +65,8 @@ class Matiere(db.Model):
 
     def to_dict(self):
         return {"id": self.id, "etablissement_id": self.etablissement_id,
-                "libelle": self.libelle, "groupe_id": self.groupe_id}
+                "libelle": self.libelle, "groupe_id": self.groupe_id,
+                "abreviation": self.abreviation}
 
 
 # ---------------------------------------------------------------------------
