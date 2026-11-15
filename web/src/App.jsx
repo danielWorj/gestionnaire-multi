@@ -121,7 +121,9 @@ const PAGES = [
   { path: 'super-admins', element: <SuperAdminsPage />, roles: ['SuperAdmin'] },
   { path: 'matieres', element: <MatieresPage />, roles: ADMIN },
   { path: 'enseignants', element: <EnseignantsPage />, roles: ADMIN },
-  { path: 'eleves', element: <ElevesPage />, roles: SCOLARITE },
+  // Le Censeur y change la classe d'un élève (parmi ses classes) ; le reste de
+  // la page lui est en lecture seule.
+  { path: 'eleves', element: <ElevesPage />, roles: [...SCOLARITE, 'Censeur'] },
   { path: 'parents', element: <ParentsPage />, roles: SCOLARITE },
   { path: 'inscriptions', element: <InscriptionsPage />, roles: SCOLARITE },
   { path: 'listes-classes', element: <ListesClassesPage />, roles: TOUS_LES_PROFILS },

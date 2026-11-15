@@ -39,7 +39,8 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
                                        roles_autorises=("Admin", "SuperAdmin", "Secretaire"),
                                        read_only_roles=(),
                                        classe_scoped=False,
-                                       lecture_etablissement_roles=("Comptable",)):
+                                       lecture_etablissement_roles=("Comptable",),
+                                       ecriture_classe_roles=()):
     """lecture_etablissement_roles : rôles n'ayant accès qu'en LECTURE (GET),
     sur TOUT l'établissement (aucune restriction par classe, contrairement à
     read_only_roles). Le Comptable en a besoin pour la page Paiements
@@ -56,6 +57,13 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
     (classe_scoped=False, read_only_roles=() par défaut) : un
     Censeur/Surveillant n'a pas de périmètre "parent" ou "élève" propre,
     uniquement au travers des Inscription de ses classes.
+
+    ecriture_classe_roles : rôles (Censeur) autorisés à INSCRIRE un élève et à
+    CHANGER SA CLASSE (POST et PUT, jamais DELETE), uniquement parmi les
+    classes qui leur sont assignées : la restriction de read_only_roles
+    s'applique aussi à l'écriture (classe actuelle ET classe cible). Leur
+    payload est réduit aux champs utiles (cf. _payload_ecriture_classe) :
+    ils ne peuvent ni radier ni modifier une inscription autrement.
 
     classe_scoped : True UNIQUEMENT pour inscription_bp — indique que ce
     modèle (colonne classe_id directe) doit être filtré aux classes
@@ -74,7 +82,22 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
             return
         if (role in read_only_roles or role in lecture_etablissement_roles) and request.method == "GET":
             return
+        if role in ecriture_classe_roles and request.method in ("POST", "PUT"):
+            return
         return jsonify({"erreur": "Accès non autorisé"}), 403
+
+    def _payload_ecriture_classe(data, creation):
+        """Pour un rôle d'ecriture_classe_roles, ne garde que ce qui sert à
+        inscrire / changer de classe. Les autres rôles : payload inchangé."""
+        if get_jwt().get("role") not in ecriture_classe_roles:
+            return data
+        autorises = {"classe_id", "version_base", "forcer"}
+        if creation:
+            autorises |= {"eleve_id", "annee_scolaire_id", "date_inscription"}
+        reduit = {k: v for k, v in data.items() if k in autorises}
+        if creation:
+            reduit["statut"] = "Actif"
+        return reduit
 
     def _current_etablissement_id():
         """- Admin d'établissement : toujours celui de son propre compte (claim JWT)
@@ -115,6 +138,7 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
             else claims.get("etablissement_id")
         if not etab_id:
             return jsonify({"erreur": "etablissement_id requis"}), 400
+        data = _payload_ecriture_classe(data, creation=True)
         result, status = create_entity_scoped(model, data, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
@@ -132,8 +156,8 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
-        result, status = update_entity_scoped(entity, request.get_json(silent=True) or {}, etab_id,
-                                              _current_classe_restriction())
+        data = _payload_ecriture_classe(request.get_json(silent=True) or {}, creation=False)
+        result, status = update_entity_scoped(entity, data, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
     @bp.route('/<int:id>', methods=['DELETE'])
@@ -217,18 +241,28 @@ def send_photo_eleve(eleve):
 # Enregistrement des blueprints
 # ---------------------------------------------------------------------------
 
-parent_bp = make_inscription_scoped_blueprint('parent', Parent, '/api/parents')
-eleve_bp = make_inscription_scoped_blueprint('eleve', Eleve, '/api/eleves')
+# Le Censeur consulte (GET) les élèves et parents de l'établissement : la page
+# Élèves lui sert à changer la classe d'un élève parmi SES classes (cf.
+# inscription_bp ci-dessous). Aucune écriture sur ces deux ressources.
+LECTURE_ELEVES = ("Comptable", "Censeur")
+
+parent_bp = make_inscription_scoped_blueprint('parent', Parent, '/api/parents',
+                                              lecture_etablissement_roles=LECTURE_ELEVES)
+eleve_bp = make_inscription_scoped_blueprint('eleve', Eleve, '/api/eleves',
+                                             lecture_etablissement_roles=LECTURE_ELEVES)
 
 # classe_scoped=True + read_only_roles=("Censeur", "Surveillant") : ces deux
-# rôles peuvent consulter (GET uniquement) les inscriptions des classes qui
-# leur ont été assignées, mais ne peuvent ni inscrire, ni radier, ni
-# réassigner un élève (réservé à Admin/SuperAdmin/Secretaire) — cf.
-# docstring de make_inscription_scoped_blueprint ci-dessus.
+# rôles consultent (GET) les inscriptions des classes qui leur ont été
+# assignées. Le Surveillant n'a pas d'autre droit. Le Censeur peut en plus
+# inscrire un élève et changer sa classe (ecriture_classe_roles), uniquement
+# entre ses classes assignées ; il ne peut ni radier ni supprimer. Les autres
+# opérations restent à Admin/SuperAdmin/Secretaire — cf. docstring de
+# make_inscription_scoped_blueprint ci-dessus.
 inscription_bp = make_inscription_scoped_blueprint(
     'inscription', Inscription, '/api/inscriptions',
     read_only_roles=("Censeur", "Surveillant"),
     classe_scoped=True,
+    ecriture_classe_roles=("Censeur",),
 )
 
 # ---------------------------------------------------------------------------

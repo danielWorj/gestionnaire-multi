@@ -14,6 +14,7 @@ import ImportElevesModal from '../components/ImportElevesModal';
 import SuppressionEleveModal from '../components/SuppressionEleveModal';
 import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
+import { roleDe } from '../components/Layout';
 import { ecrireImpression, ouvrirFenetreImpression } from '../lib/paiementsImpression';
 import { construireHtmlListeEleves } from '../lib/listeElevesImpression';
 
@@ -54,6 +55,12 @@ export default function ElevesPage() {
   const { activeEtablissementId, user, isSuperAdmin } = useAuth();
   const etablissement = useEtablissementCourant();
   const peutSupprimerDefinitivement = isSuperAdmin || user?.role?.libelle === 'Admin';
+  const role = roleDe(user);
+  // Le Censeur consulte les fiches et change la classe d'un élève parmi SES
+  // classes (le serveur l'impose) ; créer, modifier, importer et supprimer
+  // restent à l'administration et au secrétariat.
+  const peutGererFiches = ['Admin', 'SuperAdmin', 'Secretaire'].includes(role);
+  const peutChangerClasse = peutGererFiches || role === 'Censeur';
 
   const [data, setData] = useState({ eleves: [], parents: [], inscriptions: [], classes: [], cycles: [], annees: [] });
   const [loading, setLoading] = useState(true);
@@ -324,6 +331,38 @@ export default function ElevesPage() {
     }
   };
 
+  // Change la classe de l'élève pour l'année choisie dans les filtres : modifie
+  // son inscription de l'année, ou l'inscrit s'il n'en a pas encore.
+  const changerClasse = async (eleve, classeId) => {
+    const anneeId = Number(annee);
+    if (!anneeId) throw new Error("Aucune année scolaire n'est sélectionnée.");
+    const insc = inscriptionDe(eleve.id, anneeId);
+    const nomEleve = fullName(eleve);
+    const classeTexte = classeLabel(classeById[Number(classeId)]);
+    const res = insc
+      ? await enregistrer({
+        cle: `inscription|${insc.id}`,
+        module: 'inscription',
+        methode: 'PUT',
+        url: `/inscriptions/${insc.id}`,
+        body: { classe_id: Number(classeId) },
+        versionBase: insc.version ?? undefined,
+        libelle: `Classe de ${nomEleve} → ${classeTexte}`,
+      })
+      : await enregistrer({
+        cle: `inscription|nouvelle|${eleve.id}|${anneeId}`,
+        module: 'inscription',
+        methode: 'POST',
+        url: '/inscriptions/',
+        body: { eleve_id: eleve.id, classe_id: Number(classeId), annee_scolaire_id: anneeId, date_inscription: new Date().toISOString().slice(0, 10), statut: 'Actif' },
+        libelle: `Inscription de ${nomEleve} — ${classeTexte}`,
+      });
+    await terminerEnregistrement(res, {
+      onSaved: async (msg, type) => { toast(msg, type); await loadAll(); },
+      ok: insc ? `${nomEleve} est maintenant en ${classeTexte}` : `${nomEleve} a été inscrit(e) en ${classeTexte}`,
+    });
+  };
+
   const exportCsv = () => {
     const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut']];
     filtered.forEach((e) => {
@@ -372,8 +411,8 @@ export default function ElevesPage() {
       <PageHeader title="Élèves" subtitle="Le répertoire des élèves de l'établissement. La classe affichée est celle de l'année scolaire choisie dans les filtres.">
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={exportCsv}><i className="bx bx-file me-1" /> Exporter la sélection</button>
         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
-        <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>
-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>
+        {peutGererFiches && <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>}
+        {peutGererFiches && <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>}
       </PageHeader>
       <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
 
@@ -515,8 +554,8 @@ export default function ElevesPage() {
                   <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
                   <td className="text-end text-nowrap">
                     <IconBtn icon="bx-show" title="Voir la fiche" onClick={() => setDetail(e)} />
-                    <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />
-                    <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(e)} />
+                    {peutGererFiches && <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />}
+                    {peutGererFiches && <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(e)} />}
                   </td>
                 </tr>
               );
@@ -546,11 +585,24 @@ export default function ElevesPage() {
           footer={(
             <>
               <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setDetail(null)}>Fermer</button>
-              <button type="button" className="btn btn-primary btn-sm" onClick={() => { setFormModal({ data: detail }); setDetail(null); }}><i className="bx bx-edit-alt me-1" /> Modifier</button>
+              {peutGererFiches && <button type="button" className="btn btn-primary btn-sm" onClick={() => { setFormModal({ data: detail }); setDetail(null); }}><i className="bx bx-edit-alt me-1" /> Modifier</button>}
             </>
           )}
         >
-          <FicheEleve e={detail} parent={parentById[detail.parent_id]} inscriptions={inscriptions} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
+          <FicheEleve
+            e={detail}
+            parent={parentById[detail.parent_id]}
+            inscriptions={inscriptions}
+            classeById={classeById}
+            classeLabel={classeLabel}
+            anneeLabel={anneeLabel}
+            changementClasse={peutChangerClasse ? {
+              anneeNom: anneeLabel(annee),
+              inscription: inscriptionDe(detail.id, annee),
+              classes: classesTriees,
+              onChanger: (classeId) => changerClasse(detail, classeId),
+            } : null}
+          />
         </Modal>
       )}
       {suppressionCascade && (
@@ -577,7 +629,56 @@ function InfoLine({ label, value }) {
   );
 }
 
-function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, anneeLabel }) {
+// Changement de classe depuis la fiche : l'élève déjà inscrit cette année
+// passe dans la classe choisie (son inscription est modifiée) ; sinon il y est
+// inscrit. Le composant est recréé (key) quand la classe change, ce qui remet
+// le choix à zéro après l'enregistrement.
+function ChangerClasse({ inscription, anneeNom, classes, classeLabel, onChanger }) {
+  const [choix, setChoix] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const actuelle = inscription ? String(inscription.classe_id) : '';
+  const classeActuelle = classes.find((c) => String(c.id) === actuelle);
+
+  const valider = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      await onChanger(choix);
+      setChoix('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border rounded p-3 mb-3 bg-lighter">
+      <h6 className="mb-2"><i className="bx bx-transfer me-1 text-primary" />Classe en {anneeNom}</h6>
+      <div className="mb-2">
+        {inscription
+          ? <>Actuellement : <span className="badge bg-label-primary">{classeActuelle ? classeLabel(classeActuelle) : `Classe n°${inscription.classe_id}`}</span>{inscription.statut && inscription.statut !== 'Actif' && <span className="badge bg-label-warning ms-1">{inscription.statut}</span>}</>
+          : <>Cet élève n'est <strong>pas inscrit</strong> pour {anneeNom} : choisissez une classe pour l'inscrire.</>}
+      </div>
+      <div className="d-flex flex-wrap gap-2 align-items-center">
+        <div className="flex-grow-1" style={{ minWidth: 200 }}>
+          <Select className="form-select form-select-sm" value={choix} onChange={(ev) => setChoix(ev.target.value)} disabled={saving}>
+            <option value="">{inscription ? '— Nouvelle classe —' : '— Choisir une classe —'}</option>
+            {classes.filter((c) => String(c.id) !== actuelle).map((c) => <option key={c.id} value={c.id}>{classeLabel(c)}</option>)}
+          </Select>
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" disabled={!choix || saving} onClick={valider}>
+          {saving ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-check me-1" />}
+          {inscription ? 'Changer de classe' : 'Inscrire dans cette classe'}
+        </button>
+      </div>
+      {error && <div className="alert alert-danger py-2 mt-2 mb-0">{error}</div>}
+    </div>
+  );
+}
+
+function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, anneeLabel, changementClasse }) {
   const hist = inscriptions.filter((i) => i.eleve_id === e.id).sort((a, b) => anneeLabel(b.annee_scolaire_id).localeCompare(anneeLabel(a.annee_scolaire_id)));
   const a = age(e.date_naissance);
   return (
@@ -601,6 +702,16 @@ function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, annee
           <InfoLine label="E-mail" value={p?.email || '—'} />
         </div>
       </div>
+      {changementClasse && (
+        <ChangerClasse
+          key={`${e.id}|${changementClasse.inscription?.id ?? 'aucune'}|${changementClasse.inscription?.classe_id ?? ''}`}
+          inscription={changementClasse.inscription}
+          anneeNom={changementClasse.anneeNom}
+          classes={changementClasse.classes}
+          classeLabel={classeLabel}
+          onChanger={changementClasse.onChanger}
+        />
+      )}
       <h6 className="mb-2">Parcours scolaire</h6>
       {hist.length ? (
         <table className="table mb-0">

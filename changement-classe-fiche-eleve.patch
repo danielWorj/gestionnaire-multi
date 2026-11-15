@@ -1,0 +1,499 @@
+diff --git a/server/api/inscription_api.py b/server/api/inscription_api.py
+index cf2b0d4..e7f3ec6 100644
+--- a/server/api/inscription_api.py
++++ b/server/api/inscription_api.py
+@@ -39,7 +39,8 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+                                        roles_autorises=("Admin", "SuperAdmin", "Secretaire"),
+                                        read_only_roles=(),
+                                        classe_scoped=False,
+-                                       lecture_etablissement_roles=("Comptable",)):
++                                       lecture_etablissement_roles=("Comptable",),
++                                       ecriture_classe_roles=()):
+     """lecture_etablissement_roles : rôles n'ayant accès qu'en LECTURE (GET),
+     sur TOUT l'établissement (aucune restriction par classe, contrairement à
+     read_only_roles). Le Comptable en a besoin pour la page Paiements
+@@ -57,6 +58,13 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+     Censeur/Surveillant n'a pas de périmètre "parent" ou "élève" propre,
+     uniquement au travers des Inscription de ses classes.
+ 
++    ecriture_classe_roles : rôles (Censeur) autorisés à INSCRIRE un élève et à
++    CHANGER SA CLASSE (POST et PUT, jamais DELETE), uniquement parmi les
++    classes qui leur sont assignées : la restriction de read_only_roles
++    s'applique aussi à l'écriture (classe actuelle ET classe cible). Leur
++    payload est réduit aux champs utiles (cf. _payload_ecriture_classe) :
++    ils ne peuvent ni radier ni modifier une inscription autrement.
++
+     classe_scoped : True UNIQUEMENT pour inscription_bp — indique que ce
+     modèle (colonne classe_id directe) doit être filtré aux classes
+     assignées pour les rôles listés dans read_only_roles (cf.
+@@ -74,8 +82,23 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+             return
+         if (role in read_only_roles or role in lecture_etablissement_roles) and request.method == "GET":
+             return
++        if role in ecriture_classe_roles and request.method in ("POST", "PUT"):
++            return
+         return jsonify({"erreur": "Accès non autorisé"}), 403
+ 
++    def _payload_ecriture_classe(data, creation):
++        """Pour un rôle d'ecriture_classe_roles, ne garde que ce qui sert à
++        inscrire / changer de classe. Les autres rôles : payload inchangé."""
++        if get_jwt().get("role") not in ecriture_classe_roles:
++            return data
++        autorises = {"classe_id", "version_base", "forcer"}
++        if creation:
++            autorises |= {"eleve_id", "annee_scolaire_id", "date_inscription"}
++        reduit = {k: v for k, v in data.items() if k in autorises}
++        if creation:
++            reduit["statut"] = "Actif"
++        return reduit
++
+     def _current_etablissement_id():
+         """- Admin d'établissement : toujours celui de son propre compte (claim JWT)
+         - SuperAdmin : celui passé en query param, pour consulter un établissement précis"""
+@@ -115,6 +138,7 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+             else claims.get("etablissement_id")
+         if not etab_id:
+             return jsonify({"erreur": "etablissement_id requis"}), 400
++        data = _payload_ecriture_classe(data, creation=True)
+         result, status = create_entity_scoped(model, data, etab_id, _current_classe_restriction())
+         return jsonify(result), status
+ 
+@@ -132,8 +156,8 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
+         if not entity:
+             return jsonify({"erreur": f"{name} non trouvé"}), 404
+-        result, status = update_entity_scoped(entity, request.get_json(silent=True) or {}, etab_id,
+-                                              _current_classe_restriction())
++        data = _payload_ecriture_classe(request.get_json(silent=True) or {}, creation=False)
++        result, status = update_entity_scoped(entity, data, etab_id, _current_classe_restriction())
+         return jsonify(result), status
+ 
+     @bp.route('/<int:id>', methods=['DELETE'])
+@@ -217,18 +241,28 @@ def send_photo_eleve(eleve):
+ # Enregistrement des blueprints
+ # ---------------------------------------------------------------------------
+ 
+-parent_bp = make_inscription_scoped_blueprint('parent', Parent, '/api/parents')
+-eleve_bp = make_inscription_scoped_blueprint('eleve', Eleve, '/api/eleves')
++# Le Censeur consulte (GET) les élèves et parents de l'établissement : la page
++# Élèves lui sert à changer la classe d'un élève parmi SES classes (cf.
++# inscription_bp ci-dessous). Aucune écriture sur ces deux ressources.
++LECTURE_ELEVES = ("Comptable", "Censeur")
++
++parent_bp = make_inscription_scoped_blueprint('parent', Parent, '/api/parents',
++                                              lecture_etablissement_roles=LECTURE_ELEVES)
++eleve_bp = make_inscription_scoped_blueprint('eleve', Eleve, '/api/eleves',
++                                             lecture_etablissement_roles=LECTURE_ELEVES)
+ 
+ # classe_scoped=True + read_only_roles=("Censeur", "Surveillant") : ces deux
+-# rôles peuvent consulter (GET uniquement) les inscriptions des classes qui
+-# leur ont été assignées, mais ne peuvent ni inscrire, ni radier, ni
+-# réassigner un élève (réservé à Admin/SuperAdmin/Secretaire) — cf.
+-# docstring de make_inscription_scoped_blueprint ci-dessus.
++# rôles consultent (GET) les inscriptions des classes qui leur ont été
++# assignées. Le Surveillant n'a pas d'autre droit. Le Censeur peut en plus
++# inscrire un élève et changer sa classe (ecriture_classe_roles), uniquement
++# entre ses classes assignées ; il ne peut ni radier ni supprimer. Les autres
++# opérations restent à Admin/SuperAdmin/Secretaire — cf. docstring de
++# make_inscription_scoped_blueprint ci-dessus.
+ inscription_bp = make_inscription_scoped_blueprint(
+     'inscription', Inscription, '/api/inscriptions',
+     read_only_roles=("Censeur", "Surveillant"),
+     classe_scoped=True,
++    ecriture_classe_roles=("Censeur",),
+ )
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/server/services/inscription_services.py b/server/services/inscription_services.py
+index 542da4a..fe38bd8 100644
+--- a/server/services/inscription_services.py
++++ b/server/services/inscription_services.py
+@@ -1,5 +1,6 @@
+ import os
+ import uuid
++from datetime import date
+ 
+ from flask import current_app
+ 
+@@ -289,6 +290,11 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
+             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+ 
+     if model_class is Inscription:
++        if isinstance(data.get('date_inscription'), str):
++            try:
++                data['date_inscription'] = date.fromisoformat(data['date_inscription'][:10])
++            except ValueError:
++                return {"erreur": "date_inscription invalide (attendu : AAAA-MM-JJ)"}, 400
+         error = _valider_inscription_unique(data['eleve_id'], data['annee_scolaire_id'])
+         if error:
+             return {"erreur": error}, 409
+diff --git a/server/tests/test_changement_classe.py b/server/tests/test_changement_classe.py
+new file mode 100644
+index 0000000..1bd5cb3
+--- /dev/null
++++ b/server/tests/test_changement_classe.py
+@@ -0,0 +1,130 @@
++"""Changement de classe d'un élève depuis la fiche (page Élèves) : Admin,
++Secrétaire et Censeur (limité à ses classes assignées) ; inscription d'un élève
++qui n'avait pas d'inscription cette année."""
++from datetime import date
++
++from extensions import db
++from models.authentification_models import Role
++from models.inscription_models import Eleve, Inscription
++from models.pedagogie_models import Censeur, CenseurClasse
++from models.structure_models import Classe, Cycle
++from services.authentification_services import create_utilisateur
++
++
++def _classe(monde, libelle='6e B'):
++    cycle = Cycle(etablissement_id=monde.etab_id, libelle=libelle)
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=monde.etab_id, cycle_id=cycle.id)
++    db.session.add(classe)
++    db.session.commit()
++    return classe.id
++
++
++def _secretaire(monde):
++    role = Role.query.filter_by(libelle='Secretaire').first()
++    res, status = create_utilisateur({'nom': 'Secretaire Test', 'role_ids': [role.id], 'etablissement_id': monde.etab_id})
++    assert status == 201, res
++    return res
++
++
++def _eleve_sans_inscription(monde):
++    eleve = Eleve(etablissement_id=monde.etab_id, matricule='M002', nom='Sans', prenom='Classe', sexe='M',
++                  lieu_naissance='Douala', parent_id=monde.parent_id)
++    db.session.add(eleve)
++    db.session.commit()
++    return eleve.id
++
++
++def test_admin_change_la_classe_de_l_eleve(monde, connecter):
++    autre = _classe(monde)
++    admin = connecter(monde.admin_compte)
++    rep = admin.put(f'/api/inscriptions/{monde.inscription_id}', json={'classe_id': autre})
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Inscription, monde.inscription_id).classe_id == autre
++    # Toujours une seule inscription pour l'année.
++    assert Inscription.query.filter_by(eleve_id=monde.eleve_id, annee_scolaire_id=monde.annee_id).count() == 1
++
++
++def test_secretaire_change_la_classe_de_l_eleve(monde, connecter):
++    autre = _classe(monde)
++    secretaire = connecter(_secretaire(monde))
++    rep = secretaire.put(f'/api/inscriptions/{monde.inscription_id}', json={'classe_id': autre})
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Inscription, monde.inscription_id).classe_id == autre
++
++
++def test_admin_inscrit_un_eleve_sans_inscription(monde, connecter):
++    eleve_id = _eleve_sans_inscription(monde)
++    admin = connecter(monde.admin_compte)
++    rep = admin.post('/api/inscriptions/', json={
++        'eleve_id': eleve_id, 'classe_id': monde.classe_id, 'annee_scolaire_id': monde.annee_id,
++        'date_inscription': date(2026, 11, 15).isoformat(), 'statut': 'Actif'})
++    assert rep.status_code == 201, rep.get_json()
++    assert Inscription.query.filter_by(eleve_id=eleve_id).count() == 1
++
++
++def test_inscrire_un_eleve_deja_inscrit_est_refuse(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    rep = admin.post('/api/inscriptions/', json={
++        'eleve_id': monde.eleve_id, 'classe_id': monde.classe_id, 'annee_scolaire_id': monde.annee_id,
++        'date_inscription': date(2026, 11, 15).isoformat()})
++    assert rep.status_code == 409
++
++
++def test_censeur_lit_les_eleves_et_parents(monde, connecter):
++    censeur = connecter(monde.censeur_compte)
++    assert censeur.get('/api/eleves/').status_code == 200
++    assert censeur.get('/api/parents/').status_code == 200
++    # Lecture seule sur ces deux ressources.
++    assert censeur.put(f'/api/eleves/{monde.eleve_id}', json={'nom': 'X'}).status_code == 403
++    assert censeur.delete(f'/api/eleves/{monde.eleve_id}').status_code == 403
++
++
++def test_censeur_change_la_classe_entre_ses_classes(monde, connecter):
++    autre = _classe(monde)
++    censeur_id = Censeur.query.first().id
++    db.session.add(CenseurClasse(censeur_id=censeur_id, classe_id=autre))
++    db.session.commit()
++    censeur = connecter(monde.censeur_compte)
++    rep = censeur.put(f'/api/inscriptions/{monde.inscription_id}', json={'classe_id': autre})
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Inscription, monde.inscription_id).classe_id == autre
++
++
++def test_censeur_ne_peut_pas_viser_une_classe_non_assignee(monde, connecter):
++    autre = _classe(monde)  # non assignée au censeur
++    censeur = connecter(monde.censeur_compte)
++    rep = censeur.put(f'/api/inscriptions/{monde.inscription_id}', json={'classe_id': autre})
++    assert rep.status_code == 403, rep.get_json()
++    assert db.session.get(Inscription, monde.inscription_id).classe_id == monde.classe_id
++
++
++def test_censeur_inscrit_dans_sa_classe_mais_pas_ailleurs(monde, connecter):
++    eleve_id = _eleve_sans_inscription(monde)
++    autre = _classe(monde)
++    censeur = connecter(monde.censeur_compte)
++    corps = {'eleve_id': eleve_id, 'annee_scolaire_id': monde.annee_id, 'date_inscription': '2026-11-15'}
++    assert censeur.post('/api/inscriptions/', json={**corps, 'classe_id': autre}).status_code == 403
++    rep = censeur.post('/api/inscriptions/', json={**corps, 'classe_id': monde.classe_id, 'statut': 'Radié'})
++    assert rep.status_code == 201, rep.get_json()
++    # Le statut demandé est ignoré : l'inscription est toujours créée « Actif ».
++    assert Inscription.query.filter_by(eleve_id=eleve_id).one().statut == 'Actif'
++
++
++def test_censeur_ne_peut_ni_radier_ni_supprimer_une_inscription(monde, connecter):
++    censeur = connecter(monde.censeur_compte)
++    rep = censeur.put(f'/api/inscriptions/{monde.inscription_id}', json={'statut': 'Radié'})
++    assert rep.status_code == 200
++    assert db.session.get(Inscription, monde.inscription_id).statut == 'Actif'
++    assert censeur.delete(f'/api/inscriptions/{monde.inscription_id}').status_code == 403
++
++
++def test_surveillant_reste_en_lecture_seule(monde, connecter):
++    role = Role.query.filter_by(libelle='Surveillant').first()
++    res, status = create_utilisateur({'nom': 'Surv Test', 'role_ids': [role.id], 'etablissement_id': monde.etab_id})
++    assert status == 201, res
++    surveillant = connecter(res)
++    autre = _classe(monde)
++    assert surveillant.put(f'/api/inscriptions/{monde.inscription_id}', json={'classe_id': autre}).status_code == 403
++    assert surveillant.get('/api/eleves/').status_code == 403
+diff --git a/server/tests/test_photos_eleves.py b/server/tests/test_photos_eleves.py
+index 3d982fd..b8ce8d2 100644
+--- a/server/tests/test_photos_eleves.py
++++ b/server/tests/test_photos_eleves.py
+@@ -88,10 +88,11 @@ def test_cloisonnement(monde, connecter, appli):
+ 
+     assert appli.test_client().get(url).status_code == 401  # sans session
+ 
+-    # Enseignant / Censeur : pas d'accès au répertoire des élèves.
++    # Enseignant : pas d'accès au répertoire des élèves. Censeur : lecture
++    # seule (page Élèves, changement de classe), jamais d'envoi de photo.
+     assert connecter(monde.enseignant_compte).get(url).status_code == 403
+     censeur = connecter(monde.censeur_compte)
+-    assert censeur.get(url).status_code == 403
++    assert censeur.get(url).status_code == 200
+     assert _envoyer(censeur, monde.eleve_id, PNG).status_code == 403
+ 
+     # Admin d'un autre établissement : élève introuvable.
+diff --git a/web/src/App.jsx b/web/src/App.jsx
+index 8b885e2..c646dbe 100644
+--- a/web/src/App.jsx
++++ b/web/src/App.jsx
+@@ -121,7 +121,9 @@ const PAGES = [
+   { path: 'super-admins', element: <SuperAdminsPage />, roles: ['SuperAdmin'] },
+   { path: 'matieres', element: <MatieresPage />, roles: ADMIN },
+   { path: 'enseignants', element: <EnseignantsPage />, roles: ADMIN },
+-  { path: 'eleves', element: <ElevesPage />, roles: SCOLARITE },
++  // Le Censeur y change la classe d'un élève (parmi ses classes) ; le reste de
++  // la page lui est en lecture seule.
++  { path: 'eleves', element: <ElevesPage />, roles: [...SCOLARITE, 'Censeur'] },
+   { path: 'parents', element: <ParentsPage />, roles: SCOLARITE },
+   { path: 'inscriptions', element: <InscriptionsPage />, roles: SCOLARITE },
+   { path: 'listes-classes', element: <ListesClassesPage />, roles: TOUS_LES_PROFILS },
+diff --git a/web/src/components/Layout.jsx b/web/src/components/Layout.jsx
+index 8b39660..1e5f3a7 100644
+--- a/web/src/components/Layout.jsx
++++ b/web/src/components/Layout.jsx
+@@ -57,7 +57,7 @@ export const MENU_SECTIONS = [
+   {
+     header: 'Inscriptions',
+     items: [
+-      { to: '/eleves', label: 'Élèves', icon: 'bx-user', roles: [...ADMIN, 'Secretaire'] },
++      { to: '/eleves', label: 'Élèves', icon: 'bx-user', roles: [...ADMIN, 'Secretaire', 'Censeur'] },
+       { to: '/parents', label: 'Parents', icon: 'bx-group', roles: [...ADMIN, 'Secretaire'] },
+       { to: '/inscriptions', label: 'Inscriptions', icon: 'bx-user-plus', roles: [...ADMIN, 'Secretaire'] },
+       { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', roles: [...ADMIN, ...CENSEUR, 'Enseignant', 'Secretaire', 'Comptable'] },
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index 6c6c9af..7bc335d 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -14,6 +14,7 @@ import ImportElevesModal from '../components/ImportElevesModal';
+ import SuppressionEleveModal from '../components/SuppressionEleveModal';
+ import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
+ import { useEtablissementCourant } from '../components/EnteteEtablissement';
++import { roleDe } from '../components/Layout';
+ import { ecrireImpression, ouvrirFenetreImpression } from '../lib/paiementsImpression';
+ import { construireHtmlListeEleves } from '../lib/listeElevesImpression';
+ 
+@@ -54,6 +55,12 @@ export default function ElevesPage() {
+   const { activeEtablissementId, user, isSuperAdmin } = useAuth();
+   const etablissement = useEtablissementCourant();
+   const peutSupprimerDefinitivement = isSuperAdmin || user?.role?.libelle === 'Admin';
++  const role = roleDe(user);
++  // Le Censeur consulte les fiches et change la classe d'un élève parmi SES
++  // classes (le serveur l'impose) ; créer, modifier, importer et supprimer
++  // restent à l'administration et au secrétariat.
++  const peutGererFiches = ['Admin', 'SuperAdmin', 'Secretaire'].includes(role);
++  const peutChangerClasse = peutGererFiches || role === 'Censeur';
+ 
+   const [data, setData] = useState({ eleves: [], parents: [], inscriptions: [], classes: [], cycles: [], annees: [] });
+   const [loading, setLoading] = useState(true);
+@@ -324,6 +331,38 @@ export default function ElevesPage() {
+     }
+   };
+ 
++  // Change la classe de l'élève pour l'année choisie dans les filtres : modifie
++  // son inscription de l'année, ou l'inscrit s'il n'en a pas encore.
++  const changerClasse = async (eleve, classeId) => {
++    const anneeId = Number(annee);
++    if (!anneeId) throw new Error("Aucune année scolaire n'est sélectionnée.");
++    const insc = inscriptionDe(eleve.id, anneeId);
++    const nomEleve = fullName(eleve);
++    const classeTexte = classeLabel(classeById[Number(classeId)]);
++    const res = insc
++      ? await enregistrer({
++        cle: `inscription|${insc.id}`,
++        module: 'inscription',
++        methode: 'PUT',
++        url: `/inscriptions/${insc.id}`,
++        body: { classe_id: Number(classeId) },
++        versionBase: insc.version ?? undefined,
++        libelle: `Classe de ${nomEleve} → ${classeTexte}`,
++      })
++      : await enregistrer({
++        cle: `inscription|nouvelle|${eleve.id}|${anneeId}`,
++        module: 'inscription',
++        methode: 'POST',
++        url: '/inscriptions/',
++        body: { eleve_id: eleve.id, classe_id: Number(classeId), annee_scolaire_id: anneeId, date_inscription: new Date().toISOString().slice(0, 10), statut: 'Actif' },
++        libelle: `Inscription de ${nomEleve} — ${classeTexte}`,
++      });
++    await terminerEnregistrement(res, {
++      onSaved: async (msg, type) => { toast(msg, type); await loadAll(); },
++      ok: insc ? `${nomEleve} est maintenant en ${classeTexte}` : `${nomEleve} a été inscrit(e) en ${classeTexte}`,
++    });
++  };
++
+   const exportCsv = () => {
+     const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut']];
+     filtered.forEach((e) => {
+@@ -372,8 +411,8 @@ export default function ElevesPage() {
+       <PageHeader title="Élèves" subtitle="Le répertoire des élèves de l'établissement. La classe affichée est celle de l'année scolaire choisie dans les filtres.">
+         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={exportCsv}><i className="bx bx-file me-1" /> Exporter la sélection</button>
+         <button type="button" className="btn btn-outline-secondary btn-sm" onClick={loadAll}><i className="bx bx-refresh me-1" /> Actualiser</button>
+-        <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>
+-        <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>
++        {peutGererFiches && <button type="button" className="btn btn-outline-primary btn-sm" onClick={() => setImportOuvert(true)}><i className="bx bx-import me-1" /> Importer (Excel, CSV, Word)</button>}
++        {peutGererFiches && <button type="button" className="btn btn-primary btn-sm" onClick={() => setFormModal({ data: null })}><i className="bx bx-plus me-1" /> Ajouter un élève</button>}
+       </PageHeader>
+       <OperationsEnAttente modules={MODULES_FICHES} titre="Fiches pas encore enregistrées sur le serveur" />
+ 
+@@ -515,8 +554,8 @@ export default function ElevesPage() {
+                   <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
+                   <td className="text-end text-nowrap">
+                     <IconBtn icon="bx-show" title="Voir la fiche" onClick={() => setDetail(e)} />
+-                    <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />
+-                    <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(e)} />
++                    {peutGererFiches && <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />}
++                    {peutGererFiches && <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(e)} />}
+                   </td>
+                 </tr>
+               );
+@@ -546,11 +585,24 @@ export default function ElevesPage() {
+           footer={(
+             <>
+               <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setDetail(null)}>Fermer</button>
+-              <button type="button" className="btn btn-primary btn-sm" onClick={() => { setFormModal({ data: detail }); setDetail(null); }}><i className="bx bx-edit-alt me-1" /> Modifier</button>
++              {peutGererFiches && <button type="button" className="btn btn-primary btn-sm" onClick={() => { setFormModal({ data: detail }); setDetail(null); }}><i className="bx bx-edit-alt me-1" /> Modifier</button>}
+             </>
+           )}
+         >
+-          <FicheEleve e={detail} parent={parentById[detail.parent_id]} inscriptions={inscriptions} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
++          <FicheEleve
++            e={detail}
++            parent={parentById[detail.parent_id]}
++            inscriptions={inscriptions}
++            classeById={classeById}
++            classeLabel={classeLabel}
++            anneeLabel={anneeLabel}
++            changementClasse={peutChangerClasse ? {
++              anneeNom: anneeLabel(annee),
++              inscription: inscriptionDe(detail.id, annee),
++              classes: classesTriees,
++              onChanger: (classeId) => changerClasse(detail, classeId),
++            } : null}
++          />
+         </Modal>
+       )}
+       {suppressionCascade && (
+@@ -577,7 +629,56 @@ function InfoLine({ label, value }) {
+   );
+ }
+ 
+-function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, anneeLabel }) {
++// Changement de classe depuis la fiche : l'élève déjà inscrit cette année
++// passe dans la classe choisie (son inscription est modifiée) ; sinon il y est
++// inscrit. Le composant est recréé (key) quand la classe change, ce qui remet
++// le choix à zéro après l'enregistrement.
++function ChangerClasse({ inscription, anneeNom, classes, classeLabel, onChanger }) {
++  const [choix, setChoix] = useState('');
++  const [saving, setSaving] = useState(false);
++  const [error, setError] = useState('');
++  const actuelle = inscription ? String(inscription.classe_id) : '';
++  const classeActuelle = classes.find((c) => String(c.id) === actuelle);
++
++  const valider = async () => {
++    setError('');
++    setSaving(true);
++    try {
++      await onChanger(choix);
++      setChoix('');
++    } catch (err) {
++      setError(err.message);
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  return (
++    <div className="border rounded p-3 mb-3 bg-lighter">
++      <h6 className="mb-2"><i className="bx bx-transfer me-1 text-primary" />Classe en {anneeNom}</h6>
++      <div className="mb-2">
++        {inscription
++          ? <>Actuellement : <span className="badge bg-label-primary">{classeActuelle ? classeLabel(classeActuelle) : `Classe n°${inscription.classe_id}`}</span>{inscription.statut && inscription.statut !== 'Actif' && <span className="badge bg-label-warning ms-1">{inscription.statut}</span>}</>
++          : <>Cet élève n'est <strong>pas inscrit</strong> pour {anneeNom} : choisissez une classe pour l'inscrire.</>}
++      </div>
++      <div className="d-flex flex-wrap gap-2 align-items-center">
++        <div className="flex-grow-1" style={{ minWidth: 200 }}>
++          <Select className="form-select form-select-sm" value={choix} onChange={(ev) => setChoix(ev.target.value)} disabled={saving}>
++            <option value="">{inscription ? '— Nouvelle classe —' : '— Choisir une classe —'}</option>
++            {classes.filter((c) => String(c.id) !== actuelle).map((c) => <option key={c.id} value={c.id}>{classeLabel(c)}</option>)}
++          </Select>
++        </div>
++        <button type="button" className="btn btn-primary btn-sm" disabled={!choix || saving} onClick={valider}>
++          {saving ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-check me-1" />}
++          {inscription ? 'Changer de classe' : 'Inscrire dans cette classe'}
++        </button>
++      </div>
++      {error && <div className="alert alert-danger py-2 mt-2 mb-0">{error}</div>}
++    </div>
++  );
++}
++
++function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, anneeLabel, changementClasse }) {
+   const hist = inscriptions.filter((i) => i.eleve_id === e.id).sort((a, b) => anneeLabel(b.annee_scolaire_id).localeCompare(anneeLabel(a.annee_scolaire_id)));
+   const a = age(e.date_naissance);
+   return (
+@@ -601,6 +702,16 @@ function FicheEleve({ e, parent: p, inscriptions, classeById, classeLabel, annee
+           <InfoLine label="E-mail" value={p?.email || '—'} />
+         </div>
+       </div>
++      {changementClasse && (
++        <ChangerClasse
++          key={`${e.id}|${changementClasse.inscription?.id ?? 'aucune'}|${changementClasse.inscription?.classe_id ?? ''}`}
++          inscription={changementClasse.inscription}
++          anneeNom={changementClasse.anneeNom}
++          classes={changementClasse.classes}
++          classeLabel={classeLabel}
++          onChanger={changementClasse.onChanger}
++        />
++      )}
+       <h6 className="mb-2">Parcours scolaire</h6>
+       {hist.length ? (
+         <table className="table mb-0">

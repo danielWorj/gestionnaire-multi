@@ -88,10 +88,11 @@ def test_cloisonnement(monde, connecter, appli):
 
     assert appli.test_client().get(url).status_code == 401  # sans session
 
-    # Enseignant / Censeur : pas d'accès au répertoire des élèves.
+    # Enseignant : pas d'accès au répertoire des élèves. Censeur : lecture
+    # seule (page Élèves, changement de classe), jamais d'envoi de photo.
     assert connecter(monde.enseignant_compte).get(url).status_code == 403
     censeur = connecter(monde.censeur_compte)
-    assert censeur.get(url).status_code == 403
+    assert censeur.get(url).status_code == 200
     assert _envoyer(censeur, monde.eleve_id, PNG).status_code == 403
 
     # Admin d'un autre établissement : élève introuvable.

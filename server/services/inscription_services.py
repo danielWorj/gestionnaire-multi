@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import date
 
 from flask import current_app
 
@@ -289,6 +290,11 @@ def create_entity_scoped(model_class, data, etablissement_id, classe_ids_restric
             return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     if model_class is Inscription:
+        if isinstance(data.get('date_inscription'), str):
+            try:
+                data['date_inscription'] = date.fromisoformat(data['date_inscription'][:10])
+            except ValueError:
+                return {"erreur": "date_inscription invalide (attendu : AAAA-MM-JJ)"}, 400
         error = _valider_inscription_unique(data['eleve_id'], data['annee_scolaire_id'])
         if error:
             return {"erreur": error}, 409
