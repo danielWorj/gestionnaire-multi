@@ -278,7 +278,7 @@ export default function ElevesPage() {
   /* ── Actions ── */
   const supprimer = async (e) => {
     const ok = await confirm(
-      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions et son historique disparaîtront aussi. Pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
+      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. La suppression est refusée s'il a déjà des notes, des fiches de discipline ou des paiements : dans ce cas, et pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
       { title: "Supprimer l'élève", confirmLabel: 'Supprimer' },
     );
     if (!ok) return;

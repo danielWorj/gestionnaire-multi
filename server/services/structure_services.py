@@ -237,8 +237,20 @@ def delete_entity(entity):
         if logo_a_supprimer:
             delete_logo_file(logo_a_supprimer)
         return {"message": "Supprimé avec succès"}, 200
+    except IntegrityError as e:
+        db.session.rollback()
+        # Une clé étrangère (ou une contrainte NOT NULL sur la clé de
+        # rattachement) empêche la suppression : l'élément est encore utilisé
+        # ailleurs. Ce n'est pas une panne serveur (409, pas 500) ; le détail
+        # réel est loggé car il n'est jamais montré à l'utilisateur.
+        current_app.logger.warning(
+            "IntegrityError sur delete %s : %s", type(entity).__name__, getattr(e, "orig", e)
+        )
+        return {"erreur": "Suppression impossible : cet élément est encore utilisé par d'autres "
+                          "enregistrements. Supprimez ou détachez d'abord ceux-ci."}, 409
     except Exception:
         db.session.rollback()
+        current_app.logger.exception("Erreur inattendue sur delete %s", type(entity).__name__)
         return {"erreur": "Erreur lors de la suppression"}, 500
 
 

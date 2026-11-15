@@ -1,0 +1,248 @@
+diff --git a/server/services/inscription_services.py b/server/services/inscription_services.py
+index 57f71c4..4bbe4bd 100644
+--- a/server/services/inscription_services.py
++++ b/server/services/inscription_services.py
+@@ -3,6 +3,8 @@ import uuid
+ 
+ from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
+ from models.structure_models import Classe, AnneeScolaire
++from models.evaluation_models import Note, Discipline
++from models.paiements_models import Paiement
+ from extensions import db
+ 
+ # Les opérations CRUD "brutes" (create_entity, get_all_entities,
+@@ -333,15 +335,91 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
+     return update_entity(entity, data)
+ 
+ 
++# ---------------------------------------------------------------------------
++# Suppression d'un élève / d'une inscription
++#
++# Notes, fiches de discipline et paiements pointent sur l'INSCRIPTION (clé
++# étrangère NOT NULL, sans cascade) : supprimer à l'aveugle un élève ou une
++# inscription qui en a provoquait une IntegrityError, donc un 500 muet. On
++# vérifie donc d'abord ce qui est rattaché, et on répond par un 409 qui dit
++# précisément quoi. Ces données (notes, reçus) ne sont jamais supprimées en
++# cascade : elles servent de preuve (cf. journal d'audit) ; l'archivage passe
++# par le statut (Eleve : « Inactif » ; Inscription : « Radié » / « Transféré »).
++# ---------------------------------------------------------------------------
++
++_LIBELLES_LIENS = (
++    ('notes', 'note', 'notes'),
++    ('disciplines', 'fiche de discipline', 'fiches de discipline'),
++    ('paiements', 'paiement', 'paiements'),
++)
++
++
++def _liens_des_inscriptions(inscription_ids):
++    """Nombre de notes / fiches de discipline / paiements rattachés à ces
++    inscriptions ({} si aucun)."""
++    if not inscription_ids:
++        return {}
++    comptes = {
++        'notes': Note.query.filter(Note.inscription_id.in_(inscription_ids)).count(),
++        'disciplines': Discipline.query.filter(Discipline.inscription_id.in_(inscription_ids)).count(),
++        'paiements': Paiement.query.filter(Paiement.inscription_id.in_(inscription_ids)).count(),
++    }
++    return {cle: n for cle, n in comptes.items() if n}
++
++
++def _decrire_liens(liens):
++    """{'notes': 12, 'paiements': 1} -> '12 notes et 1 paiement'."""
++    morceaux = [f"{liens[cle]} {singulier if liens[cle] == 1 else pluriel}"
++                for cle, singulier, pluriel in _LIBELLES_LIENS if cle in liens]
++    return ' et '.join([', '.join(morceaux[:-1]), morceaux[-1]] if len(morceaux) > 2 else morceaux)
++
++
++def _suppression_refusee_eleve(eleve, nb_inscriptions, liens):
++    return {
++        "erreur": (f"Impossible de supprimer {eleve.prenom} {eleve.nom} : cet élève est déjà lié à "
++                   f"{_decrire_liens(liens)}. Pour conserver cet historique, passez plutôt son statut "
++                   "à « Inactif »."),
++        "code": "eleve_lie",
++        "details": {"inscriptions": nb_inscriptions, **liens},
++    }, 409
++
++
++def _suppression_refusee_inscription(liens):
++    return {
++        "erreur": (f"Impossible de retirer cette inscription : elle est déjà liée à "
++                   f"{_decrire_liens(liens)}. Pour garder la trace du passage dans la classe, "
++                   "passez plutôt son statut à « Radié » ou « Transféré »."),
++        "code": "inscription_liee",
++        "details": liens,
++    }, 409
++
++
+ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
+     if get_etablissement_id_of(entity) != etablissement_id:
+         return {"erreur": "Accès non autorisé à cette ressource"}, 403
+     if (isinstance(entity, Inscription) and classe_ids_restriction is not None
+             and entity.classe_id not in classe_ids_restriction):
+         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+-    photo = entity.photo if isinstance(entity, Eleve) else None
++
++    photo = None
++    if isinstance(entity, Eleve):
++        photo = entity.photo
++        inscriptions = Inscription.query.filter_by(eleve_id=entity.id).all()
++        liens = _liens_des_inscriptions([i.id for i in inscriptions])
++        if liens:
++            return _suppression_refusee_eleve(entity, len(inscriptions), liens)
++        # Inscriptions « vides » (sans note, discipline ni paiement) : elles
++        # partent avec l'élève, dans la MÊME transaction que celle de
++        # delete_entity (son rollback annule aussi ces suppressions).
++        for inscription in inscriptions:
++            db.session.delete(inscription)
++    elif isinstance(entity, Inscription):
++        liens = _liens_des_inscriptions([entity.id])
++        if liens:
++            return _suppression_refusee_inscription(liens)
++
+     result, status = delete_entity(entity)
+     # Fichier retiré seulement si la suppression en base a réussi.
+     if photo and status < 300:
+         delete_photo_file(etablissement_id, photo)
+-    return result, status
+\ No newline at end of file
++    return result, status
+diff --git a/server/services/structure_services.py b/server/services/structure_services.py
+index 97141fd..ba315cb 100644
+--- a/server/services/structure_services.py
++++ b/server/services/structure_services.py
+@@ -237,8 +237,20 @@ def delete_entity(entity):
+         if logo_a_supprimer:
+             delete_logo_file(logo_a_supprimer)
+         return {"message": "Supprimé avec succès"}, 200
++    except IntegrityError as e:
++        db.session.rollback()
++        # Une clé étrangère (ou une contrainte NOT NULL sur la clé de
++        # rattachement) empêche la suppression : l'élément est encore utilisé
++        # ailleurs. Ce n'est pas une panne serveur (409, pas 500) ; le détail
++        # réel est loggé car il n'est jamais montré à l'utilisateur.
++        current_app.logger.warning(
++            "IntegrityError sur delete %s : %s", type(entity).__name__, getattr(e, "orig", e)
++        )
++        return {"erreur": "Suppression impossible : cet élément est encore utilisé par d'autres "
++                          "enregistrements. Supprimez ou détachez d'abord ceux-ci."}, 409
+     except Exception:
+         db.session.rollback()
++        current_app.logger.exception("Erreur inattendue sur delete %s", type(entity).__name__)
+         return {"erreur": "Erreur lors de la suppression"}, 500
+ 
+ 
+diff --git a/server/tests/test_suppression_eleve.py b/server/tests/test_suppression_eleve.py
+new file mode 100644
+index 0000000..5aa28fa
+--- /dev/null
++++ b/server/tests/test_suppression_eleve.py
+@@ -0,0 +1,96 @@
++"""Suppression d'un élève / d'une inscription : message clair (409) quand ils
++sont déjà liés à des notes, des fiches de discipline ou des paiements, suppression
++complète (200) sinon. Régression : l'ancien comportement était un 500 muet."""
++from datetime import date
++
++from extensions import db
++from models.evaluation_models import Note, Discipline
++from models.inscription_models import Eleve, Inscription
++from models.paiements_models import Paiement
++
++
++def _ajouter_note(monde, valeur=12):
++    db.session.add(Note(inscription_id=monde.inscription_id, matiere_classe_id=monde.mc_id,
++                        sequence_id=monde.sequence_id, valeur=valeur))
++    db.session.commit()
++
++
++def _ajouter_discipline(monde):
++    db.session.add(Discipline(inscription_id=monde.inscription_id, sequence_id=monde.sequence_id))
++    db.session.commit()
++
++
++def test_eleve_inscrit_sans_historique_est_supprime(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/eleves/{monde.eleve_id}')
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Eleve, monde.eleve_id) is None
++    assert Inscription.query.filter_by(eleve_id=monde.eleve_id).count() == 0
++
++
++def test_eleve_sans_inscription_est_supprime(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    db.session.delete(db.session.get(Inscription, monde.inscription_id))
++    db.session.commit()
++    assert admin.delete(f'/api/eleves/{monde.eleve_id}').status_code == 200
++
++
++def test_eleve_avec_notes_refuse_avec_message_clair(monde, connecter):
++    _ajouter_note(monde)
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/eleves/{monde.eleve_id}')
++    data = rep.get_json()
++    assert rep.status_code == 409, data
++    assert data['code'] == 'eleve_lie'
++    assert 'Un Eleve' in data['erreur'] and '1 note' in data['erreur'] and 'Inactif' in data['erreur']
++    assert data['details'] == {'inscriptions': 1, 'notes': 1}
++    # Rien n'a été supprimé.
++    assert db.session.get(Eleve, monde.eleve_id) is not None
++    assert Inscription.query.filter_by(eleve_id=monde.eleve_id).count() == 1
++    assert Note.query.count() == 1
++
++
++def test_eleve_avec_notes_et_discipline_les_liste_toutes(monde, connecter):
++    _ajouter_note(monde, 10)
++    _ajouter_discipline(monde)
++    admin = connecter(monde.admin_compte)
++    data = admin.delete(f'/api/eleves/{monde.eleve_id}').get_json()
++    assert '1 note et 1 fiche de discipline' in data['erreur']
++
++
++def test_eleve_avec_paiement_refuse(monde, connecter):
++    db.session.add(Paiement(inscription_id=monde.inscription_id, parent_id=monde.parent_id,
++                            encaisse_par_id=monde.admin_compte['id'], numero_recu='R-0001',
++                            montant_total=5000, mode_paiement='ESPECES'))
++    db.session.commit()
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/eleves/{monde.eleve_id}')
++    assert rep.status_code == 409
++    assert '1 paiement' in rep.get_json()['erreur']
++    assert db.session.get(Eleve, monde.eleve_id) is not None
++
++
++def test_inscription_avec_notes_refusee(monde, connecter):
++    _ajouter_note(monde)
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/inscriptions/{monde.inscription_id}')
++    data = rep.get_json()
++    assert rep.status_code == 409, data
++    assert data['code'] == 'inscription_liee'
++    assert '1 note' in data['erreur'] and 'Radié' in data['erreur']
++    assert db.session.get(Inscription, monde.inscription_id) is not None
++
++
++def test_inscription_sans_historique_est_retiree_et_l_eleve_reste(monde, connecter):
++    admin = connecter(monde.admin_compte)
++    assert admin.delete(f'/api/inscriptions/{monde.inscription_id}').status_code == 200
++    assert db.session.get(Eleve, monde.eleve_id) is not None
++
++
++def test_contrainte_de_cle_etrangere_donne_409_et_non_500(monde, connecter):
++    """Filet de sécurité générique (delete_entity) : un élément encore utilisé
++    ailleurs (ici un parent qui a des enfants) renvoie 409, jamais 500."""
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/parents/{monde.parent_id}')
++    assert rep.status_code == 409, rep.get_json()
++    assert 'encore utilisé' in rep.get_json()['erreur']
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index fb91ecb..d0a4164 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -278,7 +278,7 @@ export default function ElevesPage() {
+   /* ── Actions ── */
+   const supprimer = async (e) => {
+     const ok = await confirm(
+-      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions et son historique disparaîtront aussi. Pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
++      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. La suppression est refusée s'il a déjà des notes, des fiches de discipline ou des paiements : dans ce cas, et pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
+       { title: "Supprimer l'élève", confirmLabel: 'Supprimer' },
+     );
+     if (!ok) return;

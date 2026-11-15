@@ -3,6 +3,8 @@ import uuid
 
 from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
 from models.structure_models import Classe, AnneeScolaire
+from models.evaluation_models import Note, Discipline
+from models.paiements_models import Paiement
 from extensions import db
 
 # Les opérations CRUD "brutes" (create_entity, get_all_entities,
@@ -333,13 +335,89 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
     return update_entity(entity, data)
 
 
+# ---------------------------------------------------------------------------
+# Suppression d'un élève / d'une inscription
+#
+# Notes, fiches de discipline et paiements pointent sur l'INSCRIPTION (clé
+# étrangère NOT NULL, sans cascade) : supprimer à l'aveugle un élève ou une
+# inscription qui en a provoquait une IntegrityError, donc un 500 muet. On
+# vérifie donc d'abord ce qui est rattaché, et on répond par un 409 qui dit
+# précisément quoi. Ces données (notes, reçus) ne sont jamais supprimées en
+# cascade : elles servent de preuve (cf. journal d'audit) ; l'archivage passe
+# par le statut (Eleve : « Inactif » ; Inscription : « Radié » / « Transféré »).
+# ---------------------------------------------------------------------------
+
+_LIBELLES_LIENS = (
+    ('notes', 'note', 'notes'),
+    ('disciplines', 'fiche de discipline', 'fiches de discipline'),
+    ('paiements', 'paiement', 'paiements'),
+)
+
+
+def _liens_des_inscriptions(inscription_ids):
+    """Nombre de notes / fiches de discipline / paiements rattachés à ces
+    inscriptions ({} si aucun)."""
+    if not inscription_ids:
+        return {}
+    comptes = {
+        'notes': Note.query.filter(Note.inscription_id.in_(inscription_ids)).count(),
+        'disciplines': Discipline.query.filter(Discipline.inscription_id.in_(inscription_ids)).count(),
+        'paiements': Paiement.query.filter(Paiement.inscription_id.in_(inscription_ids)).count(),
+    }
+    return {cle: n for cle, n in comptes.items() if n}
+
+
+def _decrire_liens(liens):
+    """{'notes': 12, 'paiements': 1} -> '12 notes et 1 paiement'."""
+    morceaux = [f"{liens[cle]} {singulier if liens[cle] == 1 else pluriel}"
+                for cle, singulier, pluriel in _LIBELLES_LIENS if cle in liens]
+    return ' et '.join([', '.join(morceaux[:-1]), morceaux[-1]] if len(morceaux) > 2 else morceaux)
+
+
+def _suppression_refusee_eleve(eleve, nb_inscriptions, liens):
+    return {
+        "erreur": (f"Impossible de supprimer {eleve.prenom} {eleve.nom} : cet élève est déjà lié à "
+                   f"{_decrire_liens(liens)}. Pour conserver cet historique, passez plutôt son statut "
+                   "à « Inactif »."),
+        "code": "eleve_lie",
+        "details": {"inscriptions": nb_inscriptions, **liens},
+    }, 409
+
+
+def _suppression_refusee_inscription(liens):
+    return {
+        "erreur": (f"Impossible de retirer cette inscription : elle est déjà liée à "
+                   f"{_decrire_liens(liens)}. Pour garder la trace du passage dans la classe, "
+                   "passez plutôt son statut à « Radié » ou « Transféré »."),
+        "code": "inscription_liee",
+        "details": liens,
+    }, 409
+
+
 def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
     if get_etablissement_id_of(entity) != etablissement_id:
         return {"erreur": "Accès non autorisé à cette ressource"}, 403
     if (isinstance(entity, Inscription) and classe_ids_restriction is not None
             and entity.classe_id not in classe_ids_restriction):
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
-    photo = entity.photo if isinstance(entity, Eleve) else None
+
+    photo = None
+    if isinstance(entity, Eleve):
+        photo = entity.photo
+        inscriptions = Inscription.query.filter_by(eleve_id=entity.id).all()
+        liens = _liens_des_inscriptions([i.id for i in inscriptions])
+        if liens:
+            return _suppression_refusee_eleve(entity, len(inscriptions), liens)
+        # Inscriptions « vides » (sans note, discipline ni paiement) : elles
+        # partent avec l'élève, dans la MÊME transaction que celle de
+        # delete_entity (son rollback annule aussi ces suppressions).
+        for inscription in inscriptions:
+            db.session.delete(inscription)
+    elif isinstance(entity, Inscription):
+        liens = _liens_des_inscriptions([entity.id])
+        if liens:
+            return _suppression_refusee_inscription(liens)
+
     result, status = delete_entity(entity)
     # Fichier retiré seulement si la suppression en base a réussi.
     if photo and status < 300:
