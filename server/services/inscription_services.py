@@ -1,10 +1,14 @@
 import os
 import uuid
 
+from flask import current_app
+
 from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
 from models.structure_models import Classe, AnneeScolaire
 from models.evaluation_models import Note, Discipline
-from models.paiements_models import Paiement
+from models.paiements_models import Paiement, LignePaiement, TrancheClasse
+from models.pedagogie_models import Matiere, MatiereClasse
+from models.structure_models import Sequence
 from extensions import db
 
 # Les opérations CRUD "brutes" (create_entity, get_all_entities,
@@ -342,10 +346,19 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
 # étrangère NOT NULL, sans cascade) : supprimer à l'aveugle un élève ou une
 # inscription qui en a provoquait une IntegrityError, donc un 500 muet. On
 # vérifie donc d'abord ce qui est rattaché, et on répond par un 409 qui dit
-# précisément quoi. Ces données (notes, reçus) ne sont jamais supprimées en
-# cascade : elles servent de preuve (cf. journal d'audit) ; l'archivage passe
-# par le statut (Eleve : « Inactif » ; Inscription : « Radié » / « Transféré »).
+# précisément quoi. Par défaut ces données ne sont pas supprimées : elles
+# servent de preuve ; l'archivage passe par le statut (Eleve : « Inactif » ;
+# Inscription : « Radié » / « Transféré »).
+#
+# Exception VOLONTAIRE et explicite : après ce 409, l'interface montre le
+# journal des notes et des paiements (historique_eleve) et propose une
+# suppression DÉFINITIVE (DELETE /eleves/<id>?cascade=1, Admin/SuperAdmin
+# uniquement) qui emporte lignes de paiement, paiements, notes, fiches de
+# discipline, inscriptions puis l'élève, dans UNE seule transaction (tout ou
+# rien). Les suppressions passent par l'ORM : le journal d'audit les trace.
 # ---------------------------------------------------------------------------
+
+ROLES_SUPPRESSION_CASCADE = ("Admin", "SuperAdmin")
 
 _LIBELLES_LIENS = (
     ('notes', 'note', 'notes'),
@@ -394,7 +407,114 @@ def _suppression_refusee_inscription(liens):
     }, 409
 
 
-def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
+def _num(valeur):
+    return float(valeur) if valeur is not None else None
+
+
+def historique_eleve(eleve):
+    """Journal des notes, fiches de discipline et paiements de l'élève (toutes
+    ses inscriptions), pour la fenêtre de confirmation de suppression."""
+    inscriptions = Inscription.query.filter_by(eleve_id=eleve.id).all()
+    ids = [i.id for i in inscriptions]
+    par_id = {i.id: i for i in inscriptions}
+
+    def contexte(inscription_id):
+        i = par_id[inscription_id]
+        return {
+            "inscription_id": i.id,
+            "classe_id": i.classe_id,
+            "annee": i.annee_scolaire.libelle if i.annee_scolaire else None,
+        }
+
+    notes, disciplines, paiements = [], [], []
+    if ids:
+        lignes_notes = (
+            db.session.query(Note, Matiere.libelle, Sequence.libelle)
+            .join(MatiereClasse, Note.matiere_classe_id == MatiereClasse.id)
+            .join(Matiere, MatiereClasse.matiere_id == Matiere.id)
+            .join(Sequence, Note.sequence_id == Sequence.id)
+            .filter(Note.inscription_id.in_(ids))
+            .order_by(Note.saisie_le.desc(), Note.id.desc())
+            .all()
+        )
+        for note, matiere, sequence in lignes_notes:
+            notes.append({
+                "id": note.id, "matiere": matiere, "sequence": sequence,
+                "valeur": _num(note.valeur), "absent": bool(note.absent),
+                "date": note.saisie_le.isoformat() + "Z" if note.saisie_le else None,
+                **contexte(note.inscription_id),
+            })
+        for d in (db.session.query(Discipline, Sequence.libelle)
+                  .join(Sequence, Discipline.sequence_id == Sequence.id)
+                  .filter(Discipline.inscription_id.in_(ids)).all()):
+            fiche, sequence = d
+            disciplines.append({
+                "id": fiche.id, "sequence": sequence,
+                "absences_justifiees": fiche.absences_justifiees,
+                "absences_non_justifiees": fiche.absences_non_justifiees,
+                "retards": fiche.retards, "exclusions": fiche.exclusions,
+                "observation": fiche.observation,
+                **contexte(fiche.inscription_id),
+            })
+        for p in (Paiement.query.filter(Paiement.inscription_id.in_(ids))
+                  .order_by(Paiement.date_paiement.desc(), Paiement.id.desc()).all()):
+            tranches = (
+                db.session.query(TrancheClasse.libelle, LignePaiement.montant_verse)
+                .join(LignePaiement, LignePaiement.tranche_classe_id == TrancheClasse.id)
+                .filter(LignePaiement.paiement_id == p.id).all()
+            )
+            paiements.append({
+                "id": p.id, "numero_recu": p.numero_recu, "statut": p.statut,
+                "mode_paiement": p.mode_paiement, "montant_total": _num(p.montant_total),
+                "date": p.date_paiement.isoformat() + "Z" if p.date_paiement else None,
+                "tranches": [{"libelle": lib, "montant": _num(m)} for lib, m in tranches],
+                **contexte(p.inscription_id),
+            })
+
+    return {
+        "eleve": {"id": eleve.id, "nom": eleve.nom, "prenom": eleve.prenom, "matricule": eleve.matricule},
+        "inscriptions": len(inscriptions),
+        "notes": notes,
+        "disciplines": disciplines,
+        "paiements": paiements,
+        "total_paye": sum(p["montant_total"] or 0 for p in paiements if p["statut"] == "VALIDE"),
+    }
+
+
+def _supprimer_eleve_en_cascade(eleve):
+    """Supprime lignes de paiement, paiements, notes, fiches de discipline,
+    inscriptions puis l'élève, en une seule transaction (rollback total en cas
+    d'échec). Retourne (résultat, statut)."""
+    try:
+        ids = [i.id for i in Inscription.query.filter_by(eleve_id=eleve.id).all()]
+        compte = {"notes": 0, "disciplines": 0, "paiements": 0, "inscriptions": len(ids)}
+        if ids:
+            for p in Paiement.query.filter(Paiement.inscription_id.in_(ids)).all():
+                for ligne in LignePaiement.query.filter_by(paiement_id=p.id).all():
+                    db.session.delete(ligne)
+                db.session.delete(p)
+                compte["paiements"] += 1
+            for n in Note.query.filter(Note.inscription_id.in_(ids)).all():
+                db.session.delete(n)
+                compte["notes"] += 1
+            for d in Discipline.query.filter(Discipline.inscription_id.in_(ids)).all():
+                db.session.delete(d)
+                compte["disciplines"] += 1
+            # Les enfants doivent partir AVANT les inscriptions (ordre des DELETE).
+            db.session.flush()
+            for i in Inscription.query.filter(Inscription.id.in_(ids)).all():
+                db.session.delete(i)
+            db.session.flush()
+        db.session.delete(eleve)
+        db.session.commit()
+        return {"message": "Élève et historique supprimés définitivement", "supprime": compte}, 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Échec de la suppression en cascade de l'élève %s", eleve.id)
+        return {"erreur": "Erreur lors de la suppression : rien n'a été supprimé."}, 500
+
+
+def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None, cascade=False):
     if get_etablissement_id_of(entity) != etablissement_id:
         return {"erreur": "Accès non autorisé à cette ressource"}, 403
     if (isinstance(entity, Inscription) and classe_ids_restriction is not None
@@ -402,6 +522,12 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
 
     photo = None
+    if isinstance(entity, Eleve) and cascade:
+        photo = entity.photo
+        result, status = _supprimer_eleve_en_cascade(entity)
+        if photo and status < 300:
+            delete_photo_file(etablissement_id, photo)
+        return result, status
     if isinstance(entity, Eleve):
         photo = entity.photo
         inscriptions = Inscription.query.filter_by(eleve_id=entity.id).all()

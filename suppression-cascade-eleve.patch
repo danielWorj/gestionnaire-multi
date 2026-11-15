@@ -1,0 +1,510 @@
+diff --git a/server/api/inscription_api.py b/server/api/inscription_api.py
+index 4dec310..cf2b0d4 100644
+--- a/server/api/inscription_api.py
++++ b/server/api/inscription_api.py
+@@ -5,6 +5,7 @@ from services.inscription_services import (
+     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
+     update_entity_scoped, delete_entity_scoped,
+     save_photo_eleve, delete_photo_eleve, photos_dir_of, chemin_photo_eleve,
++    historique_eleve, ROLES_SUPPRESSION_CASCADE,
+ )
+ from models.inscription_models import Parent, Eleve, Inscription
+ # Réutilisé pour inscription_bp ci-dessous (classe_scoped=True) : un
+@@ -141,7 +142,14 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
+         if not entity:
+             return jsonify({"erreur": f"{name} non trouvé"}), 404
+-        result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
++        cascade = model is Eleve and request.args.get("cascade", "").lower() in ("1", "true")
++        if cascade and get_jwt().get("role") not in ROLES_SUPPRESSION_CASCADE:
++            return jsonify({"erreur": "Seul un administrateur peut supprimer définitivement un élève "
++                                      "et tout son historique"}), 403
++        if cascade:
++            result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction(), cascade=True)
++        else:
++            result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
+         return jsonify(result), status
+ 
+     if model is Eleve:
+@@ -158,6 +166,18 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
+             etab_id = _current_etablissement_id()
+             return get_entity_scoped(Eleve, id, etab_id) if etab_id else None
+ 
++        @bp.route('/<int:id>/historique', methods=['GET'])
++        def get_historique(id):
++            # Journal notes / discipline / paiements montré avant une suppression
++            # définitive : réservé à ceux qui peuvent supprimer (pas le Comptable,
++            # que le garde-fou du blueprint laisse sinon lire en GET).
++            if get_jwt().get("role") not in roles_autorises:
++                return jsonify({"erreur": "Accès non autorisé"}), 403
++            eleve = _eleve_courant(id)
++            if not eleve:
++                return jsonify({"erreur": "eleve non trouvé"}), 404
++            return jsonify(historique_eleve(eleve)), 200
++
+         @bp.route('/<int:id>/photo', methods=['GET'])
+         def get_photo(id):
+             eleve = _eleve_courant(id)
+diff --git a/server/services/inscription_services.py b/server/services/inscription_services.py
+index 4bbe4bd..542da4a 100644
+--- a/server/services/inscription_services.py
++++ b/server/services/inscription_services.py
+@@ -1,10 +1,14 @@
+ import os
+ import uuid
+ 
++from flask import current_app
++
+ from models.inscription_models import Parent, Eleve, Inscription, STATUTS_INSCRIPTION
+ from models.structure_models import Classe, AnneeScolaire
+ from models.evaluation_models import Note, Discipline
+-from models.paiements_models import Paiement
++from models.paiements_models import Paiement, LignePaiement, TrancheClasse
++from models.pedagogie_models import Matiere, MatiereClasse
++from models.structure_models import Sequence
+ from extensions import db
+ 
+ # Les opérations CRUD "brutes" (create_entity, get_all_entities,
+@@ -342,11 +346,20 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
+ # étrangère NOT NULL, sans cascade) : supprimer à l'aveugle un élève ou une
+ # inscription qui en a provoquait une IntegrityError, donc un 500 muet. On
+ # vérifie donc d'abord ce qui est rattaché, et on répond par un 409 qui dit
+-# précisément quoi. Ces données (notes, reçus) ne sont jamais supprimées en
+-# cascade : elles servent de preuve (cf. journal d'audit) ; l'archivage passe
+-# par le statut (Eleve : « Inactif » ; Inscription : « Radié » / « Transféré »).
++# précisément quoi. Par défaut ces données ne sont pas supprimées : elles
++# servent de preuve ; l'archivage passe par le statut (Eleve : « Inactif » ;
++# Inscription : « Radié » / « Transféré »).
++#
++# Exception VOLONTAIRE et explicite : après ce 409, l'interface montre le
++# journal des notes et des paiements (historique_eleve) et propose une
++# suppression DÉFINITIVE (DELETE /eleves/<id>?cascade=1, Admin/SuperAdmin
++# uniquement) qui emporte lignes de paiement, paiements, notes, fiches de
++# discipline, inscriptions puis l'élève, dans UNE seule transaction (tout ou
++# rien). Les suppressions passent par l'ORM : le journal d'audit les trace.
+ # ---------------------------------------------------------------------------
+ 
++ROLES_SUPPRESSION_CASCADE = ("Admin", "SuperAdmin")
++
+ _LIBELLES_LIENS = (
+     ('notes', 'note', 'notes'),
+     ('disciplines', 'fiche de discipline', 'fiches de discipline'),
+@@ -394,7 +407,114 @@ def _suppression_refusee_inscription(liens):
+     }, 409
+ 
+ 
+-def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
++def _num(valeur):
++    return float(valeur) if valeur is not None else None
++
++
++def historique_eleve(eleve):
++    """Journal des notes, fiches de discipline et paiements de l'élève (toutes
++    ses inscriptions), pour la fenêtre de confirmation de suppression."""
++    inscriptions = Inscription.query.filter_by(eleve_id=eleve.id).all()
++    ids = [i.id for i in inscriptions]
++    par_id = {i.id: i for i in inscriptions}
++
++    def contexte(inscription_id):
++        i = par_id[inscription_id]
++        return {
++            "inscription_id": i.id,
++            "classe_id": i.classe_id,
++            "annee": i.annee_scolaire.libelle if i.annee_scolaire else None,
++        }
++
++    notes, disciplines, paiements = [], [], []
++    if ids:
++        lignes_notes = (
++            db.session.query(Note, Matiere.libelle, Sequence.libelle)
++            .join(MatiereClasse, Note.matiere_classe_id == MatiereClasse.id)
++            .join(Matiere, MatiereClasse.matiere_id == Matiere.id)
++            .join(Sequence, Note.sequence_id == Sequence.id)
++            .filter(Note.inscription_id.in_(ids))
++            .order_by(Note.saisie_le.desc(), Note.id.desc())
++            .all()
++        )
++        for note, matiere, sequence in lignes_notes:
++            notes.append({
++                "id": note.id, "matiere": matiere, "sequence": sequence,
++                "valeur": _num(note.valeur), "absent": bool(note.absent),
++                "date": note.saisie_le.isoformat() + "Z" if note.saisie_le else None,
++                **contexte(note.inscription_id),
++            })
++        for d in (db.session.query(Discipline, Sequence.libelle)
++                  .join(Sequence, Discipline.sequence_id == Sequence.id)
++                  .filter(Discipline.inscription_id.in_(ids)).all()):
++            fiche, sequence = d
++            disciplines.append({
++                "id": fiche.id, "sequence": sequence,
++                "absences_justifiees": fiche.absences_justifiees,
++                "absences_non_justifiees": fiche.absences_non_justifiees,
++                "retards": fiche.retards, "exclusions": fiche.exclusions,
++                "observation": fiche.observation,
++                **contexte(fiche.inscription_id),
++            })
++        for p in (Paiement.query.filter(Paiement.inscription_id.in_(ids))
++                  .order_by(Paiement.date_paiement.desc(), Paiement.id.desc()).all()):
++            tranches = (
++                db.session.query(TrancheClasse.libelle, LignePaiement.montant_verse)
++                .join(LignePaiement, LignePaiement.tranche_classe_id == TrancheClasse.id)
++                .filter(LignePaiement.paiement_id == p.id).all()
++            )
++            paiements.append({
++                "id": p.id, "numero_recu": p.numero_recu, "statut": p.statut,
++                "mode_paiement": p.mode_paiement, "montant_total": _num(p.montant_total),
++                "date": p.date_paiement.isoformat() + "Z" if p.date_paiement else None,
++                "tranches": [{"libelle": lib, "montant": _num(m)} for lib, m in tranches],
++                **contexte(p.inscription_id),
++            })
++
++    return {
++        "eleve": {"id": eleve.id, "nom": eleve.nom, "prenom": eleve.prenom, "matricule": eleve.matricule},
++        "inscriptions": len(inscriptions),
++        "notes": notes,
++        "disciplines": disciplines,
++        "paiements": paiements,
++        "total_paye": sum(p["montant_total"] or 0 for p in paiements if p["statut"] == "VALIDE"),
++    }
++
++
++def _supprimer_eleve_en_cascade(eleve):
++    """Supprime lignes de paiement, paiements, notes, fiches de discipline,
++    inscriptions puis l'élève, en une seule transaction (rollback total en cas
++    d'échec). Retourne (résultat, statut)."""
++    try:
++        ids = [i.id for i in Inscription.query.filter_by(eleve_id=eleve.id).all()]
++        compte = {"notes": 0, "disciplines": 0, "paiements": 0, "inscriptions": len(ids)}
++        if ids:
++            for p in Paiement.query.filter(Paiement.inscription_id.in_(ids)).all():
++                for ligne in LignePaiement.query.filter_by(paiement_id=p.id).all():
++                    db.session.delete(ligne)
++                db.session.delete(p)
++                compte["paiements"] += 1
++            for n in Note.query.filter(Note.inscription_id.in_(ids)).all():
++                db.session.delete(n)
++                compte["notes"] += 1
++            for d in Discipline.query.filter(Discipline.inscription_id.in_(ids)).all():
++                db.session.delete(d)
++                compte["disciplines"] += 1
++            # Les enfants doivent partir AVANT les inscriptions (ordre des DELETE).
++            db.session.flush()
++            for i in Inscription.query.filter(Inscription.id.in_(ids)).all():
++                db.session.delete(i)
++            db.session.flush()
++        db.session.delete(eleve)
++        db.session.commit()
++        return {"message": "Élève et historique supprimés définitivement", "supprime": compte}, 200
++    except Exception:
++        db.session.rollback()
++        current_app.logger.exception("Échec de la suppression en cascade de l'élève %s", eleve.id)
++        return {"erreur": "Erreur lors de la suppression : rien n'a été supprimé."}, 500
++
++
++def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None, cascade=False):
+     if get_etablissement_id_of(entity) != etablissement_id:
+         return {"erreur": "Accès non autorisé à cette ressource"}, 403
+     if (isinstance(entity, Inscription) and classe_ids_restriction is not None
+@@ -402,6 +522,12 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
+         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+ 
+     photo = None
++    if isinstance(entity, Eleve) and cascade:
++        photo = entity.photo
++        result, status = _supprimer_eleve_en_cascade(entity)
++        if photo and status < 300:
++            delete_photo_file(etablissement_id, photo)
++        return result, status
+     if isinstance(entity, Eleve):
+         photo = entity.photo
+         inscriptions = Inscription.query.filter_by(eleve_id=entity.id).all()
+diff --git a/server/tests/test_suppression_eleve.py b/server/tests/test_suppression_eleve.py
+index 5aa28fa..2e88c4f 100644
+--- a/server/tests/test_suppression_eleve.py
++++ b/server/tests/test_suppression_eleve.py
+@@ -94,3 +94,72 @@ def test_contrainte_de_cle_etrangere_donne_409_et_non_500(monde, connecter):
+     rep = admin.delete(f'/api/parents/{monde.parent_id}')
+     assert rep.status_code == 409, rep.get_json()
+     assert 'encore utilisé' in rep.get_json()['erreur']
++
++
++# ---------------------------------------------------------------------------
++# Suppression définitive en cascade (après le 409) + journal d'historique
++# ---------------------------------------------------------------------------
++
++def _ajouter_paiement_avec_ligne(monde):
++    from models.paiements_models import LignePaiement, TrancheClasse
++    p = Paiement(inscription_id=monde.inscription_id, parent_id=monde.parent_id,
++                 encaisse_par_id=monde.admin_compte['id'], numero_recu='R-0042',
++                 montant_total=5000, mode_paiement='ESPECES')
++    db.session.add(p)
++    db.session.flush()
++    insc = db.session.get(Inscription, monde.inscription_id)
++    tranche = TrancheClasse(classe_id=insc.classe_id, annee_scolaire_id=insc.annee_scolaire_id,
++                            libelle='Tranche 1', ordre=1, montant_attendu=5000)
++    db.session.add(tranche)
++    db.session.flush()
++    db.session.add(LignePaiement(paiement_id=p.id, tranche_classe_id=tranche.id, montant_verse=5000))
++    return p
++
++
++def test_historique_liste_notes_discipline_et_paiements(monde, connecter):
++    _ajouter_note(monde, 14)
++    _ajouter_discipline(monde)
++    _ajouter_paiement_avec_ligne(monde)
++    db.session.commit()
++    admin = connecter(monde.admin_compte)
++    rep = admin.get(f'/api/eleves/{monde.eleve_id}/historique')
++    data = rep.get_json()
++    assert rep.status_code == 200, data
++    assert data['inscriptions'] == 1
++    assert data['notes'][0]['matiere'] == 'Mathématiques' and data['notes'][0]['valeur'] == 14
++    assert len(data['disciplines']) == 1
++    assert data['paiements'][0]['numero_recu'] == 'R-0042' and data['total_paye'] == 5000
++    assert data['paiements'][0]['tranches'] == [{'libelle': 'Tranche 1', 'montant': 5000}]
++
++
++def test_suppression_cascade_supprime_tout(monde, connecter):
++    _ajouter_note(monde)
++    _ajouter_discipline(monde)
++    _ajouter_paiement_avec_ligne(monde)
++    db.session.commit()
++    admin = connecter(monde.admin_compte)
++    # Sans cascade : toujours refusé.
++    assert admin.delete(f'/api/eleves/{monde.eleve_id}').status_code == 409
++    rep = admin.delete(f'/api/eleves/{monde.eleve_id}?cascade=1')
++    assert rep.status_code == 200, rep.get_json()
++    assert rep.get_json()['supprime'] == {'notes': 1, 'disciplines': 1, 'paiements': 1, 'inscriptions': 1}
++    assert db.session.get(Eleve, monde.eleve_id) is None
++    assert Inscription.query.filter_by(eleve_id=monde.eleve_id).count() == 0
++    from models.paiements_models import LignePaiement
++    assert Note.query.count() == 0 and Discipline.query.count() == 0 and Paiement.query.count() == 0
++    assert LignePaiement.query.count() == 0
++
++
++def test_suppression_cascade_refusee_aux_non_admin(monde, connecter):
++    from models.authentification_models import Role
++    from services.authentification_services import create_utilisateur
++    _ajouter_note(monde)
++    role = Role.query.filter_by(libelle='Secretaire').first()
++    compte, status = create_utilisateur({'nom': 'Secr Test', 'role_ids': [role.id],
++                                         'etablissement_id': monde.etab_id})
++    assert status == 201, compte
++    secr = connecter(compte)
++    assert secr.get(f'/api/eleves/{monde.eleve_id}/historique').status_code == 200
++    rep = secr.delete(f'/api/eleves/{monde.eleve_id}?cascade=1')
++    assert rep.status_code == 403
++    assert db.session.get(Eleve, monde.eleve_id) is not None and Note.query.count() == 1
+diff --git a/web/src/components/SuppressionEleveModal.jsx b/web/src/components/SuppressionEleveModal.jsx
+new file mode 100644
+index 0000000..801123e
+--- /dev/null
++++ b/web/src/components/SuppressionEleveModal.jsx
+@@ -0,0 +1,118 @@
++import { useState } from 'react';
++import Modal from './Modal';
++import { formatDate, formatMontant } from './ui';
++
++// Fenêtre affichée après le refus « élève déjà lié à des notes / paiements » :
++// journal des notes et des paiements + bouton de suppression DÉFINITIVE
++// (notes, paiements, inscriptions, puis l'élève — en une seule transaction
++// côté serveur, DELETE /eleves/<id>?cascade=1, réservé à l'administrateur).
++export default function SuppressionEleveModal({ historique, message, peutSupprimer, enCours, onConfirm, onClose }) {
++  const [compris, setCompris] = useState(false);
++  const { eleve, notes, disciplines, paiements, total_paye: totalPaye } = historique;
++  const nom = `${eleve.prenom} ${eleve.nom}`;
++
++  return (
++    <Modal
++      title={`Supprimer ${nom} et tout son historique ?`}
++      subtitle={eleve.matricule ? `Matricule ${eleve.matricule}` : undefined}
++      onClose={enCours ? () => {} : onClose}
++      size="modal-lg modal-dialog-scrollable"
++      footer={(
++        <>
++          <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={enCours}>Annuler</button>
++          {peutSupprimer && (
++            <button type="button" className="btn btn-danger" disabled={!compris || enCours} onClick={onConfirm}>
++              <i className="bx bx-trash me-1" />{enCours ? 'Suppression…' : 'Supprimer définitivement'}
++            </button>
++          )}
++        </>
++      )}
++    >
++      {message && <div className="alert alert-warning py-2 small">{message}</div>}
++
++      <Section titre="Journal des notes" icone="bx-edit" vide="Aucune note." count={notes.length}>
++        <table className="table table-sm align-middle mb-0">
++          <thead><tr><th>Année</th><th>Séquence</th><th>Matière</th><th className="text-end">Note</th><th>Saisie</th></tr></thead>
++          <tbody>
++            {notes.map((n) => (
++              <tr key={n.id}>
++                <td>{n.annee || '—'}</td>
++                <td>{n.sequence}</td>
++                <td>{n.matiere}</td>
++                <td className="text-end">{n.absent ? <span className="badge bg-label-secondary">Absent</span> : (n.valeur ?? '—')}</td>
++                <td className="text-muted small">{formatDate(n.date)}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      </Section>
++
++      {disciplines.length > 0 && (
++        <Section titre="Fiches de discipline" icone="bx-shield-quarter" count={disciplines.length}>
++          <table className="table table-sm align-middle mb-0">
++            <thead><tr><th>Année</th><th>Séquence</th><th className="text-end">Abs. just.</th><th className="text-end">Abs. non just.</th><th className="text-end">Retards</th><th className="text-end">Excl.</th></tr></thead>
++            <tbody>
++              {disciplines.map((d) => (
++                <tr key={d.id}>
++                  <td>{d.annee || '—'}</td><td>{d.sequence}</td>
++                  <td className="text-end">{d.absences_justifiees}</td><td className="text-end">{d.absences_non_justifiees}</td>
++                  <td className="text-end">{d.retards}</td><td className="text-end">{d.exclusions}</td>
++                </tr>
++              ))}
++            </tbody>
++          </table>
++        </Section>
++      )}
++
++      <Section
++        titre="Journal des paiements"
++        icone="bx-wallet"
++        vide="Aucun paiement."
++        count={paiements.length}
++        extra={paiements.length > 0 ? `Total encaissé : ${formatMontant(totalPaye)}` : null}
++      >
++        <table className="table table-sm align-middle mb-0">
++          <thead><tr><th>Reçu</th><th>Date</th><th>Détail</th><th>Mode</th><th>Statut</th><th className="text-end">Montant</th></tr></thead>
++          <tbody>
++            {paiements.map((p) => (
++              <tr key={p.id}>
++                <td className="fw-semibold">{p.numero_recu}</td>
++                <td className="text-muted small">{formatDate(p.date)}</td>
++                <td className="small">{p.tranches.map((t) => t.libelle).join(', ') || '—'}</td>
++                <td className="small">{p.mode_paiement}</td>
++                <td><span className={`badge ${p.statut === 'VALIDE' ? 'bg-label-success' : 'bg-label-secondary'}`}>{p.statut}</span></td>
++                <td className="text-end">{formatMontant(p.montant_total)}</td>
++              </tr>
++            ))}
++          </tbody>
++        </table>
++      </Section>
++
++      <div className="alert alert-danger mt-3 mb-0 small">
++        <strong>Action irréversible.</strong> Seront supprimés pour toujours : {notes.length} note(s), {disciplines.length} fiche(s) de
++        discipline, {paiements.length} paiement(s) et leurs reçus, {historique.inscriptions} inscription(s), puis l'élève lui-même.
++        Pour garder cet historique, fermez cette fenêtre et passez plutôt son statut à « Inactif ».
++        {peutSupprimer ? (
++          <div className="form-check mt-2">
++            <input id="supp-eleve-compris" type="checkbox" className="form-check-input" checked={compris} disabled={enCours} onChange={(e) => setCompris(e.target.checked)} />
++            <label htmlFor="supp-eleve-compris" className="form-check-label">Je comprends que cette suppression est définitive.</label>
++          </div>
++        ) : (
++          <div className="mt-2 fw-semibold">Seul un administrateur peut effectuer cette suppression définitive.</div>
++        )}
++      </div>
++    </Modal>
++  );
++}
++
++function Section({ titre, icone, count, vide, extra, children }) {
++  return (
++    <div className="card mb-3">
++      <div className="card-header py-2 d-flex justify-content-between align-items-center">
++        <span className="fw-semibold"><i className={`bx ${icone} me-1`} />{titre} <span className="badge bg-label-primary ms-1">{count}</span></span>
++        {extra && <small className="text-muted">{extra}</small>}
++      </div>
++      {count === 0 ? <div className="card-body py-2 text-muted small">{vide}</div> : <div className="table-responsive" style={{ maxHeight: 220 }}>{children}</div>}
++    </div>
++  );
++}
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index d0a4164..62e2b5c 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -11,6 +11,7 @@ import {
+ } from '../components/ui';
+ import Select from '../components/Select';
+ import ImportElevesModal from '../components/ImportElevesModal';
++import SuppressionEleveModal from '../components/SuppressionEleveModal';
+ import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
+ 
+ // Portage de server/static/templates/eleve.html : répertoire des élèves
+@@ -47,7 +48,8 @@ function AvatarEleve({ e, taille = '' }) {
+ export default function ElevesPage() {
+   const toast = useToast();
+   const [confirm, confirmNode] = useConfirm();
+-  const { activeEtablissementId } = useAuth();
++  const { activeEtablissementId, user, isSuperAdmin } = useAuth();
++  const peutSupprimerDefinitivement = isSuperAdmin || user?.role?.libelle === 'Admin';
+ 
+   const [data, setData] = useState({ eleves: [], parents: [], inscriptions: [], classes: [], cycles: [], annees: [] });
+   const [loading, setLoading] = useState(true);
+@@ -60,6 +62,8 @@ export default function ElevesPage() {
+   const [formModal, setFormModal] = useState(null);
+   const [detail, setDetail] = useState(null);
+   const [importOuvert, setImportOuvert] = useState(false);
++  // Suppression définitive (notes/paiements inclus) : { eleve, historique, message, enCours }.
++  const [suppressionCascade, setSuppressionCascade] = useState(null);
+ 
+   const loadAll = useCallback(async () => {
+     setLoading(true);
+@@ -278,7 +282,7 @@ export default function ElevesPage() {
+   /* ── Actions ── */
+   const supprimer = async (e) => {
+     const ok = await confirm(
+-      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. La suppression est refusée s'il a déjà des notes, des fiches de discipline ou des paiements : dans ce cas, et pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
++      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. S'il a déjà des notes, des fiches de discipline ou des paiements, leur journal vous sera montré avant toute suppression définitive.</span></>,
+       { title: "Supprimer l'élève", confirmLabel: 'Supprimer' },
+     );
+     if (!ok) return;
+@@ -287,6 +291,31 @@ export default function ElevesPage() {
+       toast('Élève supprimé');
+       await loadAll();
+     } catch (err) {
++      if (err.status === 409 && err.payload?.code === 'eleve_lie') {
++        // Premier signalement : on montre le journal et on propose la suppression définitive.
++        try {
++          const historique = await api.get(`/eleves/${e.id}/historique`, { sansCopieLocale: true });
++          setSuppressionCascade({ eleve: e, historique, message: err.message, enCours: false });
++          return;
++        } catch (err2) {
++          toast(err2.message, 'error');
++          return;
++        }
++      }
++      toast(err.message, 'error');
++    }
++  };
++
++  const supprimerDefinitivement = async () => {
++    const { eleve } = suppressionCascade;
++    setSuppressionCascade((s) => ({ ...s, enCours: true }));
++    try {
++      await api.del(`/eleves/${eleve.id}?cascade=1`);
++      setSuppressionCascade(null);
++      toast(`${fullName(eleve)} et tout son historique ont été supprimés`);
++      await loadAll();
++    } catch (err) {
++      setSuppressionCascade((s) => (s ? { ...s, enCours: false } : s));
+       toast(err.message, 'error');
+     }
+   };
+@@ -485,6 +514,16 @@ export default function ElevesPage() {
+           <FicheEleve e={detail} parent={parentById[detail.parent_id]} inscriptions={inscriptions} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
+         </Modal>
+       )}
++      {suppressionCascade && (
++        <SuppressionEleveModal
++          historique={suppressionCascade.historique}
++          message={suppressionCascade.message}
++          peutSupprimer={peutSupprimerDefinitivement}
++          enCours={suppressionCascade.enCours}
++          onConfirm={supprimerDefinitivement}
++          onClose={() => setSuppressionCascade(null)}
++        />
++      )}
+       {confirmNode}
+     </>
+   );

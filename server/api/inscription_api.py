@@ -5,6 +5,7 @@ from services.inscription_services import (
     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
     update_entity_scoped, delete_entity_scoped,
     save_photo_eleve, delete_photo_eleve, photos_dir_of, chemin_photo_eleve,
+    historique_eleve, ROLES_SUPPRESSION_CASCADE,
 )
 from models.inscription_models import Parent, Eleve, Inscription
 # Réutilisé pour inscription_bp ci-dessous (classe_scoped=True) : un
@@ -141,7 +142,14 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
-        result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
+        cascade = model is Eleve and request.args.get("cascade", "").lower() in ("1", "true")
+        if cascade and get_jwt().get("role") not in ROLES_SUPPRESSION_CASCADE:
+            return jsonify({"erreur": "Seul un administrateur peut supprimer définitivement un élève "
+                                      "et tout son historique"}), 403
+        if cascade:
+            result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction(), cascade=True)
+        else:
+            result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
         return jsonify(result), status
 
     if model is Eleve:
@@ -157,6 +165,18 @@ def make_inscription_scoped_blueprint(name, model, url_prefix,
         def _eleve_courant(id):
             etab_id = _current_etablissement_id()
             return get_entity_scoped(Eleve, id, etab_id) if etab_id else None
+
+        @bp.route('/<int:id>/historique', methods=['GET'])
+        def get_historique(id):
+            # Journal notes / discipline / paiements montré avant une suppression
+            # définitive : réservé à ceux qui peuvent supprimer (pas le Comptable,
+            # que le garde-fou du blueprint laisse sinon lire en GET).
+            if get_jwt().get("role") not in roles_autorises:
+                return jsonify({"erreur": "Accès non autorisé"}), 403
+            eleve = _eleve_courant(id)
+            if not eleve:
+                return jsonify({"erreur": "eleve non trouvé"}), 404
+            return jsonify(historique_eleve(eleve)), 200
 
         @bp.route('/<int:id>/photo', methods=['GET'])
         def get_photo(id):

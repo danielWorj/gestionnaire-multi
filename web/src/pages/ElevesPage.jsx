@@ -11,6 +11,7 @@ import {
 } from '../components/ui';
 import Select from '../components/Select';
 import ImportElevesModal from '../components/ImportElevesModal';
+import SuppressionEleveModal from '../components/SuppressionEleveModal';
 import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
 
 // Portage de server/static/templates/eleve.html : répertoire des élèves
@@ -47,7 +48,8 @@ function AvatarEleve({ e, taille = '' }) {
 export default function ElevesPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
-  const { activeEtablissementId } = useAuth();
+  const { activeEtablissementId, user, isSuperAdmin } = useAuth();
+  const peutSupprimerDefinitivement = isSuperAdmin || user?.role?.libelle === 'Admin';
 
   const [data, setData] = useState({ eleves: [], parents: [], inscriptions: [], classes: [], cycles: [], annees: [] });
   const [loading, setLoading] = useState(true);
@@ -60,6 +62,8 @@ export default function ElevesPage() {
   const [formModal, setFormModal] = useState(null);
   const [detail, setDetail] = useState(null);
   const [importOuvert, setImportOuvert] = useState(false);
+  // Suppression définitive (notes/paiements inclus) : { eleve, historique, message, enCours }.
+  const [suppressionCascade, setSuppressionCascade] = useState(null);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -278,7 +282,7 @@ export default function ElevesPage() {
   /* ── Actions ── */
   const supprimer = async (e) => {
     const ok = await confirm(
-      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. La suppression est refusée s'il a déjà des notes, des fiches de discipline ou des paiements : dans ce cas, et pour conserver la trace de sa scolarité, passez plutôt son statut à « Inactif ».</span></>,
+      <>Vous êtes sur le point de supprimer <strong>{fullName(e)}</strong>.<br /><span className="text-muted">Ses inscriptions vides seront retirées avec lui. S'il a déjà des notes, des fiches de discipline ou des paiements, leur journal vous sera montré avant toute suppression définitive.</span></>,
       { title: "Supprimer l'élève", confirmLabel: 'Supprimer' },
     );
     if (!ok) return;
@@ -287,6 +291,31 @@ export default function ElevesPage() {
       toast('Élève supprimé');
       await loadAll();
     } catch (err) {
+      if (err.status === 409 && err.payload?.code === 'eleve_lie') {
+        // Premier signalement : on montre le journal et on propose la suppression définitive.
+        try {
+          const historique = await api.get(`/eleves/${e.id}/historique`, { sansCopieLocale: true });
+          setSuppressionCascade({ eleve: e, historique, message: err.message, enCours: false });
+          return;
+        } catch (err2) {
+          toast(err2.message, 'error');
+          return;
+        }
+      }
+      toast(err.message, 'error');
+    }
+  };
+
+  const supprimerDefinitivement = async () => {
+    const { eleve } = suppressionCascade;
+    setSuppressionCascade((s) => ({ ...s, enCours: true }));
+    try {
+      await api.del(`/eleves/${eleve.id}?cascade=1`);
+      setSuppressionCascade(null);
+      toast(`${fullName(eleve)} et tout son historique ont été supprimés`);
+      await loadAll();
+    } catch (err) {
+      setSuppressionCascade((s) => (s ? { ...s, enCours: false } : s));
       toast(err.message, 'error');
     }
   };
@@ -484,6 +513,16 @@ export default function ElevesPage() {
         >
           <FicheEleve e={detail} parent={parentById[detail.parent_id]} inscriptions={inscriptions} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
         </Modal>
+      )}
+      {suppressionCascade && (
+        <SuppressionEleveModal
+          historique={suppressionCascade.historique}
+          message={suppressionCascade.message}
+          peutSupprimer={peutSupprimerDefinitivement}
+          enCours={suppressionCascade.enCours}
+          onConfirm={supprimerDefinitivement}
+          onClose={() => setSuppressionCascade(null)}
+        />
       )}
       {confirmNode}
     </>
