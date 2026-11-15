@@ -66,7 +66,7 @@ export default function ListesClassesPage() {
       {contexte && (contexte.classes.length ? (
         <GenerateurListeClasse
           lignes={lignes} classes={contexte.classes} classeLabel={classeLabel} annees={contexte.annees_scolaires}
-          annee={annee} onAnneeChange={setAnnee} avecParents={contexte.avec_parents} etablissement={etablissement}
+          annee={annee} onAnneeChange={setAnnee} etablissement={etablissement}
           chargement={chargement}
         />
       ) : (

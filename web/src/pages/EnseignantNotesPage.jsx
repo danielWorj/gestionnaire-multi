@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import ChartCanvas from '../components/ChartCanvas';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
-import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, Pastilles, useMonEspace } from '../components/Espace';
+import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, nomClasse, Pastilles, useMonEspace } from '../components/Espace';
 import { useToast } from '../components/ui';
 import ImportModal from '../components/importConfigs';
 import { cleNote, useOperationsEnAttente } from '../lib/offline';
@@ -39,7 +39,7 @@ function ChoixMatiereClasse({ onChoisir }) {
   const items = (data.matieres_classe || []).map((mc) => ({
     key: mc.id,
     cycle: mc.cycle_libelle,
-    titre: mc.classe_label,
+    titre: nomClasse(mc.classe_option, mc.classe_label),
     sousTitre: `${mc.matiere_libelle} · coef. ${mc.coefficient}`,
     effectif: mc.effectif,
     avancement: sequence ? { saisies: mc.notes_saisies, attendues: mc.effectif, libelle: sequence.libelle } : null,
@@ -60,7 +60,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
   const classesDepuis = useCallback((payload) => {
     const map = new Map();
     (payload.matieres_classe || []).forEach((m) => {
-      if (!map.has(m.classe_id)) map.set(m.classe_id, { id: m.classe_id, label: m.classe_label || `Classe #${m.classe_id}`, effectif: m.effectif, cycle: m.cycle_libelle });
+      if (!map.has(m.classe_id)) map.set(m.classe_id, { id: m.classe_id, label: m.classe_label || `Classe #${m.classe_id}`, nom: nomClasse(m.classe_option, m.classe_label), effectif: m.effectif, cycle: m.cycle_libelle });
     });
     return [...map.values()];
   }, []);
@@ -159,7 +159,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
     <>
       <BarreClasse
         titre="Saisie des notes"
-        classe={classe?.label || '…'}
+        classe={classe?.nom || classe?.label || '…'}
         detail={mcActive ? `${mcActive.matiere_libelle} · coef. ${mcActive.coefficient}` : null}
         cycle={classe?.cycle}
         effectif={roster.length || classe?.effectif}

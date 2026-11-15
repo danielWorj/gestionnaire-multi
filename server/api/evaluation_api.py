@@ -425,7 +425,7 @@ ERREUR_PROFIL_NON_RELIE = {
 
 # ---------------------------------------------------------------------------
 # GET /api/enseignant/mon-espace
-# -> {matieres_classe: [{id, classe_id, classe_label, cycle_libelle, effectif,
+# -> {matieres_classe: [{id, classe_id, classe_label, classe_option, cycle_libelle, effectif,
 #                        matiere_id, matiere_libelle, coefficient,
 #                        notes_saisies}],
 #     annees_scolaires: [{id, libelle, active}],
@@ -477,6 +477,7 @@ def enseignant_mon_espace():
             "id": lien.id,
             "classe_id": lien.classe_id,
             "classe_label": _classe_label(classes.get(lien.classe_id)),
+            "classe_option": getattr(classes.get(lien.classe_id), "option", None),
             "cycle_libelle": _cycle_libelle(lien.classe_id),
             "effectif": effectifs.get(lien.classe_id, 0),
             "matiere_id": lien.matiere_id,
@@ -851,7 +852,7 @@ def _mes_classe_ids_censeur():
 
 # ---------------------------------------------------------------------------
 # GET /api/censeur/mon-espace
-# -> {classes: [{id, label, cycle_libelle, effectif, matieres_total,
+# -> {classes: [{id, label, option, cycle_libelle, effectif, matieres_total,
 #                matieres_completes, notes_saisies, notes_attendues}],
 #     matieres_classe: [{id, classe_id, matiere_id, matiere_libelle,
 #                        coefficient, enseignant_id, enseignant_nom,
@@ -941,6 +942,7 @@ def censeur_mon_espace():
         return {
             "id": classe.id,
             "label": _classe_label(classe),
+            "option": classe.option,
             "cycle_libelle": classe.cycle.libelle if classe.cycle else None,
             "effectif": effectif,
             "matieres_total": len(mcs),

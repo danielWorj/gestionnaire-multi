@@ -1,0 +1,324 @@
+diff --git a/server/api/evaluation_api.py b/server/api/evaluation_api.py
+index a05d7fa..04bafb8 100644
+--- a/server/api/evaluation_api.py
++++ b/server/api/evaluation_api.py
+@@ -425,7 +425,7 @@ ERREUR_PROFIL_NON_RELIE = {
+ 
+ # ---------------------------------------------------------------------------
+ # GET /api/enseignant/mon-espace
+-# -> {matieres_classe: [{id, classe_id, classe_label, cycle_libelle, effectif,
++# -> {matieres_classe: [{id, classe_id, classe_label, classe_option, cycle_libelle, effectif,
+ #                        matiere_id, matiere_libelle, coefficient,
+ #                        notes_saisies}],
+ #     annees_scolaires: [{id, libelle, active}],
+@@ -477,6 +477,7 @@ def enseignant_mon_espace():
+             "id": lien.id,
+             "classe_id": lien.classe_id,
+             "classe_label": _classe_label(classes.get(lien.classe_id)),
++            "classe_option": getattr(classes.get(lien.classe_id), "option", None),
+             "cycle_libelle": _cycle_libelle(lien.classe_id),
+             "effectif": effectifs.get(lien.classe_id, 0),
+             "matiere_id": lien.matiere_id,
+@@ -851,7 +852,7 @@ def _mes_classe_ids_censeur():
+ 
+ # ---------------------------------------------------------------------------
+ # GET /api/censeur/mon-espace
+-# -> {classes: [{id, label, cycle_libelle, effectif, matieres_total,
++# -> {classes: [{id, label, option, cycle_libelle, effectif, matieres_total,
+ #                matieres_completes, notes_saisies, notes_attendues}],
+ #     matieres_classe: [{id, classe_id, matiere_id, matiere_libelle,
+ #                        coefficient, enseignant_id, enseignant_nom,
+@@ -941,6 +942,7 @@ def censeur_mon_espace():
+         return {
+             "id": classe.id,
+             "label": _classe_label(classe),
++            "option": classe.option,
+             "cycle_libelle": classe.cycle.libelle if classe.cycle else None,
+             "effectif": effectif,
+             "matieres_total": len(mcs),
+diff --git a/web/src/components/Espace.jsx b/web/src/components/Espace.jsx
+index daec368..440ed78 100644
+--- a/web/src/components/Espace.jsx
++++ b/web/src/components/Espace.jsx
+@@ -112,15 +112,26 @@ export function Avancement({ saisies, attendues, libelle, compact = false }) {
+   );
+ }
+ 
++// ── Nom d'une classe ──────────────────────────────────────────────────────
++// Le nom affiché est l'option seule (« A »). Le cycle est une info secondaire.
++// Repli sur le libellé complet (« 6ème A ») si la classe n'a pas d'option.
++export function nomClasse(option, label) {
++  const o = typeof option === 'string' ? option.trim() : option;
++  return o || label || 'Classe';
++}
++
+ // ── Carte de classe ───────────────────────────────────────────────────────
++// Nom de la classe en premier (gras), cycle en petit dessous.
+ export function ClasseCard({ cycle, titre, sousTitre, effectif, avancement, extra, onClick, to }) {
+   const contenu = (
+     <>
+       <div className="esp-classe-tete">
+-        <span className="esp-classe-cycle">{cycle || 'Classe'}</span>
++        <div className="min-w-0">
++          <div className="esp-classe-nom">{titre}</div>
++          {cycle && cycle !== titre && <div className="esp-classe-cycle">{cycle}</div>}
++        </div>
+         <span className="esp-classe-effectif" title="Effectif"><i className="bx bx-group" />{effectif ?? 0}</span>
+       </div>
+-      <div className="esp-classe-nom">{titre}</div>
+       {sousTitre && <div className="esp-classe-sous">{sousTitre}</div>}
+       {extra && <div className="esp-classe-extra">{extra}</div>}
+       {avancement && <Avancement {...avancement} />}
+@@ -154,13 +165,13 @@ export function Pastilles({ options, value, onChange, ariaLabel }) {
+ 
+ // ── Grille de cartes de classes, regroupées par cycle ────────────────────
+ // items : [{ key, cycle, ...props de ClasseCard }]
+-export function ClassesGrille({ items, loading, vide, rechercheDes = 8 }) {
++export function ClassesGrille({ items, loading, vide }) {
+   const [cycle, setCycle] = useState('');
+   const [recherche, setRecherche] = useState('');
+   const cycles = useMemo(() => [...new Set(items.map((i) => i.cycle || 'Autres'))], [items]);
+ 
+   const filtres = items.filter((i) => (!cycle || (i.cycle || 'Autres') === cycle)
+-    && (!recherche.trim() || `${i.titre} ${i.sousTitre || ''}`.toLowerCase().includes(recherche.trim().toLowerCase())));
++    && (!recherche.trim() || `${i.titre} ${i.cycle || ''} ${i.sousTitre || ''}`.toLowerCase().includes(recherche.trim().toLowerCase())));
+   const groupes = cycles
+     .map((c) => ({ cycle: c, items: filtres.filter((i) => (i.cycle || 'Autres') === c) }))
+     .filter((g) => g.items.length);
+@@ -178,24 +189,20 @@ export function ClassesGrille({ items, loading, vide, rechercheDes = 8 }) {
+ 
+   return (
+     <>
+-      {(cycles.length > 1 || items.length > rechercheDes) && (
+-        <div className="esp-filtres">
+-          {items.length > rechercheDes && (
+-            <div className="esp-recherche">
+-              <i className="bx bx-search" />
+-              <input type="search" className="form-control" placeholder="Rechercher une classe…" value={recherche} onChange={(e) => setRecherche(e.target.value)} aria-label="Rechercher une classe" />
+-            </div>
+-          )}
+-          {cycles.length > 1 && (
+-            <Pastilles
+-              ariaLabel="Filtrer par cycle"
+-              value={cycle}
+-              onChange={setCycle}
+-              options={[{ value: '', label: 'Tous' }, ...cycles.map((c) => ({ value: c, label: c }))]}
+-            />
+-          )}
++      <div className="esp-filtres">
++        <div className="esp-recherche">
++          <i className="bx bx-search" />
++          <input type="search" className="form-control" placeholder="Rechercher une classe…" value={recherche} onChange={(e) => setRecherche(e.target.value)} aria-label="Rechercher une classe" />
+         </div>
+-      )}
++        {cycles.length > 1 && (
++          <Pastilles
++            ariaLabel="Filtrer par cycle"
++            value={cycle}
++            onChange={setCycle}
++            options={[{ value: '', label: 'Tous' }, ...cycles.map((c) => ({ value: c, label: c }))]}
++          />
++        )}
++      </div>
+       {!groupes.length && <div className="esp-vide"><i className="bx bx-filter-alt" /><p className="mb-0">Aucune classe ne correspond.</p></div>}
+       {groupes.map((g) => (
+         <section key={g.cycle} className="mb-4">
+@@ -226,7 +233,7 @@ export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true,
+     const items = classes.map((c) => ({
+       key: c.id,
+       cycle: c.cycle_libelle,
+-      titre: c.label,
++      titre: nomClasse(c.option, c.label),
+       effectif: c.effectif,
+       extra: c.matieres_total ? `${c.matieres_completes}/${c.matieres_total} matière${c.matieres_total > 1 ? 's' : ''} complète${c.matieres_total > 1 ? 's' : ''}` : 'Aucune matière affectée',
+       avancement: avecAvancement && sequence ? { saisies: c.notes_saisies, attendues: c.notes_attendues, libelle: sequence.libelle } : null,
+@@ -250,7 +257,7 @@ export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true,
+     <>
+       <BarreClasse
+         titre={titre}
+-        classe={classe ? classe.label : espace.loading ? '…' : `Classe #${classeId}`}
++        classe={classe ? nomClasse(classe.option, classe.label) : espace.loading ? '…' : `Classe #${classeId}`}
+         cycle={classe?.cycle_libelle}
+         effectif={classe?.effectif}
+         onChanger={() => setParams({})}
+@@ -271,10 +278,10 @@ export function BarreClasse({ titre, classe, cycle, effectif, detail, onChanger,
+         <div className="min-w-0">
+           <div className="esp-barre-classe-rubrique">{titre}</div>
+           <div className="esp-barre-classe-nom">{classe}</div>
++          {cycle && cycle !== classe && <div className="esp-barre-classe-cycle">{cycle}</div>}
+           {detail && <div className="esp-barre-classe-detail">{detail}</div>}
+         </div>
+         <div className="esp-barre-classe-meta">
+-          {cycle && <span className="badge bg-label-primary">{cycle}</span>}
+           {effectif != null && <span className="badge bg-label-secondary"><i className="bx bx-group me-1" />{effectif}</span>}
+         </div>
+       </div>
+diff --git a/web/src/components/espace.css b/web/src/components/espace.css
+index 8f4debd..7a77398 100644
+--- a/web/src/components/espace.css
++++ b/web/src/components/espace.css
+@@ -103,14 +103,11 @@
+ .esp-classe:hover { color: var(--esp-texte); transform: translateY(-2px); box-shadow: var(--esp-ombre-hover); border-color: rgba(105, 108, 255, 0.25); }
+ .esp-classe:active { transform: scale(0.985); }
+ .esp-classe:focus-visible { outline: 2px solid var(--esp-primary); outline-offset: 2px; }
+-.esp-classe-tete { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+-.esp-classe-cycle {
+-  font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+-  color: var(--esp-primary); background: rgba(105, 108, 255, 0.1); padding: 0.15rem 0.55rem; border-radius: 999px;
+-}
++.esp-classe-tete { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
++.esp-classe-cycle { font-size: 0.75rem; font-weight: 500; color: var(--esp-texte-doux); line-height: 1.2; margin-top: 0.15rem; }
+ .esp-classe-effectif { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--esp-texte-doux); }
+ .esp-classe-effectif .bx { font-size: 1.05rem; }
+-.esp-classe-nom { font-size: 1.3rem; font-weight: 700; line-height: 1.2; margin-top: 0.3rem; }
++.esp-classe-nom { font-size: 1.3rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
+ .esp-classe-sous { font-size: 0.9rem; color: var(--esp-texte); font-weight: 500; }
+ .esp-classe-extra { font-size: 0.8rem; color: var(--esp-texte-doux); }
+ .esp-classe-fleche { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: #c3c8d0; }
+@@ -169,6 +166,7 @@
+ }
+ .esp-barre-classe-rubrique { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--esp-texte-doux); font-weight: 600; }
+ .esp-barre-classe-nom { font-size: 1.15rem; font-weight: 700; color: var(--esp-texte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
++.esp-barre-classe-cycle { font-size: 0.75rem; font-weight: 500; color: var(--esp-texte-doux); line-height: 1.2; }
+ .esp-barre-classe-detail { font-weight: 500; color: var(--esp-texte-doux); font-size: 0.88rem; }
+ .esp-barre-classe-meta { display: flex; gap: 0.35rem; flex: 0 0 auto; }
+ 
+diff --git a/web/src/pages/EnseignantClassesPage.jsx b/web/src/pages/EnseignantClassesPage.jsx
+index 4d3ee35..180b809 100644
+--- a/web/src/pages/EnseignantClassesPage.jsx
++++ b/web/src/pages/EnseignantClassesPage.jsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useMemo, useState } from 'react';
+ import { Link, useSearchParams } from 'react-router-dom';
+ import { api } from '../lib/api';
+-import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
++import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, nomClasse, useMonEspace } from '../components/Espace';
+ import { EleveIdentite, filtrerRoster } from '../components/NotesCommun';
+ import { Field, FormFooter, useToast } from '../components/ui';
+ import Modal from '../components/Modal';
+@@ -87,19 +87,19 @@ export default function EnseignantClassesPage() {
+   const classes = useMemo(() => {
+     const map = new Map();
+     mcs.forEach((mc) => {
+-      const c = map.get(mc.classe_id) || { id: mc.classe_id, label: mc.classe_label, cycle: mc.cycle_libelle, effectif: mc.effectif, matieres: [], saisies: 0 };
++      const c = map.get(mc.classe_id) || { id: mc.classe_id, label: mc.classe_label, nom: nomClasse(mc.classe_option, mc.classe_label), cycle: mc.cycle_libelle, effectif: mc.effectif, matieres: [], saisies: 0 };
+       c.matieres.push(mc);
+       c.saisies += Math.min(mc.notes_saisies || 0, mc.effectif || 0);
+       map.set(mc.classe_id, c);
+     });
+-    return [...map.values()].sort((a, b) => (a.label || '').localeCompare(b.label || '', 'fr'));
++    return [...map.values()].sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { numeric: true }) || (a.cycle || '').localeCompare(b.cycle || '', 'fr', { numeric: true }));
+   }, [mcs]);
+ 
+   if (!classeId) {
+     const items = classes.map((c) => ({
+       key: c.id,
+       cycle: c.cycle,
+-      titre: c.label,
++      titre: c.nom,
+       sousTitre: c.matieres.map((m) => m.matiere_libelle).join(' · '),
+       effectif: c.effectif,
+       avancement: sequence ? { saisies: c.saisies, attendues: (c.effectif || 0) * c.matieres.length, libelle: sequence.libelle } : null,
+@@ -120,7 +120,7 @@ export default function EnseignantClassesPage() {
+     <>
+       <BarreClasse
+         titre="Mes classes"
+-        classe={classe?.label || (espace.loading ? '…' : `Classe #${classeId}`)}
++        classe={classe?.nom || (espace.loading ? '…' : `Classe #${classeId}`)}
+         cycle={classe?.cycle}
+         effectif={classe?.effectif}
+         onChanger={() => setParams({})}
+diff --git a/web/src/pages/EnseignantNotesPage.jsx b/web/src/pages/EnseignantNotesPage.jsx
+index 7986893..b20bcf3 100644
+--- a/web/src/pages/EnseignantNotesPage.jsx
++++ b/web/src/pages/EnseignantNotesPage.jsx
+@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { useSearchParams } from 'react-router-dom';
+ import ChartCanvas from '../components/ChartCanvas';
+ import { useEtablissementCourant } from '../components/EnteteEtablissement';
+-import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, Pastilles, useMonEspace } from '../components/Espace';
++import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, nomClasse, Pastilles, useMonEspace } from '../components/Espace';
+ import { useToast } from '../components/ui';
+ import ImportModal from '../components/importConfigs';
+ import { cleNote, useOperationsEnAttente } from '../lib/offline';
+@@ -39,7 +39,7 @@ function ChoixMatiereClasse({ onChoisir }) {
+   const items = (data.matieres_classe || []).map((mc) => ({
+     key: mc.id,
+     cycle: mc.cycle_libelle,
+-    titre: mc.classe_label,
++    titre: nomClasse(mc.classe_option, mc.classe_label),
+     sousTitre: `${mc.matiere_libelle} · coef. ${mc.coefficient}`,
+     effectif: mc.effectif,
+     avancement: sequence ? { saisies: mc.notes_saisies, attendues: mc.effectif, libelle: sequence.libelle } : null,
+@@ -60,7 +60,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
+   const classesDepuis = useCallback((payload) => {
+     const map = new Map();
+     (payload.matieres_classe || []).forEach((m) => {
+-      if (!map.has(m.classe_id)) map.set(m.classe_id, { id: m.classe_id, label: m.classe_label || `Classe #${m.classe_id}`, effectif: m.effectif, cycle: m.cycle_libelle });
++      if (!map.has(m.classe_id)) map.set(m.classe_id, { id: m.classe_id, label: m.classe_label || `Classe #${m.classe_id}`, nom: nomClasse(m.classe_option, m.classe_label), effectif: m.effectif, cycle: m.cycle_libelle });
+     });
+     return [...map.values()];
+   }, []);
+@@ -159,7 +159,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
+     <>
+       <BarreClasse
+         titre="Saisie des notes"
+-        classe={classe?.label || '…'}
++        classe={classe?.nom || classe?.label || '…'}
+         detail={mcActive ? `${mcActive.matiere_libelle} · coef. ${mcActive.coefficient}` : null}
+         cycle={classe?.cycle}
+         effectif={roster.length || classe?.effectif}
+diff --git a/web/src/pages/EnseignantsPage.jsx b/web/src/pages/EnseignantsPage.jsx
+index 46be3f1..4935a71 100644
+--- a/web/src/pages/EnseignantsPage.jsx
++++ b/web/src/pages/EnseignantsPage.jsx
+@@ -98,6 +98,13 @@ export default function EnseignantsPage() {
+ 
+   const labels = useMemo(() => ({
+     classe: (id) => classeLabel(classes.find((c) => c.id === id)) || `Classe #${id}`,
++    // Nom (option seule) + cycle, pour l'affichage « nom en gras, cycle discret ».
++    classeParts: (id) => {
++      const c = classes.find((x) => x.id === id);
++      const complet = classeLabel(c) || `Classe #${id}`;
++      const nom = (c?.option && String(c.option).trim()) || complet;
++      return { nom, cycle: c?.option ? (c.cycle_libelle || '') : '' };
++    },
+     annee: (id) => annees.find((a) => a.id === id)?.libelle || `Année #${id}`,
+     matiere: (id) => matieres.find((m) => m.id === id)?.libelle || `Matière #${id}`,
+     departement: (id) => (id ? departements.find((d) => d.id === id)?.libelle || `Département #${id}` : null),
+@@ -107,7 +114,7 @@ export default function EnseignantsPage() {
+   const matieresByEnseignant = useMemo(() => {
+     const map = {};
+     matieresClasse.forEach((mc) => {
+-      (map[mc.enseignant_id] ||= []).push({ matiere: labels.matiere(mc.matiere_id), classe: labels.classe(mc.classe_id), coefficient: mc.coefficient });
++      (map[mc.enseignant_id] ||= []).push({ matiere: labels.matiere(mc.matiere_id), classe: labels.classe(mc.classe_id), classeParts: labels.classeParts(mc.classe_id), coefficient: mc.coefficient });
+     });
+     return map;
+   }, [matieresClasse, labels]);
+@@ -115,7 +122,7 @@ export default function EnseignantsPage() {
+   const titulairesByEnseignant = useMemo(() => {
+     const map = {};
+     titulaires.forEach((tc) => {
+-      (map[tc.enseignant_id] ||= []).push({ classe: labels.classe(tc.classe_id), annee: labels.annee(tc.annee_scolaire_id) });
++      (map[tc.enseignant_id] ||= []).push({ classe: labels.classe(tc.classe_id), classeParts: labels.classeParts(tc.classe_id), annee: labels.annee(tc.annee_scolaire_id) });
+     });
+     return map;
+   }, [titulaires, labels]);
+@@ -812,7 +819,7 @@ function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
+       <h6 className="mb-2"><i className="bx bx-chalkboard me-1 text-primary" />Classe(s) titularisée(s)</h6>
+       <div className="mb-3">
+         {classesTitu.length
+-          ? classesTitu.map((c, i) => <span key={i} className="badge bg-label-primary me-1 mb-1">{c.classe} <span className="text-muted">({c.annee})</span></span>)
++          ? classesTitu.map((c, i) => <span key={i} className="badge bg-label-primary me-1 mb-1"><strong className="fs-6">{c.classeParts.nom}</strong>{c.classeParts.cycle && <small className="text-muted ms-1">{c.classeParts.cycle}</small>} <small className="text-muted">({c.annee})</small></span>)
+           : <span className="text-muted">Aucune classe titularisée</span>}
+       </div>
+       <h6 className="mb-2"><i className="bx bx-book-open me-1 text-primary" />Matières enseignées</h6>
+@@ -820,7 +827,7 @@ function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
+         <table className="table table-hover mb-0">
+           <thead><tr><th>Matière</th><th>Classe</th><th>Coefficient</th></tr></thead>
+           <TBody colSpan={3} rows={matieres.length} empty="Aucune matière affectée">
+-            {matieres.map((m, i) => <tr key={i}><td>{m.matiere}</td><td>{m.classe}</td><td>{m.coefficient ?? '—'}</td></tr>)}
++            {matieres.map((m, i) => <tr key={i}><td>{m.matiere}</td><td><strong>{m.classeParts.nom}</strong>{m.classeParts.cycle && <small className="text-muted d-block">{m.classeParts.cycle}</small>}</td><td>{m.coefficient ?? '—'}</td></tr>)}
+           </TBody>
+         </table>
+       </div>

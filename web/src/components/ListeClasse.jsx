@@ -8,12 +8,10 @@ import Select from './Select';
 // les profils. Une ligne = une inscription, au format de
 // GET /api/listes-classes/eleves : {id, classe_id, annee_scolaire_id,
 // date_inscription, statut, matricule, nom, prenom, sexe, date_naissance,
-// lieu_naissance, parent_nom?, parent_telephone?}.
+// lieu_naissance}.
 
 const COLONNES = [
   ['naissance', 'Date et lieu de naissance'],
-  ['parent', 'Parent et téléphone'],
-  ['date', "Date d'inscription"],
   ['statut', 'Statut'],
   ['emargement', "Colonne d'émargement"],
 ];
@@ -25,17 +23,17 @@ const fichier = (s) => String(s).replace(/[^\w-]/g, '_');
 /**
  * annees : [{id, libelle}] ; annee / onAnneeChange : année choisie (contrôlée
  * par la page, qui peut avoir à recharger les lignes) ; classes : [{id}]
- * accessibles ; classeLabel(classe) ; avecParents : colonne parent proposée.
+ * accessibles ; classeLabel(classe).
  */
 export default function GenerateurListeClasse({
-  lignes, classes, classeLabel, annees, annee, onAnneeChange, avecParents = true, etablissement, chargement = false,
+  lignes, classes, classeLabel, annees, annee, onAnneeChange, etablissement, chargement = false,
 }) {
   const toast = useToast();
   const apercuRef = useRef(null);
-  const colonnes = useMemo(() => COLONNES.filter(([v]) => avecParents || v !== 'parent'), [avecParents]);
+  const colonnes = COLONNES;
   const [liste, setListe] = useState({
     classe: '', mode: 'arret', debut: '', fin: iso(new Date()), statut: 'Actif', tri: 'nom',
-    colonnes: avecParents ? ['naissance', 'parent', 'date'] : ['naissance', 'date'],
+    colonnes: ['naissance'],
   });
   const [derniereListe, setDerniereListe] = useState(null);
 
@@ -75,7 +73,7 @@ export default function GenerateurListeClasse({
       .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])))
       .map((id) => ({ classeId: id, lignes: parClasse[id] }));
     const periode = mode === 'tout' ? "Toute l'année scolaire" : mode === 'arret' ? `Situation arrêtée au ${formatDate(fin)}` : `Inscriptions du ${formatDate(debut)} au ${formatDate(fin)}`;
-    const cols = liste.colonnes.filter((c) => avecParents || c !== 'parent');
+    const cols = liste.colonnes;
     setDerniereListe({ anneeId, classeId, sections, cols, periode, statut, total: choisies.length });
     setTimeout(() => apercuRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
     toast(choisies.length ? `${choisies.length} élève(s) dans ${sections.length} classe(s)` : 'Aucun élève ne correspond à ces critères', choisies.length ? undefined : 'error');
@@ -86,16 +84,12 @@ export default function GenerateurListeClasse({
     const { cols } = derniereListe;
     const head = ['Classe', 'N°', 'Matricule', 'Nom et prénoms', 'Sexe'];
     if (cols.includes('naissance')) head.push('Date de naissance', 'Lieu de naissance');
-    if (cols.includes('parent')) head.push('Parent', 'Téléphone');
-    if (cols.includes('date')) head.push("Date d'inscription");
     if (cols.includes('statut')) head.push('Statut');
     const rows = [head];
     derniereListe.sections.forEach((sec) => {
       sec.lignes.forEach((i, idx) => {
         const r = [classeLabel(classeById[sec.classeId]), idx + 1, i.matricule || '', eleveNom(i), i.sexe || ''];
         if (cols.includes('naissance')) r.push(i.date_naissance || '', i.lieu_naissance || '');
-        if (cols.includes('parent')) r.push(i.parent_nom || '', i.parent_telephone || '');
-        if (cols.includes('date')) r.push(i.date_inscription || '');
         if (cols.includes('statut')) r.push(i.statut || 'Actif');
         rows.push(r);
       });
@@ -185,8 +179,6 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
                 <tr>
                   <th className="num">N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th>
                   {cols.includes('naissance') && <><th>Né(e) le</th><th>À</th></>}
-                  {cols.includes('parent') && <><th>Parent</th><th>Téléphone</th></>}
-                  {cols.includes('date') && <th>Inscrit le</th>}
                   {cols.includes('statut') && <th>Statut</th>}
                   {cols.includes('emargement') && <th>Émargement</th>}
                 </tr>
@@ -199,8 +191,6 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
                     <td>{eleveNom(i)}</td>
                     <td>{i.sexe || '—'}</td>
                     {cols.includes('naissance') && <><td>{formatDate(i.date_naissance)}</td><td>{i.lieu_naissance || '—'}</td></>}
-                    {cols.includes('parent') && <><td>{i.parent_nom || '—'}</td><td>{i.parent_telephone || '—'}</td></>}
-                    {cols.includes('date') && <td>{formatDate(i.date_inscription)}</td>}
                     {cols.includes('statut') && <td>{i.statut || 'Actif'}</td>}
                     {cols.includes('emargement') && <td />}
                   </tr>

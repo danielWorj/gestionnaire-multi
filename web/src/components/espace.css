@@ -103,14 +103,11 @@
 .esp-classe:hover { color: var(--esp-texte); transform: translateY(-2px); box-shadow: var(--esp-ombre-hover); border-color: rgba(105, 108, 255, 0.25); }
 .esp-classe:active { transform: scale(0.985); }
 .esp-classe:focus-visible { outline: 2px solid var(--esp-primary); outline-offset: 2px; }
-.esp-classe-tete { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
-.esp-classe-cycle {
-  font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
-  color: var(--esp-primary); background: rgba(105, 108, 255, 0.1); padding: 0.15rem 0.55rem; border-radius: 999px;
-}
+.esp-classe-tete { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; }
+.esp-classe-cycle { font-size: 0.75rem; font-weight: 500; color: var(--esp-texte-doux); line-height: 1.2; margin-top: 0.15rem; }
 .esp-classe-effectif { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; color: var(--esp-texte-doux); }
 .esp-classe-effectif .bx { font-size: 1.05rem; }
-.esp-classe-nom { font-size: 1.3rem; font-weight: 700; line-height: 1.2; margin-top: 0.3rem; }
+.esp-classe-nom { font-size: 1.3rem; font-weight: 700; line-height: 1.2; overflow-wrap: anywhere; }
 .esp-classe-sous { font-size: 0.9rem; color: var(--esp-texte); font-weight: 500; }
 .esp-classe-extra { font-size: 0.8rem; color: var(--esp-texte-doux); }
 .esp-classe-fleche { position: absolute; right: 0.75rem; top: 50%; transform: translateY(-50%); font-size: 1.4rem; color: #c3c8d0; }
@@ -169,6 +166,7 @@
 }
 .esp-barre-classe-rubrique { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--esp-texte-doux); font-weight: 600; }
 .esp-barre-classe-nom { font-size: 1.15rem; font-weight: 700; color: var(--esp-texte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.esp-barre-classe-cycle { font-size: 0.75rem; font-weight: 500; color: var(--esp-texte-doux); line-height: 1.2; }
 .esp-barre-classe-detail { font-weight: 500; color: var(--esp-texte-doux); font-size: 0.88rem; }
 .esp-barre-classe-meta { display: flex; gap: 0.35rem; flex: 0 0 auto; }
 

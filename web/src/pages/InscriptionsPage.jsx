@@ -86,7 +86,6 @@ export default function InscriptionsPage() {
 
   const { inscriptions, eleves, parents, classes, cycles, annees } = data;
   const eleveById = useMemo(() => Object.fromEntries(eleves.map((e) => [e.id, e])), [eleves]);
-  const parentById = useMemo(() => Object.fromEntries(parents.map((p) => [p.id, p])), [parents]);
   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
   const classeLabel = useCallback((c) => (c ? baseClasseLabel(c, cycles, ' · ') : '—'), [cycles]);
   const anneeLabel = useCallback((id) => annees.find((a) => a.id === Number(id))?.libelle || (id ? `Année #${id}` : '—'), [annees]);
@@ -345,14 +344,12 @@ export default function InscriptionsPage() {
   /* ── Listes de classe : lignes au format de GET /api/listes-classes/eleves ── */
   const lignesListe = useMemo(() => inscriptions.map((i) => {
     const e = eleveById[i.eleve_id] || {};
-    const p = parentById[e.parent_id];
     return {
       id: i.id, classe_id: i.classe_id, annee_scolaire_id: i.annee_scolaire_id, date_inscription: i.date_inscription,
       statut: i.statut || 'Actif', eleve_id: i.eleve_id, matricule: e.matricule, nom: e.nom, prenom: e.prenom, sexe: e.sexe,
       date_naissance: e.date_naissance, lieu_naissance: e.lieu_naissance,
-      parent_nom: p ? `${p.nom} ${p.prenom}` : null, parent_telephone: p ? p.telephone : null,
     };
-  }), [inscriptions, eleveById, parentById]);
+  }), [inscriptions, eleveById]);
 
   /* ── Actions ── */
   const supprimer = async (i) => {
@@ -375,11 +372,10 @@ export default function InscriptionsPage() {
   };
 
   const exportCsv = () => {
-    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Classe', 'Année', "Date d'inscription", 'Statut', 'Parent', 'Téléphone']];
+    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Classe', 'Année', 'Statut']];
     filtered.forEach((i) => {
       const e = eleveById[i.eleve_id] || {};
-      const p = parentById[e.parent_id];
-      rows.push([e.matricule || '', e.nom || '', e.prenom || '', e.sexe || '', classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id), i.date_inscription || '', i.statut || 'Actif', p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
+      rows.push([e.matricule || '', e.nom || '', e.prenom || '', e.sexe || '', classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id), i.statut || 'Actif']);
     });
     downloadCsv('inscriptions.csv', rows);
     toast(`${rows.length - 1} inscription(s) exportée(s)`);
@@ -525,12 +521,11 @@ export default function InscriptionsPage() {
               <th>Matricule</th>
               <SortTh sortKey="classe" sort={sort} setSort={setSort}>Classe</SortTh>
               <th>Année</th>
-              <SortTh sortKey="date" sort={sort} setSort={setSort}>Inscrit le</SortTh>
               <th>Statut</th>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={7} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
+          <TBody colSpan={6} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
             {pagination.slice.map((i) => {
               const e = eleveById[i.eleve_id];
               return (
@@ -542,7 +537,6 @@ export default function InscriptionsPage() {
                   <td><code className="small">{e ? e.matricule : '—'}</code></td>
                   <td><span className="badge bg-label-primary">{classeLabel(classeById[i.classe_id])}</span></td>
                   <td>{anneeLabel(i.annee_scolaire_id)}</td>
-                  <td>{formatDate(i.date_inscription)}</td>
                   <td><StatutBadge statut={i.statut} /></td>
                   <td className="text-end text-nowrap">
                     <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: i })} />

@@ -98,6 +98,13 @@ export default function EnseignantsPage() {
 
   const labels = useMemo(() => ({
     classe: (id) => classeLabel(classes.find((c) => c.id === id)) || `Classe #${id}`,
+    // Nom (option seule) + cycle, pour l'affichage « nom en gras, cycle discret ».
+    classeParts: (id) => {
+      const c = classes.find((x) => x.id === id);
+      const complet = classeLabel(c) || `Classe #${id}`;
+      const nom = (c?.option && String(c.option).trim()) || complet;
+      return { nom, cycle: c?.option ? (c.cycle_libelle || '') : '' };
+    },
     annee: (id) => annees.find((a) => a.id === id)?.libelle || `Année #${id}`,
     matiere: (id) => matieres.find((m) => m.id === id)?.libelle || `Matière #${id}`,
     departement: (id) => (id ? departements.find((d) => d.id === id)?.libelle || `Département #${id}` : null),
@@ -107,7 +114,7 @@ export default function EnseignantsPage() {
   const matieresByEnseignant = useMemo(() => {
     const map = {};
     matieresClasse.forEach((mc) => {
-      (map[mc.enseignant_id] ||= []).push({ matiere: labels.matiere(mc.matiere_id), classe: labels.classe(mc.classe_id), coefficient: mc.coefficient });
+      (map[mc.enseignant_id] ||= []).push({ matiere: labels.matiere(mc.matiere_id), classe: labels.classe(mc.classe_id), classeParts: labels.classeParts(mc.classe_id), coefficient: mc.coefficient });
     });
     return map;
   }, [matieresClasse, labels]);
@@ -115,7 +122,7 @@ export default function EnseignantsPage() {
   const titulairesByEnseignant = useMemo(() => {
     const map = {};
     titulaires.forEach((tc) => {
-      (map[tc.enseignant_id] ||= []).push({ classe: labels.classe(tc.classe_id), annee: labels.annee(tc.annee_scolaire_id) });
+      (map[tc.enseignant_id] ||= []).push({ classe: labels.classe(tc.classe_id), classeParts: labels.classeParts(tc.classe_id), annee: labels.annee(tc.annee_scolaire_id) });
     });
     return map;
   }, [titulaires, labels]);
@@ -812,7 +819,7 @@ function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
       <h6 className="mb-2"><i className="bx bx-chalkboard me-1 text-primary" />Classe(s) titularisée(s)</h6>
       <div className="mb-3">
         {classesTitu.length
-          ? classesTitu.map((c, i) => <span key={i} className="badge bg-label-primary me-1 mb-1">{c.classe} <span className="text-muted">({c.annee})</span></span>)
+          ? classesTitu.map((c, i) => <span key={i} className="badge bg-label-primary me-1 mb-1"><strong className="fs-6">{c.classeParts.nom}</strong>{c.classeParts.cycle && <small className="text-muted ms-1">{c.classeParts.cycle}</small>} <small className="text-muted">({c.annee})</small></span>)
           : <span className="text-muted">Aucune classe titularisée</span>}
       </div>
       <h6 className="mb-2"><i className="bx bx-book-open me-1 text-primary" />Matières enseignées</h6>
@@ -820,7 +827,7 @@ function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
         <table className="table table-hover mb-0">
           <thead><tr><th>Matière</th><th>Classe</th><th>Coefficient</th></tr></thead>
           <TBody colSpan={3} rows={matieres.length} empty="Aucune matière affectée">
-            {matieres.map((m, i) => <tr key={i}><td>{m.matiere}</td><td>{m.classe}</td><td>{m.coefficient ?? '—'}</td></tr>)}
+            {matieres.map((m, i) => <tr key={i}><td>{m.matiere}</td><td><strong>{m.classeParts.nom}</strong>{m.classeParts.cycle && <small className="text-muted d-block">{m.classeParts.cycle}</small>}</td><td>{m.coefficient ?? '—'}</td></tr>)}
           </TBody>
         </table>
       </div>

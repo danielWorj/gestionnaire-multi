@@ -13,6 +13,9 @@ import Select from '../components/Select';
 import ImportElevesModal from '../components/ImportElevesModal';
 import SuppressionEleveModal from '../components/SuppressionEleveModal';
 import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
+import { useEtablissementCourant } from '../components/EnteteEtablissement';
+import { ecrireImpression, ouvrirFenetreImpression } from '../lib/paiementsImpression';
+import { construireHtmlListeEleves } from '../lib/listeElevesImpression';
 
 // Portage de server/static/templates/eleve.html : répertoire des élèves
 // (inscription_api.py) avec filtres, analyses, fiche et formulaire
@@ -49,6 +52,7 @@ export default function ElevesPage() {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
   const { activeEtablissementId, user, isSuperAdmin } = useAuth();
+  const etablissement = useEtablissementCourant();
   const peutSupprimerDefinitivement = isSuperAdmin || user?.role?.libelle === 'Admin';
 
   const [data, setData] = useState({ eleves: [], parents: [], inscriptions: [], classes: [], cycles: [], annees: [] });
@@ -321,13 +325,40 @@ export default function ElevesPage() {
   };
 
   const exportCsv = () => {
-    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut', 'Parent', 'Téléphone parent']];
+    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut']];
     filtered.forEach((e) => {
       const insc = inscriptionDe(e.id, annee);
-      const p = parentById[e.parent_id];
-      rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, insc ? classeLabel(classeById[insc.classe_id]) : '', e.statut || 'Actif', p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
+      rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, insc ? classeLabel(classeById[insc.classe_id]) : '', e.statut || 'Actif']);
     });
     downloadCsv(`eleves-${(anneeLabel(annee) || 'tous').replace(/[^\w-]/g, '_')}.csv`, rows);
+    toast(`${rows.length - 1} élève(s) exporté(s)`);
+  };
+
+  /* ── Liste de la classe sélectionnée (impression / PDF / CSV) ── */
+  const classeChoisie = filters.classe ? classeById[filters.classe] : null;
+
+  const imprimerListeClasse = () => {
+    if (!classeChoisie) return;
+    // La fenêtre doit s'ouvrir pendant le clic, sinon le navigateur la bloque.
+    const fenetre = ouvrirFenetreImpression();
+    if (!fenetre) { toast('Autorisez les fenêtres pop-up pour imprimer la liste.', 'error'); return; }
+    ecrireImpression(fenetre, construireHtmlListeEleves({
+      eleves: filtered.map((e) => ({ ...e, parent: parentById[e.parent_id] })),
+      classeNom: classeLabel(classeChoisie),
+      anneeNom: anneeLabel(annee),
+      etablissement,
+    }));
+  };
+
+  const telechargerListeClasse = () => {
+    if (!classeChoisie) return;
+    const rows = [['N°', 'Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Parent', 'Téléphone parent']];
+    filtered.forEach((e, idx) => {
+      const p = parentById[e.parent_id];
+      rows.push([idx + 1, e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
+    });
+    const nomFichier = `liste-${classeLabel(classeChoisie)}-${anneeLabel(annee)}`.replace(/[^\w-]/g, '_');
+    downloadCsv(`${nomFichier}.csv`, rows);
     toast(`${rows.length - 1} élève(s) exporté(s)`);
   };
 
@@ -436,6 +467,17 @@ export default function ElevesPage() {
             <div className="col-md-2"><button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => { setFilters(EMPTY_FILTERS); pagination.reset(); }}><i className="bx bx-reset me-1" /> Réinitialiser</button></div>
           </div>
           <FilterChips chips={chips} onClear={(key) => { setFilters((f) => ({ ...f, [key]: '' })); pagination.reset(); }} />
+          <div className="d-flex flex-wrap align-items-center gap-2 border-top mt-3 pt-3">
+            {classeChoisie ? (
+              <>
+                <span className="me-auto"><i className="bx bx-printer me-1 text-primary" /> Liste de <strong>{classeLabel(classeChoisie)}</strong> · {filtered.length} élève{filtered.length > 1 ? 's' : ''}</span>
+                <button type="button" className="btn btn-primary btn-sm" disabled={loading || !filtered.length} onClick={imprimerListeClasse}><i className="bx bx-printer me-1" /> Imprimer / PDF</button>
+                <button type="button" className="btn btn-outline-secondary btn-sm" disabled={loading || !filtered.length} onClick={telechargerListeClasse}><i className="bx bx-download me-1" /> Télécharger (CSV)</button>
+              </>
+            ) : (
+              <small className="text-muted"><i className="bx bx-info-circle me-1" /> Choisissez une classe dans les filtres pour imprimer ou télécharger sa liste d'élèves.</small>
+            )}
+          </div>
         </div>
       </div>
 
@@ -449,16 +491,14 @@ export default function ElevesPage() {
               <th>Sexe</th>
               <SortTh sortKey="age" sort={sort} setSort={setSort}>Âge</SortTh>
               <th>Classe</th>
-              <th>Parent</th>
               <th>Statut</th>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={8} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
+          <TBody colSpan={7} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
             {pagination.slice.map((e) => {
               const insc = inscriptionDe(e.id, annee);
               const cls = insc ? classeById[insc.classe_id] : null;
-              const p = parentById[e.parent_id];
               const a = age(e.date_naissance);
               return (
                 <tr key={e.id}>
@@ -472,7 +512,6 @@ export default function ElevesPage() {
                   <td>{e.sexe === 'M' ? 'Garçon' : e.sexe === 'F' ? 'Fille' : '—'}</td>
                   <td>{a == null ? <span className="text-muted">—</span> : `${a} ans`}</td>
                   <td>{cls ? <span className="badge bg-label-primary">{classeLabel(cls)}</span> : <span className="badge bg-label-secondary">Non inscrit</span>}</td>
-                  <td>{p ? <><div className="fw-semibold">{p.nom} {p.prenom}</div><small className="text-muted">{p.telephone}</small></> : <span className="text-danger">Aucun</span>}</td>
                   <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
                   <td className="text-end text-nowrap">
                     <IconBtn icon="bx-show" title="Voir la fiche" onClick={() => setDetail(e)} />

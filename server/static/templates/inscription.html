@@ -377,8 +377,6 @@
               <label class="form-label" for="lColonnes">Colonnes supplémentaires</label>
               <select class="form-select form-select-sm" id="lColonnes" multiple size="3">
                 <option value="naissance" selected>Date et lieu de naissance</option>
-                <option value="parent" selected>Parent et téléphone</option>
-                <option value="date" selected>Date d'inscription</option>
                 <option value="statut">Statut</option>
                 <option value="emargement">Colonne d'émargement</option>
               </select>
@@ -488,13 +486,12 @@
                   <th>Matricule</th>
                   <th data-sort="classe" role="button">Classe <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
                   <th>Année</th>
-                  <th data-sort="date" role="button">Inscrit le <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
                   <th>Statut</th>
                   <th class="text-end">Actions</th>
                 </tr>
               </thead>
               <tbody id="tableBody">
-                <tr><td colspan="7" class="text-center text-muted py-5">
+                <tr><td colspan="6" class="text-center text-muted py-5">
                   <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
                 </td></tr>
               </tbody>
@@ -790,7 +787,7 @@
 
   /* ═══════════════ CHARGEMENT ═══════════════ */
   async function loadAll() {
-    $("tableBody").innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">' +
+    $("tableBody").innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5">' +
       '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
     try {
       const [rI, rE, rP, rC, rCy, rA] = await Promise.all([
@@ -817,7 +814,7 @@
       renderTable();
       renderVisibleCharts();
     } catch (e) {
-      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
         '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
         '<div class="empty-state-title">Les inscriptions n\'ont pas pu être chargées</div>' +
         '<div>' + esc(e.message) + '</div></div></td></tr>';
@@ -1025,7 +1022,7 @@
     $("badgeCount").textContent = list.length;
 
     if (!list.length) {
-      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
         '<i class="fa-solid fa-clipboard-list"></i>' +
         '<div class="empty-state-title">Aucune inscription ne correspond à ces filtres</div>' +
         '<div>Changez d\'année scolaire, élargissez la période, ou inscrivez un élève.</div></div></td></tr>';
@@ -1038,7 +1035,6 @@
           '<td><code style="font-size:11px;">' + esc(e ? e.matricule : "—") + '</code></td>' +
           '<td><span class="badge badge-primary">' + esc(classeLabel(classeById[i.classe_id])) + '</span></td>' +
           '<td>' + esc(anneeLabel(i.annee_scolaire_id)) + '</td>' +
-          '<td>' + dateFr(i.date_inscription) + '</td>' +
           '<td>' + statutBadge(i.statut) + '</td>' +
           '<td class="text-end text-nowrap">' +
             '<button class="btn btn-light btn-sm" data-act="edit" data-id="' + i.id + '" title="Modifier"><i class="fa-solid fa-pen"></i></button> ' +
@@ -1396,8 +1392,6 @@
 
     const th = ['<th class="num">N°</th>', "<th>Matricule</th>", "<th>Nom et prénoms</th>", "<th>Sexe</th>"];
     if (cols.includes("naissance")) th.push("<th>Né(e) le</th>", "<th>À</th>");
-    if (cols.includes("parent")) th.push("<th>Parent</th>", "<th>Téléphone</th>");
-    if (cols.includes("date")) th.push("<th>Inscrit le</th>");
     if (cols.includes("statut")) th.push("<th>Statut</th>");
     if (cols.includes("emargement")) th.push("<th>Émargement</th>");
 
@@ -1408,14 +1402,11 @@
 
       const rows = sec.lignes.map((i, idx) => {
         const e = eleveById[i.eleve_id] || {};
-        const p = parentById[e.parent_id];
         const td = ['<td class="num">' + (idx + 1) + "</td>",
           "<td>" + esc(e.matricule || "—") + "</td>",
           "<td>" + esc(eleveNom(e)) + "</td>",
           "<td>" + esc(e.sexe || "—") + "</td>"];
         if (cols.includes("naissance")) td.push("<td>" + dateFr(e.date_naissance) + "</td>", "<td>" + esc(e.lieu_naissance || "—") + "</td>");
-        if (cols.includes("parent")) td.push("<td>" + esc(p ? p.nom + " " + p.prenom : "—") + "</td>", "<td>" + esc(p && p.telephone ? p.telephone : "—") + "</td>");
-        if (cols.includes("date")) td.push("<td>" + dateFr(i.date_inscription) + "</td>");
         if (cols.includes("statut")) td.push("<td>" + esc(i.statut || "Actif") + "</td>");
         if (cols.includes("emargement")) td.push("<td></td>");
         return "<tr>" + td.join("") + "</tr>";
@@ -1456,19 +1447,14 @@
     const L = derniereListe, cols = L.cols;
     const head = ["Classe", "N°", "Matricule", "Nom et prénoms", "Sexe"];
     if (cols.includes("naissance")) head.push("Date de naissance", "Lieu de naissance");
-    if (cols.includes("parent")) head.push("Parent", "Téléphone");
-    if (cols.includes("date")) head.push("Date d'inscription");
     if (cols.includes("statut")) head.push("Statut");
     const rows = [head];
 
     L.sections.forEach((sec) => {
       sec.lignes.forEach((i, idx) => {
         const e = eleveById[i.eleve_id] || {};
-        const p = parentById[e.parent_id];
         const r = [classeLabel(classeById[sec.classeId]), idx + 1, e.matricule || "", eleveNom(e), e.sexe || ""];
         if (cols.includes("naissance")) r.push(e.date_naissance || "", e.lieu_naissance || "");
-        if (cols.includes("parent")) r.push(p ? p.nom + " " + p.prenom : "", p ? p.telephone : "");
-        if (cols.includes("date")) r.push(i.date_inscription || "");
         if (cols.includes("statut")) r.push(i.statut || "Actif");
         rows.push(r);
       });
@@ -1661,14 +1647,12 @@
   }
 
   function exportCsv() {
-    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année", "Date d'inscription", "Statut", "Parent", "Téléphone"]];
+    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année", "Statut"]];
     sorted(filtered()).forEach((i) => {
       const e = eleveById[i.eleve_id] || {};
-      const p = parentById[e.parent_id];
       rows.push([e.matricule || "", e.nom || "", e.prenom || "", e.sexe || "",
         classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id),
-        i.date_inscription || "", i.statut || "Actif",
-        p ? p.nom + " " + p.prenom : "", p ? p.telephone : ""]);
+        i.statut || "Actif"]);
     });
     downloadCsv("inscriptions.csv", rows);
     toast(rows.length - 1 + " inscription(s) exportée(s)");

@@ -1,0 +1,401 @@
+diff --git a/server/static/templates/eleve.html b/server/static/templates/eleve.html
+index 4d60a4c..28b294c 100644
+--- a/server/static/templates/eleve.html
++++ b/server/static/templates/eleve.html
+@@ -276,13 +276,12 @@
+                   <th>Sexe</th>
+                   <th data-sort="age" role="button">Âge</th>
+                   <th>Classe</th>
+-                  <th>Parent</th>
+                   <th>Statut</th>
+                   <th class="text-end">Actions</th>
+                 </tr>
+               </thead>
+               <tbody id="tableBody">
+-                <tr><td colspan="8" class="text-center text-muted py-5">
++                <tr><td colspan="7" class="text-center text-muted py-5">
+                   <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
+                 </td></tr>
+               </tbody>
+@@ -586,7 +585,7 @@
+      CHARGEMENT
+   ═══════════════════════════════════════════ */
+   async function loadAll() {
+-    $("tableBody").innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5">' +
++    $("tableBody").innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">' +
+       '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
+     try {
+       const [rEleves, rParents, rInscr, rClasses, rCycles, rAnnees] = await Promise.all([
+@@ -607,7 +606,7 @@
+       renderTable();
+       renderVisibleCharts();
+     } catch (e) {
+-      $("tableBody").innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
++      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+         '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
+         '<div class="empty-state-title">Les élèves n\'ont pas pu être chargés</div>' +
+         '<div>' + esc(e.message) + '</div></div></td></tr>';
+@@ -779,7 +778,7 @@
+     $("badgeCount").textContent = list.length;
+ 
+     if (!list.length) {
+-      $("tableBody").innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
++      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
+         '<i class="fa-solid fa-user-group"></i>' +
+         '<div class="empty-state-title">Aucun élève ne correspond à ces filtres</div>' +
+         '<div>Élargissez la recherche ou ajoutez un élève.</div></div></td></tr>';
+@@ -801,9 +800,6 @@
+           '<td>' + (cls
+             ? '<span class="badge badge-primary">' + esc(classeLabel(cls)) + '</span>'
+             : '<span class="badge badge-neutral">Non inscrit</span>') + '</td>' +
+-          '<td>' + (p
+-            ? '<div class="cell-primary">' + esc((p.nom || "") + " " + (p.prenom || "")) + '</div><div class="cell-sub">' + esc(p.telephone || "") + '</div>'
+-            : '<span class="text-danger">Aucun</span>') + '</td>' +
+           '<td><span class="badge ' + ((e.statut || "Actif") === "Actif" ? "badge-success" : "badge-neutral") + '">' + esc(e.statut || "Actif") + '</span></td>' +
+           '<td class="text-end text-nowrap">' +
+             '<button class="btn btn-light btn-sm" data-act="view" data-id="' + e.id + '" title="Voir la fiche"><i class="fa-solid fa-eye"></i></button> ' +
+@@ -1163,13 +1159,11 @@
+ 
+   function exportCsv() {
+     const anneeId = Number($("fAnnee").value) || null;
+-    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Date de naissance", "Lieu de naissance", "Classe", "Statut", "Parent", "Téléphone parent"]];
++    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Date de naissance", "Lieu de naissance", "Classe", "Statut"]];
+     sorted(filtered()).forEach((e) => {
+       const insc = inscriptionDe(e.id, anneeId);
+-      const p = parentById[e.parent_id];
+       rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || "", e.lieu_naissance,
+-        insc ? classeLabel(classeById[insc.classe_id]) : "", e.statut || "Actif",
+-        p ? p.nom + " " + p.prenom : "", p ? p.telephone : ""]);
++        insc ? classeLabel(classeById[insc.classe_id]) : "", e.statut || "Actif"]);
+     });
+     downloadCsv("eleves-" + (anneeLabel(anneeId) || "tous").replace(/[^\w-]/g, "_") + ".csv", rows);
+     toast(rows.length - 1 + " élève(s) exporté(s)");
+diff --git a/server/static/templates/inscription.html b/server/static/templates/inscription.html
+index 32875c2..35a8601 100644
+--- a/server/static/templates/inscription.html
++++ b/server/static/templates/inscription.html
+@@ -377,8 +377,6 @@
+               <label class="form-label" for="lColonnes">Colonnes supplémentaires</label>
+               <select class="form-select form-select-sm" id="lColonnes" multiple size="3">
+                 <option value="naissance" selected>Date et lieu de naissance</option>
+-                <option value="parent" selected>Parent et téléphone</option>
+-                <option value="date" selected>Date d'inscription</option>
+                 <option value="statut">Statut</option>
+                 <option value="emargement">Colonne d'émargement</option>
+               </select>
+@@ -488,13 +486,12 @@
+                   <th>Matricule</th>
+                   <th data-sort="classe" role="button">Classe <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                   <th>Année</th>
+-                  <th data-sort="date" role="button">Inscrit le <i class="fa-solid fa-sort ms-1 text-light-color"></i></th>
+                   <th>Statut</th>
+                   <th class="text-end">Actions</th>
+                 </tr>
+               </thead>
+               <tbody id="tableBody">
+-                <tr><td colspan="7" class="text-center text-muted py-5">
++                <tr><td colspan="6" class="text-center text-muted py-5">
+                   <i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…
+                 </td></tr>
+               </tbody>
+@@ -790,7 +787,7 @@
+ 
+   /* ═══════════════ CHARGEMENT ═══════════════ */
+   async function loadAll() {
+-    $("tableBody").innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5">' +
++    $("tableBody").innerHTML = '<tr><td colspan="6" class="text-center text-muted py-5">' +
+       '<i class="fa-solid fa-spinner fa-spin fa-lg mb-2 d-block"></i>Chargement…</td></tr>';
+     try {
+       const [rI, rE, rP, rC, rCy, rA] = await Promise.all([
+@@ -817,7 +814,7 @@
+       renderTable();
+       renderVisibleCharts();
+     } catch (e) {
+-      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
++      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
+         '<i class="fa-solid fa-triangle-exclamation text-danger"></i>' +
+         '<div class="empty-state-title">Les inscriptions n\'ont pas pu être chargées</div>' +
+         '<div>' + esc(e.message) + '</div></div></td></tr>';
+@@ -1025,7 +1022,7 @@
+     $("badgeCount").textContent = list.length;
+ 
+     if (!list.length) {
+-      $("tableBody").innerHTML = '<tr><td colspan="7"><div class="empty-state">' +
++      $("tableBody").innerHTML = '<tr><td colspan="6"><div class="empty-state">' +
+         '<i class="fa-solid fa-clipboard-list"></i>' +
+         '<div class="empty-state-title">Aucune inscription ne correspond à ces filtres</div>' +
+         '<div>Changez d\'année scolaire, élargissez la période, ou inscrivez un élève.</div></div></td></tr>';
+@@ -1038,7 +1035,6 @@
+           '<td><code style="font-size:11px;">' + esc(e ? e.matricule : "—") + '</code></td>' +
+           '<td><span class="badge badge-primary">' + esc(classeLabel(classeById[i.classe_id])) + '</span></td>' +
+           '<td>' + esc(anneeLabel(i.annee_scolaire_id)) + '</td>' +
+-          '<td>' + dateFr(i.date_inscription) + '</td>' +
+           '<td>' + statutBadge(i.statut) + '</td>' +
+           '<td class="text-end text-nowrap">' +
+             '<button class="btn btn-light btn-sm" data-act="edit" data-id="' + i.id + '" title="Modifier"><i class="fa-solid fa-pen"></i></button> ' +
+@@ -1396,8 +1392,6 @@
+ 
+     const th = ['<th class="num">N°</th>', "<th>Matricule</th>", "<th>Nom et prénoms</th>", "<th>Sexe</th>"];
+     if (cols.includes("naissance")) th.push("<th>Né(e) le</th>", "<th>À</th>");
+-    if (cols.includes("parent")) th.push("<th>Parent</th>", "<th>Téléphone</th>");
+-    if (cols.includes("date")) th.push("<th>Inscrit le</th>");
+     if (cols.includes("statut")) th.push("<th>Statut</th>");
+     if (cols.includes("emargement")) th.push("<th>Émargement</th>");
+ 
+@@ -1408,14 +1402,11 @@
+ 
+       const rows = sec.lignes.map((i, idx) => {
+         const e = eleveById[i.eleve_id] || {};
+-        const p = parentById[e.parent_id];
+         const td = ['<td class="num">' + (idx + 1) + "</td>",
+           "<td>" + esc(e.matricule || "—") + "</td>",
+           "<td>" + esc(eleveNom(e)) + "</td>",
+           "<td>" + esc(e.sexe || "—") + "</td>"];
+         if (cols.includes("naissance")) td.push("<td>" + dateFr(e.date_naissance) + "</td>", "<td>" + esc(e.lieu_naissance || "—") + "</td>");
+-        if (cols.includes("parent")) td.push("<td>" + esc(p ? p.nom + " " + p.prenom : "—") + "</td>", "<td>" + esc(p && p.telephone ? p.telephone : "—") + "</td>");
+-        if (cols.includes("date")) td.push("<td>" + dateFr(i.date_inscription) + "</td>");
+         if (cols.includes("statut")) td.push("<td>" + esc(i.statut || "Actif") + "</td>");
+         if (cols.includes("emargement")) td.push("<td></td>");
+         return "<tr>" + td.join("") + "</tr>";
+@@ -1456,19 +1447,14 @@
+     const L = derniereListe, cols = L.cols;
+     const head = ["Classe", "N°", "Matricule", "Nom et prénoms", "Sexe"];
+     if (cols.includes("naissance")) head.push("Date de naissance", "Lieu de naissance");
+-    if (cols.includes("parent")) head.push("Parent", "Téléphone");
+-    if (cols.includes("date")) head.push("Date d'inscription");
+     if (cols.includes("statut")) head.push("Statut");
+     const rows = [head];
+ 
+     L.sections.forEach((sec) => {
+       sec.lignes.forEach((i, idx) => {
+         const e = eleveById[i.eleve_id] || {};
+-        const p = parentById[e.parent_id];
+         const r = [classeLabel(classeById[sec.classeId]), idx + 1, e.matricule || "", eleveNom(e), e.sexe || ""];
+         if (cols.includes("naissance")) r.push(e.date_naissance || "", e.lieu_naissance || "");
+-        if (cols.includes("parent")) r.push(p ? p.nom + " " + p.prenom : "", p ? p.telephone : "");
+-        if (cols.includes("date")) r.push(i.date_inscription || "");
+         if (cols.includes("statut")) r.push(i.statut || "Actif");
+         rows.push(r);
+       });
+@@ -1661,14 +1647,12 @@
+   }
+ 
+   function exportCsv() {
+-    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année", "Date d'inscription", "Statut", "Parent", "Téléphone"]];
++    const rows = [["Matricule", "Nom", "Prénom", "Sexe", "Classe", "Année", "Statut"]];
+     sorted(filtered()).forEach((i) => {
+       const e = eleveById[i.eleve_id] || {};
+-      const p = parentById[e.parent_id];
+       rows.push([e.matricule || "", e.nom || "", e.prenom || "", e.sexe || "",
+         classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id),
+-        i.date_inscription || "", i.statut || "Actif",
+-        p ? p.nom + " " + p.prenom : "", p ? p.telephone : ""]);
++        i.statut || "Actif"]);
+     });
+     downloadCsv("inscriptions.csv", rows);
+     toast(rows.length - 1 + " inscription(s) exportée(s)");
+diff --git a/web/src/components/ListeClasse.jsx b/web/src/components/ListeClasse.jsx
+index 8e8295d..809dccf 100644
+--- a/web/src/components/ListeClasse.jsx
++++ b/web/src/components/ListeClasse.jsx
+@@ -8,12 +8,10 @@ import Select from './Select';
+ // les profils. Une ligne = une inscription, au format de
+ // GET /api/listes-classes/eleves : {id, classe_id, annee_scolaire_id,
+ // date_inscription, statut, matricule, nom, prenom, sexe, date_naissance,
+-// lieu_naissance, parent_nom?, parent_telephone?}.
++// lieu_naissance}.
+ 
+ const COLONNES = [
+   ['naissance', 'Date et lieu de naissance'],
+-  ['parent', 'Parent et téléphone'],
+-  ['date', "Date d'inscription"],
+   ['statut', 'Statut'],
+   ['emargement', "Colonne d'émargement"],
+ ];
+@@ -25,17 +23,17 @@ const fichier = (s) => String(s).replace(/[^\w-]/g, '_');
+ /**
+  * annees : [{id, libelle}] ; annee / onAnneeChange : année choisie (contrôlée
+  * par la page, qui peut avoir à recharger les lignes) ; classes : [{id}]
+- * accessibles ; classeLabel(classe) ; avecParents : colonne parent proposée.
++ * accessibles ; classeLabel(classe).
+  */
+ export default function GenerateurListeClasse({
+-  lignes, classes, classeLabel, annees, annee, onAnneeChange, avecParents = true, etablissement, chargement = false,
++  lignes, classes, classeLabel, annees, annee, onAnneeChange, etablissement, chargement = false,
+ }) {
+   const toast = useToast();
+   const apercuRef = useRef(null);
+-  const colonnes = useMemo(() => COLONNES.filter(([v]) => avecParents || v !== 'parent'), [avecParents]);
++  const colonnes = COLONNES;
+   const [liste, setListe] = useState({
+     classe: '', mode: 'arret', debut: '', fin: iso(new Date()), statut: 'Actif', tri: 'nom',
+-    colonnes: avecParents ? ['naissance', 'parent', 'date'] : ['naissance', 'date'],
++    colonnes: ['naissance'],
+   });
+   const [derniereListe, setDerniereListe] = useState(null);
+ 
+@@ -75,7 +73,7 @@ export default function GenerateurListeClasse({
+       .sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])))
+       .map((id) => ({ classeId: id, lignes: parClasse[id] }));
+     const periode = mode === 'tout' ? "Toute l'année scolaire" : mode === 'arret' ? `Situation arrêtée au ${formatDate(fin)}` : `Inscriptions du ${formatDate(debut)} au ${formatDate(fin)}`;
+-    const cols = liste.colonnes.filter((c) => avecParents || c !== 'parent');
++    const cols = liste.colonnes;
+     setDerniereListe({ anneeId, classeId, sections, cols, periode, statut, total: choisies.length });
+     setTimeout(() => apercuRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+     toast(choisies.length ? `${choisies.length} élève(s) dans ${sections.length} classe(s)` : 'Aucun élève ne correspond à ces critères', choisies.length ? undefined : 'error');
+@@ -86,16 +84,12 @@ export default function GenerateurListeClasse({
+     const { cols } = derniereListe;
+     const head = ['Classe', 'N°', 'Matricule', 'Nom et prénoms', 'Sexe'];
+     if (cols.includes('naissance')) head.push('Date de naissance', 'Lieu de naissance');
+-    if (cols.includes('parent')) head.push('Parent', 'Téléphone');
+-    if (cols.includes('date')) head.push("Date d'inscription");
+     if (cols.includes('statut')) head.push('Statut');
+     const rows = [head];
+     derniereListe.sections.forEach((sec) => {
+       sec.lignes.forEach((i, idx) => {
+         const r = [classeLabel(classeById[sec.classeId]), idx + 1, i.matricule || '', eleveNom(i), i.sexe || ''];
+         if (cols.includes('naissance')) r.push(i.date_naissance || '', i.lieu_naissance || '');
+-        if (cols.includes('parent')) r.push(i.parent_nom || '', i.parent_telephone || '');
+-        if (cols.includes('date')) r.push(i.date_inscription || '');
+         if (cols.includes('statut')) r.push(i.statut || 'Actif');
+         rows.push(r);
+       });
+@@ -185,8 +179,6 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
+                 <tr>
+                   <th className="num">N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th>
+                   {cols.includes('naissance') && <><th>Né(e) le</th><th>À</th></>}
+-                  {cols.includes('parent') && <><th>Parent</th><th>Téléphone</th></>}
+-                  {cols.includes('date') && <th>Inscrit le</th>}
+                   {cols.includes('statut') && <th>Statut</th>}
+                   {cols.includes('emargement') && <th>Émargement</th>}
+                 </tr>
+@@ -199,8 +191,6 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
+                     <td>{eleveNom(i)}</td>
+                     <td>{i.sexe || '—'}</td>
+                     {cols.includes('naissance') && <><td>{formatDate(i.date_naissance)}</td><td>{i.lieu_naissance || '—'}</td></>}
+-                    {cols.includes('parent') && <><td>{i.parent_nom || '—'}</td><td>{i.parent_telephone || '—'}</td></>}
+-                    {cols.includes('date') && <td>{formatDate(i.date_inscription)}</td>}
+                     {cols.includes('statut') && <td>{i.statut || 'Actif'}</td>}
+                     {cols.includes('emargement') && <td />}
+                   </tr>
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index 62e2b5c..19ed5b6 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -321,11 +321,10 @@ export default function ElevesPage() {
+   };
+ 
+   const exportCsv = () => {
+-    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut', 'Parent', 'Téléphone parent']];
++    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Classe', 'Statut']];
+     filtered.forEach((e) => {
+       const insc = inscriptionDe(e.id, annee);
+-      const p = parentById[e.parent_id];
+-      rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, insc ? classeLabel(classeById[insc.classe_id]) : '', e.statut || 'Actif', p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
++      rows.push([e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, insc ? classeLabel(classeById[insc.classe_id]) : '', e.statut || 'Actif']);
+     });
+     downloadCsv(`eleves-${(anneeLabel(annee) || 'tous').replace(/[^\w-]/g, '_')}.csv`, rows);
+     toast(`${rows.length - 1} élève(s) exporté(s)`);
+@@ -449,16 +448,14 @@ export default function ElevesPage() {
+               <th>Sexe</th>
+               <SortTh sortKey="age" sort={sort} setSort={setSort}>Âge</SortTh>
+               <th>Classe</th>
+-              <th>Parent</th>
+               <th>Statut</th>
+               <th className="text-end">Actions</th>
+             </tr>
+           </thead>
+-          <TBody colSpan={8} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
++          <TBody colSpan={7} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
+             {pagination.slice.map((e) => {
+               const insc = inscriptionDe(e.id, annee);
+               const cls = insc ? classeById[insc.classe_id] : null;
+-              const p = parentById[e.parent_id];
+               const a = age(e.date_naissance);
+               return (
+                 <tr key={e.id}>
+@@ -472,7 +469,6 @@ export default function ElevesPage() {
+                   <td>{e.sexe === 'M' ? 'Garçon' : e.sexe === 'F' ? 'Fille' : '—'}</td>
+                   <td>{a == null ? <span className="text-muted">—</span> : `${a} ans`}</td>
+                   <td>{cls ? <span className="badge bg-label-primary">{classeLabel(cls)}</span> : <span className="badge bg-label-secondary">Non inscrit</span>}</td>
+-                  <td>{p ? <><div className="fw-semibold">{p.nom} {p.prenom}</div><small className="text-muted">{p.telephone}</small></> : <span className="text-danger">Aucun</span>}</td>
+                   <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
+                   <td className="text-end text-nowrap">
+                     <IconBtn icon="bx-show" title="Voir la fiche" onClick={() => setDetail(e)} />
+diff --git a/web/src/pages/InscriptionsPage.jsx b/web/src/pages/InscriptionsPage.jsx
+index 31011c2..f9dcc4c 100644
+--- a/web/src/pages/InscriptionsPage.jsx
++++ b/web/src/pages/InscriptionsPage.jsx
+@@ -86,7 +86,6 @@ export default function InscriptionsPage() {
+ 
+   const { inscriptions, eleves, parents, classes, cycles, annees } = data;
+   const eleveById = useMemo(() => Object.fromEntries(eleves.map((e) => [e.id, e])), [eleves]);
+-  const parentById = useMemo(() => Object.fromEntries(parents.map((p) => [p.id, p])), [parents]);
+   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
+   const classeLabel = useCallback((c) => (c ? baseClasseLabel(c, cycles, ' · ') : '—'), [cycles]);
+   const anneeLabel = useCallback((id) => annees.find((a) => a.id === Number(id))?.libelle || (id ? `Année #${id}` : '—'), [annees]);
+@@ -345,14 +344,12 @@ export default function InscriptionsPage() {
+   /* ── Listes de classe : lignes au format de GET /api/listes-classes/eleves ── */
+   const lignesListe = useMemo(() => inscriptions.map((i) => {
+     const e = eleveById[i.eleve_id] || {};
+-    const p = parentById[e.parent_id];
+     return {
+       id: i.id, classe_id: i.classe_id, annee_scolaire_id: i.annee_scolaire_id, date_inscription: i.date_inscription,
+       statut: i.statut || 'Actif', eleve_id: i.eleve_id, matricule: e.matricule, nom: e.nom, prenom: e.prenom, sexe: e.sexe,
+       date_naissance: e.date_naissance, lieu_naissance: e.lieu_naissance,
+-      parent_nom: p ? `${p.nom} ${p.prenom}` : null, parent_telephone: p ? p.telephone : null,
+     };
+-  }), [inscriptions, eleveById, parentById]);
++  }), [inscriptions, eleveById]);
+ 
+   /* ── Actions ── */
+   const supprimer = async (i) => {
+@@ -375,11 +372,10 @@ export default function InscriptionsPage() {
+   };
+ 
+   const exportCsv = () => {
+-    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Classe', 'Année', "Date d'inscription", 'Statut', 'Parent', 'Téléphone']];
++    const rows = [['Matricule', 'Nom', 'Prénom', 'Sexe', 'Classe', 'Année', 'Statut']];
+     filtered.forEach((i) => {
+       const e = eleveById[i.eleve_id] || {};
+-      const p = parentById[e.parent_id];
+-      rows.push([e.matricule || '', e.nom || '', e.prenom || '', e.sexe || '', classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id), i.date_inscription || '', i.statut || 'Actif', p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
++      rows.push([e.matricule || '', e.nom || '', e.prenom || '', e.sexe || '', classeLabel(classeById[i.classe_id]), anneeLabel(i.annee_scolaire_id), i.statut || 'Actif']);
+     });
+     downloadCsv('inscriptions.csv', rows);
+     toast(`${rows.length - 1} inscription(s) exportée(s)`);
+@@ -525,12 +521,11 @@ export default function InscriptionsPage() {
+               <th>Matricule</th>
+               <SortTh sortKey="classe" sort={sort} setSort={setSort}>Classe</SortTh>
+               <th>Année</th>
+-              <SortTh sortKey="date" sort={sort} setSort={setSort}>Inscrit le</SortTh>
+               <th>Statut</th>
+               <th className="text-end">Actions</th>
+             </tr>
+           </thead>
+-          <TBody colSpan={7} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
++          <TBody colSpan={6} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
+             {pagination.slice.map((i) => {
+               const e = eleveById[i.eleve_id];
+               return (
+@@ -542,7 +537,6 @@ export default function InscriptionsPage() {
+                   <td><code className="small">{e ? e.matricule : '—'}</code></td>
+                   <td><span className="badge bg-label-primary">{classeLabel(classeById[i.classe_id])}</span></td>
+                   <td>{anneeLabel(i.annee_scolaire_id)}</td>
+-                  <td>{formatDate(i.date_inscription)}</td>
+                   <td><StatutBadge statut={i.statut} /></td>
+                   <td className="text-end text-nowrap">
+                     <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: i })} />
+diff --git a/web/src/pages/ListesClassesPage.jsx b/web/src/pages/ListesClassesPage.jsx
+index 16464b6..2b57f7a 100644
+--- a/web/src/pages/ListesClassesPage.jsx
++++ b/web/src/pages/ListesClassesPage.jsx
+@@ -66,7 +66,7 @@ export default function ListesClassesPage() {
+       {contexte && (contexte.classes.length ? (
+         <GenerateurListeClasse
+           lignes={lignes} classes={contexte.classes} classeLabel={classeLabel} annees={contexte.annees_scolaires}
+-          annee={annee} onAnneeChange={setAnnee} avecParents={contexte.avec_parents} etablissement={etablissement}
++          annee={annee} onAnneeChange={setAnnee} etablissement={etablissement}
+           chargement={chargement}
+         />
+       ) : (

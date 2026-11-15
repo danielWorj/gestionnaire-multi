@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
-import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, useMonEspace } from '../components/Espace';
+import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, nomClasse, useMonEspace } from '../components/Espace';
 import { EleveIdentite, filtrerRoster } from '../components/NotesCommun';
 import { Field, FormFooter, useToast } from '../components/ui';
 import Modal from '../components/Modal';
@@ -87,19 +87,19 @@ export default function EnseignantClassesPage() {
   const classes = useMemo(() => {
     const map = new Map();
     mcs.forEach((mc) => {
-      const c = map.get(mc.classe_id) || { id: mc.classe_id, label: mc.classe_label, cycle: mc.cycle_libelle, effectif: mc.effectif, matieres: [], saisies: 0 };
+      const c = map.get(mc.classe_id) || { id: mc.classe_id, label: mc.classe_label, nom: nomClasse(mc.classe_option, mc.classe_label), cycle: mc.cycle_libelle, effectif: mc.effectif, matieres: [], saisies: 0 };
       c.matieres.push(mc);
       c.saisies += Math.min(mc.notes_saisies || 0, mc.effectif || 0);
       map.set(mc.classe_id, c);
     });
-    return [...map.values()].sort((a, b) => (a.label || '').localeCompare(b.label || '', 'fr'));
+    return [...map.values()].sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr', { numeric: true }) || (a.cycle || '').localeCompare(b.cycle || '', 'fr', { numeric: true }));
   }, [mcs]);
 
   if (!classeId) {
     const items = classes.map((c) => ({
       key: c.id,
       cycle: c.cycle,
-      titre: c.label,
+      titre: c.nom,
       sousTitre: c.matieres.map((m) => m.matiere_libelle).join(' · '),
       effectif: c.effectif,
       avancement: sequence ? { saisies: c.saisies, attendues: (c.effectif || 0) * c.matieres.length, libelle: sequence.libelle } : null,
@@ -120,7 +120,7 @@ export default function EnseignantClassesPage() {
     <>
       <BarreClasse
         titre="Mes classes"
-        classe={classe?.label || (espace.loading ? '…' : `Classe #${classeId}`)}
+        classe={classe?.nom || (espace.loading ? '…' : `Classe #${classeId}`)}
         cycle={classe?.cycle}
         effectif={classe?.effectif}
         onChanger={() => setParams({})}

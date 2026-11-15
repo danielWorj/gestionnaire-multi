@@ -112,15 +112,26 @@ export function Avancement({ saisies, attendues, libelle, compact = false }) {
   );
 }
 
+// ── Nom d'une classe ──────────────────────────────────────────────────────
+// Le nom affiché est l'option seule (« A »). Le cycle est une info secondaire.
+// Repli sur le libellé complet (« 6ème A ») si la classe n'a pas d'option.
+export function nomClasse(option, label) {
+  const o = typeof option === 'string' ? option.trim() : option;
+  return o || label || 'Classe';
+}
+
 // ── Carte de classe ───────────────────────────────────────────────────────
+// Nom de la classe en premier (gras), cycle en petit dessous.
 export function ClasseCard({ cycle, titre, sousTitre, effectif, avancement, extra, onClick, to }) {
   const contenu = (
     <>
       <div className="esp-classe-tete">
-        <span className="esp-classe-cycle">{cycle || 'Classe'}</span>
+        <div className="min-w-0">
+          <div className="esp-classe-nom">{titre}</div>
+          {cycle && cycle !== titre && <div className="esp-classe-cycle">{cycle}</div>}
+        </div>
         <span className="esp-classe-effectif" title="Effectif"><i className="bx bx-group" />{effectif ?? 0}</span>
       </div>
-      <div className="esp-classe-nom">{titre}</div>
       {sousTitre && <div className="esp-classe-sous">{sousTitre}</div>}
       {extra && <div className="esp-classe-extra">{extra}</div>}
       {avancement && <Avancement {...avancement} />}
@@ -154,13 +165,13 @@ export function Pastilles({ options, value, onChange, ariaLabel }) {
 
 // ── Grille de cartes de classes, regroupées par cycle ────────────────────
 // items : [{ key, cycle, ...props de ClasseCard }]
-export function ClassesGrille({ items, loading, vide, rechercheDes = 8 }) {
+export function ClassesGrille({ items, loading, vide }) {
   const [cycle, setCycle] = useState('');
   const [recherche, setRecherche] = useState('');
   const cycles = useMemo(() => [...new Set(items.map((i) => i.cycle || 'Autres'))], [items]);
 
   const filtres = items.filter((i) => (!cycle || (i.cycle || 'Autres') === cycle)
-    && (!recherche.trim() || `${i.titre} ${i.sousTitre || ''}`.toLowerCase().includes(recherche.trim().toLowerCase())));
+    && (!recherche.trim() || `${i.titre} ${i.cycle || ''} ${i.sousTitre || ''}`.toLowerCase().includes(recherche.trim().toLowerCase())));
   const groupes = cycles
     .map((c) => ({ cycle: c, items: filtres.filter((i) => (i.cycle || 'Autres') === c) }))
     .filter((g) => g.items.length);
@@ -178,24 +189,20 @@ export function ClassesGrille({ items, loading, vide, rechercheDes = 8 }) {
 
   return (
     <>
-      {(cycles.length > 1 || items.length > rechercheDes) && (
-        <div className="esp-filtres">
-          {items.length > rechercheDes && (
-            <div className="esp-recherche">
-              <i className="bx bx-search" />
-              <input type="search" className="form-control" placeholder="Rechercher une classe…" value={recherche} onChange={(e) => setRecherche(e.target.value)} aria-label="Rechercher une classe" />
-            </div>
-          )}
-          {cycles.length > 1 && (
-            <Pastilles
-              ariaLabel="Filtrer par cycle"
-              value={cycle}
-              onChange={setCycle}
-              options={[{ value: '', label: 'Tous' }, ...cycles.map((c) => ({ value: c, label: c }))]}
-            />
-          )}
+      <div className="esp-filtres">
+        <div className="esp-recherche">
+          <i className="bx bx-search" />
+          <input type="search" className="form-control" placeholder="Rechercher une classe…" value={recherche} onChange={(e) => setRecherche(e.target.value)} aria-label="Rechercher une classe" />
         </div>
-      )}
+        {cycles.length > 1 && (
+          <Pastilles
+            ariaLabel="Filtrer par cycle"
+            value={cycle}
+            onChange={setCycle}
+            options={[{ value: '', label: 'Tous' }, ...cycles.map((c) => ({ value: c, label: c }))]}
+          />
+        )}
+      </div>
       {!groupes.length && <div className="esp-vide"><i className="bx bx-filter-alt" /><p className="mb-0">Aucune classe ne correspond.</p></div>}
       {groupes.map((g) => (
         <section key={g.cycle} className="mb-4">
@@ -226,7 +233,7 @@ export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true,
     const items = classes.map((c) => ({
       key: c.id,
       cycle: c.cycle_libelle,
-      titre: c.label,
+      titre: nomClasse(c.option, c.label),
       effectif: c.effectif,
       extra: c.matieres_total ? `${c.matieres_completes}/${c.matieres_total} matière${c.matieres_total > 1 ? 's' : ''} complète${c.matieres_total > 1 ? 's' : ''}` : 'Aucune matière affectée',
       avancement: avecAvancement && sequence ? { saisies: c.notes_saisies, attendues: c.notes_attendues, libelle: sequence.libelle } : null,
@@ -250,7 +257,7 @@ export function AvecChoixClasse({ titre, sousTitre, icon, avecAvancement = true,
     <>
       <BarreClasse
         titre={titre}
-        classe={classe ? classe.label : espace.loading ? '…' : `Classe #${classeId}`}
+        classe={classe ? nomClasse(classe.option, classe.label) : espace.loading ? '…' : `Classe #${classeId}`}
         cycle={classe?.cycle_libelle}
         effectif={classe?.effectif}
         onChanger={() => setParams({})}
@@ -271,10 +278,10 @@ export function BarreClasse({ titre, classe, cycle, effectif, detail, onChanger,
         <div className="min-w-0">
           <div className="esp-barre-classe-rubrique">{titre}</div>
           <div className="esp-barre-classe-nom">{classe}</div>
+          {cycle && cycle !== classe && <div className="esp-barre-classe-cycle">{cycle}</div>}
           {detail && <div className="esp-barre-classe-detail">{detail}</div>}
         </div>
         <div className="esp-barre-classe-meta">
-          {cycle && <span className="badge bg-label-primary">{cycle}</span>}
           {effectif != null && <span className="badge bg-label-secondary"><i className="bx bx-group me-1" />{effectif}</span>}
         </div>
       </div>
