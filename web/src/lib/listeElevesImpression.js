@@ -15,7 +15,7 @@ const SIGNATURES_LISTE = `
   </div>`;
 
 /**
- * eleves : [{matricule, nom, prenom, sexe, date_naissance, lieu_naissance, statut, parent?: {nom, prenom, telephone}}]
+ * eleves : [{matricule, nom, prenom, sexe, date_naissance, lieu_naissance, statut}]
  */
 export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablissement }) {
   const etab = etablissement || {};
@@ -31,7 +31,6 @@ export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablis
       <td>${escapeHtml(e.sexe || '—')}</td>
       <td>${escapeHtml(formatDateCourt(e.date_naissance))}</td>
       <td class="g">${escapeHtml(e.lieu_naissance || '—')}</td>
-      <td class="g">${e.parent ? `${escapeHtml(`${e.parent.nom || ''} ${e.parent.prenom || ''}`.trim())}${e.parent.telephone ? `<br>${escapeHtml(e.parent.telephone)}` : ''}` : '—'}</td>
     </tr>`).join('');
 
   return `<!DOCTYPE html>
@@ -48,8 +47,8 @@ export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablis
   <div class="sous-titre">Classe : ${escapeHtml(classeNom)} — Année scolaire ${escapeHtml(anneeNom || '')}</div>
   <div class="sous-titre"><strong>Effectif :</strong> ${eleves.length} &nbsp;·&nbsp; <strong>Garçons :</strong> ${garcons} &nbsp;·&nbsp; <strong>Filles :</strong> ${filles}</div>
   <table>
-    <thead><tr><th>N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th><th>Né(e) le</th><th>Lieu de naissance</th><th>Parent / Téléphone</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="7">Aucun élève dans cette classe.</td></tr>'}</tbody>
+    <thead><tr><th>N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th><th>Né(e) le</th><th>Lieu de naissance</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="6">Aucun élève dans cette classe.</td></tr>'}</tbody>
   </table>
   ${SIGNATURES_LISTE}
   ${AUTO_PRINT}

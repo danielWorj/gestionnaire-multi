@@ -1,0 +1,165 @@
+diff --git a/web/src/components/ListeClasse.jsx b/web/src/components/ListeClasse.jsx
+index 809dccf..aafd5f8 100644
+--- a/web/src/components/ListeClasse.jsx
++++ b/web/src/components/ListeClasse.jsx
+@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
+ import { downloadCsv, formatDate, useToast } from './ui';
+ import EnteteEtablissement from './EnteteEtablissement';
+ import Select from './Select';
++import BottomSheet from './BottomSheet';
+ 
+ // Générateur de listes de classe (aperçu imprimable + export CSV), partagé
+ // par la page Inscriptions et la page « Listes de classe » ouverte à tous
+@@ -27,6 +28,7 @@ const fichier = (s) => String(s).replace(/[^\w-]/g, '_');
+  */
+ export default function GenerateurListeClasse({
+   lignes, classes, classeLabel, annees, annee, onAnneeChange, etablissement, chargement = false,
++  masquerAnneeClasse = false, classeFiltre = '',
+ }) {
+   const toast = useToast();
+   const apercuRef = useRef(null);
+@@ -36,15 +38,56 @@ export default function GenerateurListeClasse({
+     colonnes: ['naissance'],
+   });
+   const [derniereListe, setDerniereListe] = useState(null);
++  const [optionsOuvertes, setOptionsOuvertes] = useState(false);
+ 
+   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
+   const classesTriees = useMemo(() => [...classes].sort((a, b) => classeLabel(a).localeCompare(classeLabel(b))), [classes, classeLabel]);
+   const anneeLabel = (id) => annees.find((a) => a.id === Number(id))?.libelle || (id ? `Année #${id}` : '—');
+   const set = (name) => (e) => setListe((l) => ({ ...l, [name]: e.target.value }));
+ 
++  // Options avancées (période, dates, statut, tri, colonnes), communes à la
++  // ligne ordinateur et à la feuille glissante mobile (`sheet` = grands champs).
++  const OPTIONS_DEFAUT = { mode: 'arret', statut: 'Actif', tri: 'nom' };
++  const nbOptions = (liste.mode !== OPTIONS_DEFAUT.mode ? 1 : 0)
++    + (liste.statut !== OPTIONS_DEFAUT.statut ? 1 : 0)
++    + (liste.tri !== OPTIONS_DEFAUT.tri ? 1 : 0)
++    + (liste.colonnes.length !== 1 || liste.colonnes[0] !== 'naissance' ? 1 : 0);
++  const reinitOptions = () => setListe((l) => ({ ...l, ...OPTIONS_DEFAUT, debut: '', fin: iso(new Date()), colonnes: ['naissance'] }));
++  const champsOptions = (sheet) => {
++    const sel = sheet ? 'form-select' : 'form-select form-select-sm';
++    const inp = sheet ? 'form-control' : 'form-control form-control-sm';
++    const full = sheet ? 'col-12' : 'col-lg-2 col-md-4';
++    const half = sheet ? 'col-6' : 'col-lg-2 col-md-4';
++    return (
++      <>
++        <div className={full}><label className="form-label">Période</label><Select className={sel} value={liste.mode} onChange={set('mode')}><option value="arret">Arrêtée à une date</option><option value="entre">Entre deux dates</option><option value="tout">Toute l'année</option></Select></div>
++        {liste.mode === 'entre' && <div className={half}><label className="form-label">Du</label><input type="date" className={inp} value={liste.debut} onChange={set('debut')} /></div>}
++        {liste.mode !== 'tout' && <div className={half}><label className="form-label">{liste.mode === 'entre' ? 'au' : 'Arrêtée au'}</label><input type="date" className={inp} value={liste.fin} onChange={set('fin')} /></div>}
++        <div className={full}>
++          <label className="form-label">Statut</label>
++          <Select className={sel} value={liste.statut} onChange={set('statut')}>
++            <option value="Actif">Actives seulement</option><option value="">Tous statuts</option><option value="Suspendu">Suspendues</option><option value="Radié">Radiées</option><option value="Transféré">Transférées</option>
++          </Select>
++        </div>
++        <div className={full}>
++          <label className="form-label">Trier par</label>
++          <Select className={sel} value={liste.tri} onChange={set('tri')}>
++            <option value="nom">Ordre alphabétique</option><option value="matricule">Matricule</option><option value="date">Date d'inscription</option><option value="sexe">Sexe puis nom</option>
++          </Select>
++        </div>
++        <div className={sheet ? 'col-12' : 'col-lg-3 col-md-6'}>
++          <label className="form-label">Colonnes supplémentaires</label>
++          <Select className={sel} multiple size={3} value={liste.colonnes} onChange={(e) => setListe((l) => ({ ...l, colonnes: Array.from(e.target.selectedOptions).map((o) => o.value) }))}>
++            {colonnes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
++          </Select>
++        </div>
++      </>
++    );
++  };
++
+   const generer = () => {
+     const anneeId = Number(annee) || null;
+-    const classeId = Number(liste.classe) || null;
++    const classeId = Number(masquerAnneeClasse ? classeFiltre : liste.classe) || null;
+     const { mode, debut, fin, statut, tri } = liste;
+     const choisies = lignes.filter((i) => {
+       if (!classeById[i.classe_id]) return false;
+@@ -109,31 +152,25 @@ export default function GenerateurListeClasse({
+         <span className="badge bg-label-secondary">Par classe et par date</span>
+       </div>
+       <div className="card-body">
++        {masquerAnneeClasse && (
++          <p className="text-muted small mb-3"><i className="bx bx-info-circle me-1" />L'année scolaire et la classe suivent les filtres ci-dessous.</p>
++        )}
+         <div className="row g-2 align-items-end">
+-          <div className="col-lg-2 col-md-4"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={annee} onChange={(e) => onAnneeChange(e.target.value)}>{anneeOptions}</Select></div>
+-          <div className="col-lg-3 col-md-4"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={liste.classe} onChange={set('classe')}><option value="">Toutes les classes (une section par classe)</option>{classesTriees.map((c) => <option key={c.id} value={c.id}>{classeLabel(c)}</option>)}</Select></div>
+-          <div className="col-lg-2 col-md-4"><label className="form-label">Période</label><Select className="form-select form-select-sm" value={liste.mode} onChange={set('mode')}><option value="arret">Arrêtée à une date</option><option value="entre">Entre deux dates</option><option value="tout">Toute l'année</option></Select></div>
+-          {liste.mode === 'entre' && <div className="col-lg-2 col-md-4"><label className="form-label">Du</label><input type="date" className="form-control form-control-sm" value={liste.debut} onChange={set('debut')} /></div>}
+-          {liste.mode !== 'tout' && <div className="col-lg-2 col-md-4"><label className="form-label">{liste.mode === 'entre' ? 'au' : 'Arrêtée au'}</label><input type="date" className="form-control form-control-sm" value={liste.fin} onChange={set('fin')} /></div>}
+-          <div className="col-lg-2 col-md-4">
+-            <label className="form-label">Statut</label>
+-            <Select className="form-select form-select-sm" value={liste.statut} onChange={set('statut')}>
+-              <option value="Actif">Actives seulement</option><option value="">Tous statuts</option><option value="Suspendu">Suspendues</option><option value="Radié">Radiées</option><option value="Transféré">Transférées</option>
+-            </Select>
+-          </div>
+-          <div className="col-lg-2 col-md-4">
+-            <label className="form-label">Trier par</label>
+-            <Select className="form-select form-select-sm" value={liste.tri} onChange={set('tri')}>
+-              <option value="nom">Ordre alphabétique</option><option value="matricule">Matricule</option><option value="date">Date d'inscription</option><option value="sexe">Sexe puis nom</option>
+-            </Select>
+-          </div>
+-          <div className="col-lg-3 col-md-6">
+-            <label className="form-label">Colonnes supplémentaires</label>
+-            <Select className="form-select form-select-sm" multiple size={3} value={liste.colonnes} onChange={(e) => setListe((l) => ({ ...l, colonnes: Array.from(e.target.selectedOptions).map((o) => o.value) }))}>
+-              {colonnes.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+-            </Select>
++          {!masquerAnneeClasse && (
++            <>
++              <div className="col-12 col-md-4 col-lg-2"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={annee} onChange={(e) => onAnneeChange(e.target.value)}>{anneeOptions}</Select></div>
++              <div className="col-12 col-md-4 col-lg-3"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={liste.classe} onChange={set('classe')}><option value="">Toutes les classes (une section par classe)</option>{classesTriees.map((c) => <option key={c.id} value={c.id}>{classeLabel(c)}</option>)}</Select></div>
++            </>
++          )}
++          {/* Options avancées : en ligne sur ordinateur, dans la feuille glissante sur mobile */}
++          <div className="col d-none d-md-block">
++            <div className="row g-2 align-items-end">{champsOptions(false)}</div>
+           </div>
+           <div className="col-12 d-flex flex-wrap gap-2 mt-2">
++            <button type="button" className="btn btn-outline-primary btn-sm d-md-none d-flex align-items-center gap-2" onClick={() => setOptionsOuvertes(true)}>
++              <i className="bx bx-slider-alt" /> Plus d'options
++              {nbOptions > 0 && <span className="badge rounded-pill bg-primary">{nbOptions}</span>}
++            </button>
+             <button type="button" className="btn btn-primary btn-sm" disabled={chargement} onClick={generer}>
+               {chargement ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-list-check me-1" />} Générer la liste
+             </button>
+@@ -142,6 +179,13 @@ export default function GenerateurListeClasse({
+           </div>
+         </div>
+       </div>
++      <BottomSheet open={optionsOuvertes} onClose={() => setOptionsOuvertes(false)} title="Options de la liste">
++        <div className="row g-3 pb-2">
++          {champsOptions(true)}
++          <div className="col-5"><button type="button" className="btn btn-outline-secondary w-100" onClick={reinitOptions} disabled={!nbOptions}>Réinitialiser</button></div>
++          <div className="col-7"><button type="button" className="btn btn-primary w-100" onClick={() => setOptionsOuvertes(false)}>Appliquer</button></div>
++        </div>
++      </BottomSheet>
+       {derniereListe && (
+         <div className="card-body border-top bg-lighter print-area" ref={apercuRef}>
+           <ListeImprimable liste={derniereListe} etablissement={etablissement} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
+diff --git a/web/src/pages/InscriptionsPage.jsx b/web/src/pages/InscriptionsPage.jsx
+index a2ab669..1a9d0bb 100644
+--- a/web/src/pages/InscriptionsPage.jsx
++++ b/web/src/pages/InscriptionsPage.jsx
+@@ -495,7 +495,8 @@ export default function InscriptionsPage() {
+       {/* Liste des élèves inscrits */}
+       <GenerateurListeClasse
+         lignes={lignesListe} classes={classes} classeLabel={classeLabel} annees={annees}
+-        annee={anneeListe} onAnneeChange={setAnneeListe} etablissement={etablissement}
++        annee={annee} onAnneeChange={changeAnnee} etablissement={etablissement}
++        masquerAnneeClasse classeFiltre={filters.classe}
+       />
+ 
+       {/* Filtres — ordinateur */}
+@@ -531,8 +532,8 @@ export default function InscriptionsPage() {
+             <input type="search" className="form-control ps-5" placeholder="Rechercher un élève…" aria-label="Rechercher un élève" value={filters.q} onChange={setFilter('q')} />
+           </div>
+           <div className="row g-2">
+-            <div className="col-6"><Select className="form-select form-select-sm" aria-label="Année scolaire" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
+-            <div className="col-6"><Select className="form-select form-select-sm" aria-label="Classe" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes les classes</option>{classeOptions}</Select></div>
++            <div className="col-12"><Select className="form-select form-select-sm" aria-label="Année scolaire" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
++            <div className="col-12"><Select className="form-select form-select-sm" aria-label="Classe" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes les classes</option>{classeOptions}</Select></div>
+           </div>
+           <button type="button" className="btn btn-outline-primary w-100 mt-2 d-flex align-items-center justify-content-center gap-2" onClick={() => setFiltresOuverts(true)}>
+             <i className="bx bx-slider-alt" /> Plus de filtres

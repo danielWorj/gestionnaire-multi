@@ -400,7 +400,7 @@ export default function ElevesPage() {
     const fenetre = ouvrirFenetreImpression();
     if (!fenetre) { toast('Autorisez les fenêtres pop-up pour imprimer la liste.', 'error'); return; }
     ecrireImpression(fenetre, construireHtmlListeEleves({
-      eleves: filtered.map((e) => ({ ...e, parent: parentById[e.parent_id] })),
+      eleves: filtered,
       classeNom: classeLabel(classeChoisie),
       anneeNom: anneeLabel(annee),
       etablissement,
@@ -409,10 +409,9 @@ export default function ElevesPage() {
 
   const telechargerListeClasse = () => {
     if (!classeChoisie) return;
-    const rows = [['N°', 'Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Parent', 'Téléphone parent']];
+    const rows = [['N°', 'Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance']];
     filtered.forEach((e, idx) => {
-      const p = parentById[e.parent_id];
-      rows.push([idx + 1, e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
+      rows.push([idx + 1, e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance]);
     });
     const nomFichier = `liste-${classeLabel(classeChoisie)}-${anneeLabel(annee)}`.replace(/[^\w-]/g, '_');
     downloadCsv(`${nomFichier}.csv`, rows);

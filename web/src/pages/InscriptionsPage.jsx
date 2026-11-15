@@ -495,7 +495,8 @@ export default function InscriptionsPage() {
       {/* Liste des élèves inscrits */}
       <GenerateurListeClasse
         lignes={lignesListe} classes={classes} classeLabel={classeLabel} annees={annees}
-        annee={anneeListe} onAnneeChange={setAnneeListe} etablissement={etablissement}
+        annee={annee} onAnneeChange={changeAnnee} etablissement={etablissement}
+        masquerAnneeClasse classeFiltre={filters.classe}
       />
 
       {/* Filtres — ordinateur */}
@@ -531,8 +532,8 @@ export default function InscriptionsPage() {
             <input type="search" className="form-control ps-5" placeholder="Rechercher un élève…" aria-label="Rechercher un élève" value={filters.q} onChange={setFilter('q')} />
           </div>
           <div className="row g-2">
-            <div className="col-6"><Select className="form-select form-select-sm" aria-label="Année scolaire" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
-            <div className="col-6"><Select className="form-select form-select-sm" aria-label="Classe" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes les classes</option>{classeOptions}</Select></div>
+            <div className="col-12"><Select className="form-select form-select-sm" aria-label="Année scolaire" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
+            <div className="col-12"><Select className="form-select form-select-sm" aria-label="Classe" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes les classes</option>{classeOptions}</Select></div>
           </div>
           <button type="button" className="btn btn-outline-primary w-100 mt-2 d-flex align-items-center justify-content-center gap-2" onClick={() => setFiltresOuverts(true)}>
             <i className="bx bx-slider-alt" /> Plus de filtres

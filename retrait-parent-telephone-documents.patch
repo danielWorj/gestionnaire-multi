@@ -1,0 +1,58 @@
+diff --git a/web/src/lib/listeElevesImpression.js b/web/src/lib/listeElevesImpression.js
+index 1f8e49a..05a9d82 100644
+--- a/web/src/lib/listeElevesImpression.js
++++ b/web/src/lib/listeElevesImpression.js
+@@ -15,7 +15,7 @@ const SIGNATURES_LISTE = `
+   </div>`;
+ 
+ /**
+- * eleves : [{matricule, nom, prenom, sexe, date_naissance, lieu_naissance, statut, parent?: {nom, prenom, telephone}}]
++ * eleves : [{matricule, nom, prenom, sexe, date_naissance, lieu_naissance, statut}]
+  */
+ export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablissement }) {
+   const etab = etablissement || {};
+@@ -31,7 +31,6 @@ export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablis
+       <td>${escapeHtml(e.sexe || '—')}</td>
+       <td>${escapeHtml(formatDateCourt(e.date_naissance))}</td>
+       <td class="g">${escapeHtml(e.lieu_naissance || '—')}</td>
+-      <td class="g">${e.parent ? `${escapeHtml(`${e.parent.nom || ''} ${e.parent.prenom || ''}`.trim())}${e.parent.telephone ? `<br>${escapeHtml(e.parent.telephone)}` : ''}` : '—'}</td>
+     </tr>`).join('');
+ 
+   return `<!DOCTYPE html>
+@@ -48,8 +47,8 @@ export function construireHtmlListeEleves({ eleves, classeNom, anneeNom, etablis
+   <div class="sous-titre">Classe : ${escapeHtml(classeNom)} — Année scolaire ${escapeHtml(anneeNom || '')}</div>
+   <div class="sous-titre"><strong>Effectif :</strong> ${eleves.length} &nbsp;·&nbsp; <strong>Garçons :</strong> ${garcons} &nbsp;·&nbsp; <strong>Filles :</strong> ${filles}</div>
+   <table>
+-    <thead><tr><th>N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th><th>Né(e) le</th><th>Lieu de naissance</th><th>Parent / Téléphone</th></tr></thead>
+-    <tbody>${rows || '<tr><td colspan="7">Aucun élève dans cette classe.</td></tr>'}</tbody>
++    <thead><tr><th>N°</th><th>Matricule</th><th>Nom et prénoms</th><th>Sexe</th><th>Né(e) le</th><th>Lieu de naissance</th></tr></thead>
++    <tbody>${rows || '<tr><td colspan="6">Aucun élève dans cette classe.</td></tr>'}</tbody>
+   </table>
+   ${SIGNATURES_LISTE}
+   ${AUTO_PRINT}
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index e8eb83e..3634099 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -400,7 +400,7 @@ export default function ElevesPage() {
+     const fenetre = ouvrirFenetreImpression();
+     if (!fenetre) { toast('Autorisez les fenêtres pop-up pour imprimer la liste.', 'error'); return; }
+     ecrireImpression(fenetre, construireHtmlListeEleves({
+-      eleves: filtered.map((e) => ({ ...e, parent: parentById[e.parent_id] })),
++      eleves: filtered,
+       classeNom: classeLabel(classeChoisie),
+       anneeNom: anneeLabel(annee),
+       etablissement,
+@@ -409,10 +409,9 @@ export default function ElevesPage() {
+ 
+   const telechargerListeClasse = () => {
+     if (!classeChoisie) return;
+-    const rows = [['N°', 'Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance', 'Parent', 'Téléphone parent']];
++    const rows = [['N°', 'Matricule', 'Nom', 'Prénom', 'Sexe', 'Date de naissance', 'Lieu de naissance']];
+     filtered.forEach((e, idx) => {
+-      const p = parentById[e.parent_id];
+-      rows.push([idx + 1, e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance, p ? `${p.nom} ${p.prenom}` : '', p ? p.telephone : '']);
++      rows.push([idx + 1, e.matricule, e.nom, e.prenom, e.sexe, e.date_naissance || '', e.lieu_naissance]);
+     });
+     const nomFichier = `liste-${classeLabel(classeChoisie)}-${anneeLabel(annee)}`.replace(/[^\w-]/g, '_');
+     downloadCsv(`${nomFichier}.csv`, rows);
