@@ -456,3 +456,27 @@ body.sheet-open { overflow: hidden; }
 @media print {
   .app-topbar, .app-nav-basse, .sheet-racine { display: none !important; }
 }
+
+/* ── Filtres de la liste des élèves (feuille « Filtres ») ─────────────── */
+.filtres-mobile .form-label { margin-bottom: 0.25rem; font-size: 0.78rem; color: var(--app-texte-doux); }
+.filtres-mobile .row { margin-top: 0.5rem; }
+.filtres-bouton { margin-top: 0.75rem; display: inline-flex; align-items: center; justify-content: center; }
+
+.filtres-groupe { padding: 0.25rem 0 1rem; }
+.filtres-etiquette {
+  display: block; margin: 0 0 0.5rem 0.125rem;
+  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--app-texte-doux);
+}
+.filtres-puces { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.filtres-puce {
+  border: 1px solid var(--app-bord); background: #fff; color: var(--app-texte);
+  padding: 0.5rem 0.95rem; border-radius: 999px; font-size: 0.88rem; font-weight: 500; line-height: 1.2;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.filtres-puce.actif { background: var(--app-primaire-fond); border-color: var(--app-primaire); color: var(--app-primaire); font-weight: 600; }
+.filtres-ages { display: flex; align-items: center; gap: 0.6rem; }
+.filtres-ages .form-control { flex: 1 1 0; min-width: 0; text-align: center; }
+.filtres-pied {
+  position: sticky; bottom: 0; display: flex; gap: 0.6rem;
+  margin: 0 -1rem -1rem; padding: 0.75rem 1rem; background: #fff; border-top: 1px solid var(--app-bord);
+}

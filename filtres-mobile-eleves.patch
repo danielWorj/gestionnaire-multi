@@ -1,0 +1,175 @@
+diff --git a/web/src/components/app-mobile.css b/web/src/components/app-mobile.css
+index a6a12e9..0f25930 100644
+--- a/web/src/components/app-mobile.css
++++ b/web/src/components/app-mobile.css
+@@ -456,3 +456,27 @@ body.sheet-open { overflow: hidden; }
+ @media print {
+   .app-topbar, .app-nav-basse, .sheet-racine { display: none !important; }
+ }
++
++/* ── Filtres de la liste des élèves (feuille « Filtres ») ─────────────── */
++.filtres-mobile .form-label { margin-bottom: 0.25rem; font-size: 0.78rem; color: var(--app-texte-doux); }
++.filtres-mobile .row { margin-top: 0.5rem; }
++.filtres-bouton { margin-top: 0.75rem; display: inline-flex; align-items: center; justify-content: center; }
++
++.filtres-groupe { padding: 0.25rem 0 1rem; }
++.filtres-etiquette {
++  display: block; margin: 0 0 0.5rem 0.125rem;
++  font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--app-texte-doux);
++}
++.filtres-puces { display: flex; flex-wrap: wrap; gap: 0.5rem; }
++.filtres-puce {
++  border: 1px solid var(--app-bord); background: #fff; color: var(--app-texte);
++  padding: 0.5rem 0.95rem; border-radius: 999px; font-size: 0.88rem; font-weight: 500; line-height: 1.2;
++  transition: background 0.15s, border-color 0.15s, color 0.15s;
++}
++.filtres-puce.actif { background: var(--app-primaire-fond); border-color: var(--app-primaire); color: var(--app-primaire); font-weight: 600; }
++.filtres-ages { display: flex; align-items: center; gap: 0.6rem; }
++.filtres-ages .form-control { flex: 1 1 0; min-width: 0; text-align: center; }
++.filtres-pied {
++  position: sticky; bottom: 0; display: flex; gap: 0.6rem;
++  margin: 0 -1rem -1rem; padding: 0.75rem 1rem; background: #fff; border-top: 1px solid var(--app-bord);
++}
+diff --git a/web/src/pages/ElevesPage.jsx b/web/src/pages/ElevesPage.jsx
+index 7bc335d..e8eb83e 100644
+--- a/web/src/pages/ElevesPage.jsx
++++ b/web/src/pages/ElevesPage.jsx
+@@ -10,6 +10,7 @@ import {
+   SortTh, StatCard, TableCard, TBody, useConfirm, usePagination, useToast,
+ } from '../components/ui';
+ import Select from '../components/Select';
++import BottomSheet from '../components/BottomSheet';
+ import ImportElevesModal from '../components/ImportElevesModal';
+ import SuppressionEleveModal from '../components/SuppressionEleveModal';
+ import { envoyerPhotoEleve, photoEleveSrc, preparerPhoto, retirerPhotoEleve } from '../lib/photoEleve';
+@@ -28,6 +29,8 @@ const PINK = '#EC4899';
+ const GRID = { color: '#eceef1' };
+ 
+ const EMPTY_FILTERS = { q: '', classe: '', sexe: '', statut: '', scolarite: '', ageMin: '', ageMax: '' };
++// Filtres secondaires : sur mobile ils sont regroupés dans une feuille glissante.
++const FILTRES_AVANCES = ['sexe', 'statut', 'scolarite', 'ageMin', 'ageMax'];
+ const SCOLARITE_LABELS = { inscrit: 'Inscrits cette année', 'non-inscrit': 'Non inscrits cette année', 'sans-parent': 'Sans parent rattaché' };
+ 
+ const fullName = (e) => `${e.prenom || ''} ${e.nom || ''}`.trim();
+@@ -67,6 +70,7 @@ export default function ElevesPage() {
+   const [error, setError] = useState('');
+   const [annee, setAnnee] = useState('');
+   const [filters, setFilters] = useState(EMPTY_FILTERS);
++  const [filtresOuverts, setFiltresOuverts] = useState(false);
+   const [sort, setSort] = useState({ key: 'nom', asc: true });
+   const [panels, setPanels] = useState({ classes: true, annees: false, profil: false });
+   const [ch, setCh] = useState({ anneeClasses: '', cycleClasses: '', detailClasses: 'total', classeAnnees: '', sexeAnnees: '', anneeProfil: '', classeProfil: '' });
+@@ -180,6 +184,13 @@ export default function ElevesPage() {
+     filters.ageMax !== '' && ['ageMax', `≤ ${filters.ageMax} ans`],
+   ].filter(Boolean);
+ 
++  const nbFiltresAvances = FILTRES_AVANCES.filter((k) => filters[k] !== '').length;
++  const reinitialiserAvances = () => {
++    setFilters((f) => ({ ...f, sexe: '', statut: '', scolarite: '', ageMin: '', ageMax: '' }));
++    pagination.reset();
++  };
++  const choisirFiltre = (name, value) => { setFilters((f) => ({ ...f, [name]: f[name] === value ? '' : value })); pagination.reset(); };
++
+   const changeAnnee = (value) => {
+     setAnnee(value);
+     setCh((c) => ({ ...c, anneeClasses: value, anneeProfil: value }));
+@@ -201,7 +212,11 @@ export default function ElevesPage() {
+       const el = eleveById[i.eleve_id];
+       if (el && (el.sexe === 'M' || el.sexe === 'F')) b[el.sexe]++;
+     });
+-    const ids = Object.keys(buckets).map(Number).sort((a, b) => classeLabel(classeById[a]).localeCompare(classeLabel(classeById[b])));
++    // Libellés de l'axe : l'option seule (« 6ème A »), sans le cycle ; repli sur
++    // le libellé complet si la classe n'a pas d'option. Le détail complet reste
++    // visible dans l'infobulle.
++    const courtLabel = (id) => classeById[id]?.option || classeLabel(classeById[id]);
++    const ids = Object.keys(buckets).map(Number).sort((a, b) => courtLabel(a).localeCompare(courtLabel(b), 'fr', { numeric: true }));
+     const total = ids.reduce((s, id) => s + buckets[id].total, 0);
+     const meta = `${anneeLabel(anneeId)} · ${total} inscription${total > 1 ? 's' : ''}`;
+     if (!ids.length) return { meta, config: null };
+@@ -215,9 +230,12 @@ export default function ElevesPage() {
+       meta,
+       config: {
+         type: 'bar',
+-        data: { labels: ids.map((id) => classeLabel(classeById[id])), datasets },
++        data: { labels: ids.map(courtLabel), datasets },
+         options: {
+-          plugins: { legend: { display: parSexe, position: 'bottom' } },
++          plugins: {
++            legend: { display: parSexe, position: 'bottom' },
++            tooltip: { callbacks: { title: (items) => classeLabel(classeById[ids[items[0]?.dataIndex]]) } },
++          },
+           scales: { x: { stacked: parSexe, grid: { display: false }, ticks: { maxRotation: 60, minRotation: 0 } }, y: { stacked: parSexe, beginAtZero: true, grid: GRID, ticks: { precision: 0 } } },
+         },
+       },
+@@ -494,7 +512,21 @@ export default function ElevesPage() {
+       <div className="card mb-3">
+         <div className="card-body">
+           <h6 className="mb-3"><i className="bx bx-filter-alt me-1" /> Filtres {chips.length > 0 && <span className="badge rounded-pill bg-primary ms-1">{chips.length}</span>}</h6>
+-          <div className="row g-2 align-items-end">
++          {/* Mobile : l'essentiel (recherche, année, classe) + bouton vers la feuille des autres filtres */}
++          <div className="filtres-mobile d-md-none">
++            <input type="search" className="form-control" placeholder="Nom, prénom, matricule…" value={filters.q} onChange={setFilter('q')} />
++            <div className="row g-2 mt-0">
++              <div className="col-6"><label className="form-label">Année scolaire</label><Select className="form-select" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
++              <div className="col-6"><label className="form-label">Classe</label><Select className="form-select" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes</option>{classeOptions}</Select></div>
++            </div>
++            <button type="button" className="btn btn-outline-primary w-100 filtres-bouton" onClick={() => setFiltresOuverts(true)}>
++              <i className="bx bx-slider-alt me-2" /> Plus de filtres
++              {nbFiltresAvances > 0 && <span className="badge rounded-pill bg-primary ms-2">{nbFiltresAvances}</span>}
++            </button>
++          </div>
++
++          {/* Ordinateur / tablette : tous les filtres en ligne */}
++          <div className="row g-2 align-items-end d-none d-md-flex">
+             <div className="col-md-3"><label className="form-label">Rechercher</label><input type="search" className="form-control form-control-sm" placeholder="Nom, prénom, matricule…" value={filters.q} onChange={setFilter('q')} /></div>
+             <div className="col-md-2"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
+             <div className="col-md-2"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes</option>{classeOptions}</Select></div>
+@@ -506,6 +538,48 @@ export default function ElevesPage() {
+             <div className="col-md-2"><button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => { setFilters(EMPTY_FILTERS); pagination.reset(); }}><i className="bx bx-reset me-1" /> Réinitialiser</button></div>
+           </div>
+           <FilterChips chips={chips} onClear={(key) => { setFilters((f) => ({ ...f, [key]: '' })); pagination.reset(); }} />
++
++          <BottomSheet open={filtresOuverts} onClose={() => setFiltresOuverts(false)} title="Filtres" className="filtres-sheet">
++            <div className="filtres-groupe">
++              <span className="filtres-etiquette">Sexe</span>
++              <div className="filtres-puces">
++                {[['', 'Tous'], ['M', 'Garçons'], ['F', 'Filles']].map(([v, l]) => (
++                  <button key={l} type="button" className={`filtres-puce${filters.sexe === v ? ' actif' : ''}`} onClick={() => choisirFiltre('sexe', v)}>{l}</button>
++                ))}
++              </div>
++            </div>
++            <div className="filtres-groupe">
++              <span className="filtres-etiquette">Statut de l'élève</span>
++              <div className="filtres-puces">
++                {[['', 'Tous'], ['Actif', 'Actif'], ['Inactif', 'Inactif']].map(([v, l]) => (
++                  <button key={l} type="button" className={`filtres-puce${filters.statut === v ? ' actif' : ''}`} onClick={() => choisirFiltre('statut', v)}>{l}</button>
++                ))}
++              </div>
++            </div>
++            <div className="filtres-groupe">
++              <span className="filtres-etiquette">Scolarité</span>
++              <div className="filtres-puces">
++                {[['', 'Tous'], ...Object.entries(SCOLARITE_LABELS)].map(([v, l]) => (
++                  <button key={l} type="button" className={`filtres-puce${filters.scolarite === v ? ' actif' : ''}`} onClick={() => choisirFiltre('scolarite', v)}>{l}</button>
++                ))}
++              </div>
++            </div>
++            <div className="filtres-groupe">
++              <span className="filtres-etiquette">Âge</span>
++              <div className="filtres-ages">
++                <input type="number" inputMode="numeric" min="0" max="40" className="form-control" placeholder="Min" aria-label="Âge minimum" value={filters.ageMin} onChange={setFilter('ageMin')} />
++                <span className="text-muted">à</span>
++                <input type="number" inputMode="numeric" min="0" max="40" className="form-control" placeholder="Max" aria-label="Âge maximum" value={filters.ageMax} onChange={setFilter('ageMax')} />
++                <span className="text-muted">ans</span>
++              </div>
++            </div>
++            <div className="filtres-pied">
++              <button type="button" className="btn btn-outline-secondary" disabled={!nbFiltresAvances} onClick={reinitialiserAvances}>Réinitialiser</button>
++              <button type="button" className="btn btn-primary flex-grow-1" onClick={() => setFiltresOuverts(false)}>
++                Voir {filtered.length} élève{filtered.length > 1 ? 's' : ''}
++              </button>
++            </div>
++          </BottomSheet>
+           <div className="d-flex flex-wrap align-items-center gap-2 border-top mt-3 pt-3">
+             {classeChoisie ? (
+               <>
