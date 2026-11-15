@@ -396,3 +396,149 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
             and entity.id not in classe_ids_restriction):
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
     return delete_entity(entity)
+
+
+# ---------------------------------------------------------------------------
+# Suppression d'une classe (avec ou sans cascade)
+#
+# Une classe est référencée (clé étrangère NOT NULL, sans cascade) par ses
+# inscriptions, ses matières (MatiereClasse, qui portent à leur tour notes,
+# horaires et épreuves), ses tranches de paiement, ses titulaires et les
+# Censeurs/Surveillants assignés. Classe vide -> suppression simple. Sinon on
+# refuse par défaut (409 + détail chiffré) ; l'interface affiche ce détail et,
+# si l'administrateur confirme, redemande avec ?cascade=1 : tout ce qui est
+# rattaché à la classe part dans UNE seule transaction (tout ou rien).
+# Les ÉLÈVES eux-mêmes ne sont pas supprimés : seule leur inscription dans
+# cette classe l'est (avec ses notes, fiches de discipline et paiements).
+# ---------------------------------------------------------------------------
+
+_LIBELLES_LIENS_CLASSE = (
+    ('inscriptions', 'élève inscrit', 'élèves inscrits'),
+    ('notes', 'note', 'notes'),
+    ('disciplines', 'fiche de discipline', 'fiches de discipline'),
+    ('paiements', 'paiement', 'paiements'),
+    ('tranches', 'tranche de paiement', 'tranches de paiement'),
+    ('matieres', 'matière', 'matières'),
+    ('horaires', "créneau d'emploi du temps", "créneaux d'emploi du temps"),
+    ('epreuves', 'épreuve', 'épreuves'),
+    ('titulaires', 'titulaire', 'titulaires'),
+    ('censeurs', 'censeur assigné', 'censeurs assignés'),
+    ('surveillants', 'surveillant assigné', 'surveillants assignés'),
+)
+
+
+def _collecter_liens_classe(classe):
+    """Lignes rattachées à la classe, par famille ({famille: [objets]})."""
+    from models.inscription_models import Inscription
+    from models.evaluation_models import Note, Discipline
+    from models.paiements_models import Paiement, LignePaiement, TrancheClasse
+    from models.pedagogie_models import MatiereClasse, TitulaireClasse, CenseurClasse, SurveillantClasse
+    from models.emploi_du_temps_models import Horaire
+    from models.epreuve_models import Epreuve
+
+    inscriptions = Inscription.query.filter_by(classe_id=classe.id).all()
+    insc_ids = [i.id for i in inscriptions]
+    matieres = MatiereClasse.query.filter_by(classe_id=classe.id).all()
+    mc_ids = [m.id for m in matieres]
+    tranches = TrancheClasse.query.filter_by(classe_id=classe.id).all()
+    tranche_ids = [t.id for t in tranches]
+
+    paiements = Paiement.query.filter(Paiement.inscription_id.in_(insc_ids)).all() if insc_ids else []
+    paiement_ids = {p.id for p in paiements}
+    # Lignes des paiements supprimés + éventuelles lignes pointant sur une
+    # tranche de cette classe (sans quoi la clé étrangère bloquerait).
+    lignes = {}
+    if paiement_ids:
+        for ligne in LignePaiement.query.filter(LignePaiement.paiement_id.in_(paiement_ids)).all():
+            lignes[ligne.id] = ligne
+    if tranche_ids:
+        for ligne in LignePaiement.query.filter(LignePaiement.tranche_classe_id.in_(tranche_ids)).all():
+            lignes[ligne.id] = ligne
+
+    # Notes : celles des élèves de la classe ET celles saisies sur ses matières
+    # (un élève changé de classe garde des notes rattachées à l'ancienne).
+    notes = {}
+    if insc_ids:
+        for n in Note.query.filter(Note.inscription_id.in_(insc_ids)).all():
+            notes[n.id] = n
+    if mc_ids:
+        for n in Note.query.filter(Note.matiere_classe_id.in_(mc_ids)).all():
+            notes[n.id] = n
+
+    return {
+        'inscriptions': inscriptions,
+        'notes': list(notes.values()),
+        'disciplines': Discipline.query.filter(Discipline.inscription_id.in_(insc_ids)).all() if insc_ids else [],
+        'paiements': paiements,
+        'lignes_paiement': list(lignes.values()),
+        'tranches': tranches,
+        'matieres': matieres,
+        'horaires': Horaire.query.filter(Horaire.matiere_classe_id.in_(mc_ids)).all() if mc_ids else [],
+        'epreuves': Epreuve.query.filter(Epreuve.matiere_classe_id.in_(mc_ids)).all() if mc_ids else [],
+        'titulaires': TitulaireClasse.query.filter_by(classe_id=classe.id).all(),
+        'censeurs': CenseurClasse.query.filter_by(classe_id=classe.id).all(),
+        'surveillants': SurveillantClasse.query.filter_by(classe_id=classe.id).all(),
+    }
+
+
+def liens_classe(classe):
+    """{famille: nombre} des seules familles non vides ({} = classe vide)."""
+    liens = _collecter_liens_classe(classe)
+    return {cle: len(liens[cle]) for cle, _, _ in _LIBELLES_LIENS_CLASSE if liens[cle]}
+
+
+def _decrire_liens_classe(comptes):
+    morceaux = [f"{comptes[cle]} {sing if comptes[cle] == 1 else plur}"
+                for cle, sing, plur in _LIBELLES_LIENS_CLASSE if cle in comptes]
+    if len(morceaux) > 1:
+        return ', '.join(morceaux[:-1]) + ' et ' + morceaux[-1]
+    return morceaux[0] if morceaux else ''
+
+
+def _supprimer_classe_en_cascade(classe):
+    from models.epreuve_models import Epreuve
+    try:
+        liens = _collecter_liens_classe(classe)
+        comptes = {cle: len(liens[cle]) for cle, _, _ in _LIBELLES_LIENS_CLASSE}
+        fichiers_epreuves = [(e.etablissement_id, e.fichier) for e in liens['epreuves']]
+
+        # Ordre : du plus dépendant au moins dépendant, avec un flush entre
+        # chaque niveau pour que les DELETE partent dans le bon ordre.
+        for famille in (('lignes_paiement',), ('paiements', 'notes', 'disciplines', 'horaires', 'epreuves'),
+                        ('inscriptions', 'matieres', 'tranches', 'titulaires', 'censeurs', 'surveillants')):
+            for cle in famille:
+                for objet in liens[cle]:
+                    db.session.delete(objet)
+            db.session.flush()
+        db.session.delete(classe)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Échec de la suppression en cascade de la classe %s", classe.id)
+        return {"erreur": "Erreur lors de la suppression : rien n'a été supprimé."}, 500
+
+    # Fichiers d'épreuves retirés du disque seulement APRÈS le commit réussi.
+    from services.epreuve_services import delete_epreuve_file
+    for etab_id, fichier in fichiers_epreuves:
+        delete_epreuve_file(etab_id, fichier)
+    return {"message": "Classe et données rattachées supprimées", "supprime": comptes}, 200
+
+
+def supprimer_classe(classe, etablissement_id, classe_ids_restriction=None, cascade=False):
+    """Classe vide -> supprimée. Classe liée -> 409 détaillé, sauf cascade=True."""
+    if get_etablissement_id_of(classe) != etablissement_id:
+        return {"erreur": "Accès non autorisé à cette ressource"}, 403
+    if classe_ids_restriction is not None and classe.id not in classe_ids_restriction:
+        return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+    comptes = liens_classe(classe)
+    if not comptes:
+        return delete_entity(classe)
+    if not cascade:
+        return {
+            "erreur": f"Cette classe est liée à {_decrire_liens_classe(comptes)}. "
+                      "Confirmez la suppression définitive pour tout supprimer.",
+            "code": "classe_liee",
+            "details": comptes,
+        }, 409
+    return _supprimer_classe_en_cascade(classe)
+

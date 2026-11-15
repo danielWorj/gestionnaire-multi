@@ -8,6 +8,7 @@ import {
 } from '../components/ui';
 import Select from '../components/Select';
 import ImportModal from '../components/importConfigs';
+import SuppressionClasseModal from '../components/SuppressionClasseModal';
 import { roleDe } from '../components/Layout';
 
 // Portage de server/static/templates/configuration.html : années scolaires,
@@ -27,6 +28,8 @@ export default function ConfigurationPage() {
   const [anneeSel, setAnneeSel] = useState(null); // { id, libelle } — trimestres affichés
   const [trimestreSel, setTrimestreSel] = useState(null); // { id, libelle } — séquences affichées
   const [filterCycle, setFilterCycle] = useState('');
+  const [searchClasse, setSearchClasse] = useState('');
+  const [suppressionClasse, setSuppressionClasse] = useState(null); // { classe, label, liens, enCours }
   const [modal, setModal] = useState(null); // { kind, data }
   const [identifiants, setIdentifiants] = useState(null); // { nom, code, pin, titre? }
 
@@ -63,6 +66,37 @@ export default function ConfigurationPage() {
       toast('Élément supprimé.');
       await loadAll();
     } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
+
+  // Classe vide -> simple confirmation. Classe contenant des élèves, notes ou
+  // liens -> fenêtre détaillée, puis suppression en cascade si confirmée.
+  const supprimerClasse = async (c) => {
+    const label = classeLabelCourt(c.id);
+    try {
+      const { liens } = await api.get(`/classes/${c.id}/liens`, { sansCopieLocale: true });
+      if (Object.keys(liens || {}).length) {
+        setSuppressionClasse({ classe: c, label, liens, enCours: false });
+        return;
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+      return;
+    }
+    await supprimer(`/classes/${c.id}`, label);
+  };
+
+  const confirmerSuppressionClasse = async () => {
+    const { classe } = suppressionClasse;
+    setSuppressionClasse((s) => ({ ...s, enCours: true }));
+    try {
+      await api.del(`/classes/${classe.id}?cascade=1`);
+      setSuppressionClasse(null);
+      toast('Classe et données rattachées supprimées.');
+      await loadAll();
+    } catch (err) {
+      setSuppressionClasse((s) => s && ({ ...s, enCours: false }));
       toast(err.message, 'error');
     }
   };
@@ -149,7 +183,15 @@ export default function ConfigurationPage() {
 
   const trimestresAnnee = anneeSel ? trimestres.filter((t) => t.annee_scolaire_id === anneeSel.id) : [];
   const sequencesTrimestre = trimestreSel ? sequences.filter((s) => s.trimestre_id === trimestreSel.id) : [];
-  const classesFiltrees = filterCycle ? classes.filter((c) => String(c.cycle_id) === filterCycle) : classes;
+  // Recherche insensible à la casse et aux accents, sur le libellé affiché
+  // (cycle + option) : « 6e a » ou « sixieme » retrouvent « 6ème A ».
+  const normaliser = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const termesRecherche = normaliser(searchClasse).split(/\s+/).filter(Boolean);
+  const classesFiltrees = classes.filter((c) => {
+    if (filterCycle && String(c.cycle_id) !== filterCycle) return false;
+    const cible = normaliser(classeLabelCourt(c.id));
+    return termesRecherche.every((t) => cible.includes(t));
+  });
   const addBtn = (label, onClick) => (
     <button type="button" className="btn btn-primary btn-sm" onClick={onClick}><i className="bx bx-plus me-1" /> {label}</button>
   );
@@ -285,9 +327,20 @@ export default function ConfigurationPage() {
           <TableCard
             title="Classes"
             icon="bx-chalkboard"
-            count={classes.length}
+            count={(filterCycle || termesRecherche.length) ? classesFiltrees.length : classes.length}
             actions={(
               <>
+                <div className="input-group input-group-sm" style={{ width: 220 }}>
+                  <span className="input-group-text"><i className="bx bx-search" /></span>
+                  <input
+                    type="search"
+                    className="form-control"
+                    placeholder="Rechercher une classe…"
+                    aria-label="Rechercher une classe"
+                    value={searchClasse}
+                    onChange={(e) => setSearchClasse(e.target.value)}
+                  />
+                </div>
                 <Select className="form-select form-select-sm" style={{ width: 'auto' }} value={filterCycle} onChange={(e) => setFilterCycle(e.target.value)}>
                   <option value="">Tous les cycles</option>
                   {cycles.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
@@ -298,7 +351,7 @@ export default function ConfigurationPage() {
           >
             <table className="table table-hover mb-0">
               <thead><tr><th>Cycle</th><th>Option</th><th>Effectif</th><th className="text-end">Actions</th></tr></thead>
-              <TBody colSpan={4} loading={loading} rows={classesFiltrees.length} empty="Aucune classe.">
+              <TBody colSpan={4} loading={loading} rows={classesFiltrees.length} empty={(filterCycle || termesRecherche.length) ? 'Aucune classe ne correspond à la recherche.' : 'Aucune classe.'}>
                 {classesFiltrees.map((c) => (
                   <tr key={c.id}>
                     <td><strong>{cycleLibelle(c.cycle_id)}</strong></td>
@@ -306,7 +359,7 @@ export default function ConfigurationPage() {
                     <td><span className="badge bg-label-primary">{c.effectif || 0}</span></td>
                     <td className="text-end text-nowrap">
                       <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'classe', data: c })} />
-                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/classes/${c.id}`, `${cycleLibelle(c.cycle_id)} ${c.option || ''}`)} />
+                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimerClasse(c)} />
                     </td>
                   </tr>
                 ))}
@@ -383,6 +436,16 @@ export default function ConfigurationPage() {
           parent={{ trimestre_id: trimestreSel?.id }}
           onClose={() => setModal(null)}
           onSaved={onSaved}
+        />
+      )}
+      {suppressionClasse && (
+        <SuppressionClasseModal
+          label={suppressionClasse.label}
+          liens={suppressionClasse.liens}
+          peutSupprimer={peutImporter}
+          enCours={suppressionClasse.enCours}
+          onConfirm={confirmerSuppressionClasse}
+          onClose={() => setSuppressionClasse(null)}
         />
       )}
       {modal?.kind === 'cycle' && <CycleModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} />}

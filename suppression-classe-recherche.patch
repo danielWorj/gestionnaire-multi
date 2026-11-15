@@ -1,0 +1,487 @@
+diff --git a/server/api/structure_api.py b/server/api/structure_api.py
+index 75b0bfe..3ab9829 100644
+--- a/server/api/structure_api.py
++++ b/server/api/structure_api.py
+@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
+ from services.structure_services import (
+     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
+     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
+-    update_entity_scoped, delete_entity_scoped,
++    update_entity_scoped, delete_entity_scoped, supprimer_classe, liens_classe,
+     create_etablissement, update_etablissement, LOGOS_DIR,
+ )
+ from models.structure_models import (
+@@ -16,6 +16,7 @@ from models.structure_models import (
+ # dans pedagogie_api.py / Horaire dans emploi_du_temps_api.py — cf. synthèse
+ # d'assignation Censeur/Surveillant ↔ Classe.
+ from services.pedagogie_services import resolve_classe_ids_restriction
++from services.inscription_services import ROLES_SUPPRESSION_CASCADE
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -232,9 +233,32 @@ def make_scoped_crud_blueprint(name, model, url_prefix,
+         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
+         if not entity:
+             return jsonify({"erreur": f"{name} non trouvé"}), 404
++        if model is Classe:
++            # Classe vide -> supprimée ; classe liée -> 409 détaillé, sauf
++            # ?cascade=1 (Admin/SuperAdmin) qui supprime tout ce qui s'y rattache.
++            cascade = request.args.get("cascade", "").lower() in ("1", "true")
++            if cascade and get_jwt().get("role") not in ROLES_SUPPRESSION_CASCADE:
++                return jsonify({"erreur": "Seul un administrateur peut supprimer définitivement "
++                                          "une classe et ses données"}), 403
++            result, status = supprimer_classe(entity, etab_id, _current_classe_restriction(), cascade=cascade)
++            return jsonify(result), status
+         result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
+         return jsonify(result), status
+ 
++    if model is Classe:
++        @bp.route('/<int:id>/liens', methods=['GET'])
++        def get_liens(id):
++            # Ce qui est rattaché à la classe (élèves, notes, ...) : montré avant
++            # la suppression. Réservé à ceux qui peuvent supprimer (la garde du
++            # blueprint laisserait sinon lire en GET un Censeur/Surveillant).
++            if get_jwt().get("role") not in roles_ecriture:
++                return jsonify({"erreur": "Accès non autorisé"}), 403
++            etab_id = _current_etablissement_id()
++            entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
++            if not entity:
++                return jsonify({"erreur": "classe non trouvé"}), 404
++            return jsonify({"classe_id": entity.id, "liens": liens_classe(entity)}), 200
++
+     return bp
+ 
+ 
+diff --git a/server/services/structure_services.py b/server/services/structure_services.py
+index ba315cb..9f8c4bf 100644
+--- a/server/services/structure_services.py
++++ b/server/services/structure_services.py
+@@ -395,4 +395,150 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
+     if (isinstance(entity, Classe) and classe_ids_restriction is not None
+             and entity.id not in classe_ids_restriction):
+         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+-    return delete_entity(entity)
+\ No newline at end of file
++    return delete_entity(entity)
++
++
++# ---------------------------------------------------------------------------
++# Suppression d'une classe (avec ou sans cascade)
++#
++# Une classe est référencée (clé étrangère NOT NULL, sans cascade) par ses
++# inscriptions, ses matières (MatiereClasse, qui portent à leur tour notes,
++# horaires et épreuves), ses tranches de paiement, ses titulaires et les
++# Censeurs/Surveillants assignés. Classe vide -> suppression simple. Sinon on
++# refuse par défaut (409 + détail chiffré) ; l'interface affiche ce détail et,
++# si l'administrateur confirme, redemande avec ?cascade=1 : tout ce qui est
++# rattaché à la classe part dans UNE seule transaction (tout ou rien).
++# Les ÉLÈVES eux-mêmes ne sont pas supprimés : seule leur inscription dans
++# cette classe l'est (avec ses notes, fiches de discipline et paiements).
++# ---------------------------------------------------------------------------
++
++_LIBELLES_LIENS_CLASSE = (
++    ('inscriptions', 'élève inscrit', 'élèves inscrits'),
++    ('notes', 'note', 'notes'),
++    ('disciplines', 'fiche de discipline', 'fiches de discipline'),
++    ('paiements', 'paiement', 'paiements'),
++    ('tranches', 'tranche de paiement', 'tranches de paiement'),
++    ('matieres', 'matière', 'matières'),
++    ('horaires', "créneau d'emploi du temps", "créneaux d'emploi du temps"),
++    ('epreuves', 'épreuve', 'épreuves'),
++    ('titulaires', 'titulaire', 'titulaires'),
++    ('censeurs', 'censeur assigné', 'censeurs assignés'),
++    ('surveillants', 'surveillant assigné', 'surveillants assignés'),
++)
++
++
++def _collecter_liens_classe(classe):
++    """Lignes rattachées à la classe, par famille ({famille: [objets]})."""
++    from models.inscription_models import Inscription
++    from models.evaluation_models import Note, Discipline
++    from models.paiements_models import Paiement, LignePaiement, TrancheClasse
++    from models.pedagogie_models import MatiereClasse, TitulaireClasse, CenseurClasse, SurveillantClasse
++    from models.emploi_du_temps_models import Horaire
++    from models.epreuve_models import Epreuve
++
++    inscriptions = Inscription.query.filter_by(classe_id=classe.id).all()
++    insc_ids = [i.id for i in inscriptions]
++    matieres = MatiereClasse.query.filter_by(classe_id=classe.id).all()
++    mc_ids = [m.id for m in matieres]
++    tranches = TrancheClasse.query.filter_by(classe_id=classe.id).all()
++    tranche_ids = [t.id for t in tranches]
++
++    paiements = Paiement.query.filter(Paiement.inscription_id.in_(insc_ids)).all() if insc_ids else []
++    paiement_ids = {p.id for p in paiements}
++    # Lignes des paiements supprimés + éventuelles lignes pointant sur une
++    # tranche de cette classe (sans quoi la clé étrangère bloquerait).
++    lignes = {}
++    if paiement_ids:
++        for ligne in LignePaiement.query.filter(LignePaiement.paiement_id.in_(paiement_ids)).all():
++            lignes[ligne.id] = ligne
++    if tranche_ids:
++        for ligne in LignePaiement.query.filter(LignePaiement.tranche_classe_id.in_(tranche_ids)).all():
++            lignes[ligne.id] = ligne
++
++    # Notes : celles des élèves de la classe ET celles saisies sur ses matières
++    # (un élève changé de classe garde des notes rattachées à l'ancienne).
++    notes = {}
++    if insc_ids:
++        for n in Note.query.filter(Note.inscription_id.in_(insc_ids)).all():
++            notes[n.id] = n
++    if mc_ids:
++        for n in Note.query.filter(Note.matiere_classe_id.in_(mc_ids)).all():
++            notes[n.id] = n
++
++    return {
++        'inscriptions': inscriptions,
++        'notes': list(notes.values()),
++        'disciplines': Discipline.query.filter(Discipline.inscription_id.in_(insc_ids)).all() if insc_ids else [],
++        'paiements': paiements,
++        'lignes_paiement': list(lignes.values()),
++        'tranches': tranches,
++        'matieres': matieres,
++        'horaires': Horaire.query.filter(Horaire.matiere_classe_id.in_(mc_ids)).all() if mc_ids else [],
++        'epreuves': Epreuve.query.filter(Epreuve.matiere_classe_id.in_(mc_ids)).all() if mc_ids else [],
++        'titulaires': TitulaireClasse.query.filter_by(classe_id=classe.id).all(),
++        'censeurs': CenseurClasse.query.filter_by(classe_id=classe.id).all(),
++        'surveillants': SurveillantClasse.query.filter_by(classe_id=classe.id).all(),
++    }
++
++
++def liens_classe(classe):
++    """{famille: nombre} des seules familles non vides ({} = classe vide)."""
++    liens = _collecter_liens_classe(classe)
++    return {cle: len(liens[cle]) for cle, _, _ in _LIBELLES_LIENS_CLASSE if liens[cle]}
++
++
++def _decrire_liens_classe(comptes):
++    morceaux = [f"{comptes[cle]} {sing if comptes[cle] == 1 else plur}"
++                for cle, sing, plur in _LIBELLES_LIENS_CLASSE if cle in comptes]
++    if len(morceaux) > 1:
++        return ', '.join(morceaux[:-1]) + ' et ' + morceaux[-1]
++    return morceaux[0] if morceaux else ''
++
++
++def _supprimer_classe_en_cascade(classe):
++    from models.epreuve_models import Epreuve
++    try:
++        liens = _collecter_liens_classe(classe)
++        comptes = {cle: len(liens[cle]) for cle, _, _ in _LIBELLES_LIENS_CLASSE}
++        fichiers_epreuves = [(e.etablissement_id, e.fichier) for e in liens['epreuves']]
++
++        # Ordre : du plus dépendant au moins dépendant, avec un flush entre
++        # chaque niveau pour que les DELETE partent dans le bon ordre.
++        for famille in (('lignes_paiement',), ('paiements', 'notes', 'disciplines', 'horaires', 'epreuves'),
++                        ('inscriptions', 'matieres', 'tranches', 'titulaires', 'censeurs', 'surveillants')):
++            for cle in famille:
++                for objet in liens[cle]:
++                    db.session.delete(objet)
++            db.session.flush()
++        db.session.delete(classe)
++        db.session.commit()
++    except Exception:
++        db.session.rollback()
++        current_app.logger.exception("Échec de la suppression en cascade de la classe %s", classe.id)
++        return {"erreur": "Erreur lors de la suppression : rien n'a été supprimé."}, 500
++
++    # Fichiers d'épreuves retirés du disque seulement APRÈS le commit réussi.
++    from services.epreuve_services import delete_epreuve_file
++    for etab_id, fichier in fichiers_epreuves:
++        delete_epreuve_file(etab_id, fichier)
++    return {"message": "Classe et données rattachées supprimées", "supprime": comptes}, 200
++
++
++def supprimer_classe(classe, etablissement_id, classe_ids_restriction=None, cascade=False):
++    """Classe vide -> supprimée. Classe liée -> 409 détaillé, sauf cascade=True."""
++    if get_etablissement_id_of(classe) != etablissement_id:
++        return {"erreur": "Accès non autorisé à cette ressource"}, 403
++    if classe_ids_restriction is not None and classe.id not in classe_ids_restriction:
++        return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
++    comptes = liens_classe(classe)
++    if not comptes:
++        return delete_entity(classe)
++    if not cascade:
++        return {
++            "erreur": f"Cette classe est liée à {_decrire_liens_classe(comptes)}. "
++                      "Confirmez la suppression définitive pour tout supprimer.",
++            "code": "classe_liee",
++            "details": comptes,
++        }, 409
++    return _supprimer_classe_en_cascade(classe)
++
+diff --git a/server/tests/test_suppression_classe.py b/server/tests/test_suppression_classe.py
+new file mode 100644
+index 0000000..703831b
+--- /dev/null
++++ b/server/tests/test_suppression_classe.py
+@@ -0,0 +1,69 @@
++"""Suppression d'une classe : directe si elle est vide ; sinon 409 détaillé, puis
++suppression en cascade (?cascade=1, Admin) de tout ce qui s'y rattache. Les
++élèves eux-mêmes sont conservés : seule leur inscription dans la classe part."""
++from extensions import db
++from models.evaluation_models import Note, Discipline
++from models.inscription_models import Eleve, Inscription
++from models.pedagogie_models import MatiereClasse, CenseurClasse
++from models.structure_models import Classe, Cycle
++
++
++def _classe_vide(monde):
++    cycle = Cycle(etablissement_id=monde.etab_id, libelle='5e')
++    db.session.add(cycle)
++    db.session.flush()
++    classe = Classe(etablissement_id=monde.etab_id, cycle_id=cycle.id, option='Z')
++    db.session.add(classe)
++    db.session.commit()
++    return classe.id
++
++
++def _donnees(monde):
++    db.session.add(Note(inscription_id=monde.inscription_id, matiere_classe_id=monde.mc_id,
++                        sequence_id=monde.sequence_id, valeur=12))
++    db.session.add(Discipline(inscription_id=monde.inscription_id, sequence_id=monde.sequence_id))
++    db.session.commit()
++
++
++def test_classe_vide_supprimee_directement(monde, connecter):
++    cid = _classe_vide(monde)
++    admin = connecter(monde.admin_compte)
++    assert admin.get(f'/api/classes/{cid}/liens').get_json()['liens'] == {}
++    rep = admin.delete(f'/api/classes/{cid}')
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Classe, cid) is None
++
++
++def test_classe_liee_refusee_sans_cascade_avec_details(monde, connecter):
++    _donnees(monde)
++    admin = connecter(monde.admin_compte)
++    liens = admin.get(f'/api/classes/{monde.classe_id}/liens').get_json()['liens']
++    assert liens['inscriptions'] == 1 and liens['notes'] == 1 and liens['disciplines'] == 1
++    assert liens['matieres'] == 1 and liens['censeurs'] == 1
++    rep = admin.delete(f'/api/classes/{monde.classe_id}')
++    data = rep.get_json()
++    assert rep.status_code == 409 and data['code'] == 'classe_liee', data
++    assert data['details'] == liens
++    # Rien n'a été supprimé.
++    assert db.session.get(Classe, monde.classe_id) is not None
++    assert Note.query.count() == 1 and Inscription.query.count() == 1
++
++
++def test_cascade_supprime_tout_sauf_l_eleve(monde, connecter):
++    _donnees(monde)
++    admin = connecter(monde.admin_compte)
++    rep = admin.delete(f'/api/classes/{monde.classe_id}?cascade=1')
++    assert rep.status_code == 200, rep.get_json()
++    assert db.session.get(Classe, monde.classe_id) is None
++    assert Inscription.query.count() == 0
++    assert Note.query.count() == 0 and Discipline.query.count() == 0
++    assert MatiereClasse.query.count() == 0 and CenseurClasse.query.count() == 0
++    # Le dossier de l'élève est conservé.
++    assert db.session.get(Eleve, monde.eleve_id) is not None
++
++
++def test_cascade_refusee_au_censeur(monde, connecter):
++    censeur = connecter(monde.censeur_compte)
++    assert censeur.delete(f'/api/classes/{monde.classe_id}?cascade=1').status_code == 403
++    assert censeur.get(f'/api/classes/{monde.classe_id}/liens').status_code == 403
++    assert db.session.get(Classe, monde.classe_id) is not None
+diff --git a/web/src/components/SuppressionClasseModal.jsx b/web/src/components/SuppressionClasseModal.jsx
+new file mode 100644
+index 0000000..e937931
+--- /dev/null
++++ b/web/src/components/SuppressionClasseModal.jsx
+@@ -0,0 +1,62 @@
++import { useState } from 'react';
++import Modal from './Modal';
++
++// Fenêtre affichée quand une classe contient des données (élèves, notes,
++// liens…) : on les signale et on demande confirmation avant la suppression
++// DÉFINITIVE (DELETE /classes/<id>?cascade=1, réservé à l'administrateur).
++// Les élèves ne sont pas supprimés : seule leur inscription dans cette classe
++// l'est, avec ses notes, fiches de discipline et paiements.
++const LIBELLES = [
++  ['inscriptions', 'bx-user', 'élève(s) inscrit(s) (inscription retirée, dossier conservé)'],
++  ['notes', 'bx-edit', 'note(s)'],
++  ['disciplines', 'bx-shield-quarter', 'fiche(s) de discipline'],
++  ['paiements', 'bx-wallet', 'paiement(s) et leurs reçus'],
++  ['tranches', 'bx-money', 'tranche(s) de paiement'],
++  ['matieres', 'bx-book', 'matière(s) rattachée(s) (enseignants, coefficients)'],
++  ['horaires', 'bx-time', "créneau(x) d'emploi du temps"],
++  ['epreuves', 'bx-file', 'épreuve(s) (fichiers compris)'],
++  ['titulaires', 'bx-user-check', 'titulaire(s)'],
++  ['censeurs', 'bx-id-card', 'censeur(s) assigné(s)'],
++  ['surveillants', 'bx-id-card', 'surveillant(s) assigné(s)'],
++];
++
++export default function SuppressionClasseModal({ label, liens, peutSupprimer, enCours, onConfirm, onClose }) {
++  const [compris, setCompris] = useState(false);
++  return (
++    <Modal
++      title={`Supprimer la classe « ${label} » ?`}
++      onClose={enCours ? () => {} : onClose}
++      footer={(
++        <>
++          <button type="button" className="btn btn-outline-secondary" onClick={onClose} disabled={enCours}>Annuler</button>
++          {peutSupprimer && (
++            <button type="button" className="btn btn-danger" disabled={!compris || enCours} onClick={onConfirm}>
++              <i className="bx bx-trash me-1" />{enCours ? 'Suppression…' : 'Supprimer définitivement'}
++            </button>
++          )}
++        </>
++      )}
++    >
++      <div className="alert alert-warning py-2 small">Cette classe contient des données rattachées :</div>
++      <ul className="list-unstyled mb-3">
++        {LIBELLES.filter(([cle]) => liens[cle]).map(([cle, icone, texte]) => (
++          <li key={cle} className="mb-1">
++            <i className={`bx ${icone} me-2 text-primary`} />
++            <span className="badge bg-label-primary me-1">{liens[cle]}</span>{texte}
++          </li>
++        ))}
++      </ul>
++      <div className="alert alert-danger mb-0 small">
++        <strong>Action irréversible.</strong> Si vous confirmez, tout ce qui précède sera supprimé, puis la classe elle-même.
++        {peutSupprimer ? (
++          <div className="form-check mt-2">
++            <input id="supp-classe-compris" type="checkbox" className="form-check-input" checked={compris} disabled={enCours} onChange={(e) => setCompris(e.target.checked)} />
++            <label htmlFor="supp-classe-compris" className="form-check-label">Je comprends que cette suppression est définitive.</label>
++          </div>
++        ) : (
++          <div className="mt-2 fw-semibold">Seul un administrateur peut effectuer cette suppression définitive.</div>
++        )}
++      </div>
++    </Modal>
++  );
++}
+diff --git a/web/src/pages/ConfigurationPage.jsx b/web/src/pages/ConfigurationPage.jsx
+index 747ba6a..a89ce3d 100644
+--- a/web/src/pages/ConfigurationPage.jsx
++++ b/web/src/pages/ConfigurationPage.jsx
+@@ -8,6 +8,7 @@ import {
+ } from '../components/ui';
+ import Select from '../components/Select';
+ import ImportModal from '../components/importConfigs';
++import SuppressionClasseModal from '../components/SuppressionClasseModal';
+ import { roleDe } from '../components/Layout';
+ 
+ // Portage de server/static/templates/configuration.html : années scolaires,
+@@ -27,6 +28,8 @@ export default function ConfigurationPage() {
+   const [anneeSel, setAnneeSel] = useState(null); // { id, libelle } — trimestres affichés
+   const [trimestreSel, setTrimestreSel] = useState(null); // { id, libelle } — séquences affichées
+   const [filterCycle, setFilterCycle] = useState('');
++  const [searchClasse, setSearchClasse] = useState('');
++  const [suppressionClasse, setSuppressionClasse] = useState(null); // { classe, label, liens, enCours }
+   const [modal, setModal] = useState(null); // { kind, data }
+   const [identifiants, setIdentifiants] = useState(null); // { nom, code, pin, titre? }
+ 
+@@ -67,6 +70,37 @@ export default function ConfigurationPage() {
+     }
+   };
+ 
++  // Classe vide -> simple confirmation. Classe contenant des élèves, notes ou
++  // liens -> fenêtre détaillée, puis suppression en cascade si confirmée.
++  const supprimerClasse = async (c) => {
++    const label = classeLabelCourt(c.id);
++    try {
++      const { liens } = await api.get(`/classes/${c.id}/liens`, { sansCopieLocale: true });
++      if (Object.keys(liens || {}).length) {
++        setSuppressionClasse({ classe: c, label, liens, enCours: false });
++        return;
++      }
++    } catch (err) {
++      toast(err.message, 'error');
++      return;
++    }
++    await supprimer(`/classes/${c.id}`, label);
++  };
++
++  const confirmerSuppressionClasse = async () => {
++    const { classe } = suppressionClasse;
++    setSuppressionClasse((s) => ({ ...s, enCours: true }));
++    try {
++      await api.del(`/classes/${classe.id}?cascade=1`);
++      setSuppressionClasse(null);
++      toast('Classe et données rattachées supprimées.');
++      await loadAll();
++    } catch (err) {
++      setSuppressionClasse((s) => s && ({ ...s, enCours: false }));
++      toast(err.message, 'error');
++    }
++  };
++
+   // Une seule année active : le serveur désactive les autres dans la même
+   // transaction (cf. structure_services._desactiver_autres_annees).
+   const activerAnnee = async (a) => {
+@@ -149,7 +183,15 @@ export default function ConfigurationPage() {
+ 
+   const trimestresAnnee = anneeSel ? trimestres.filter((t) => t.annee_scolaire_id === anneeSel.id) : [];
+   const sequencesTrimestre = trimestreSel ? sequences.filter((s) => s.trimestre_id === trimestreSel.id) : [];
+-  const classesFiltrees = filterCycle ? classes.filter((c) => String(c.cycle_id) === filterCycle) : classes;
++  // Recherche insensible à la casse et aux accents, sur le libellé affiché
++  // (cycle + option) : « 6e a » ou « sixieme » retrouvent « 6ème A ».
++  const normaliser = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
++  const termesRecherche = normaliser(searchClasse).split(/\s+/).filter(Boolean);
++  const classesFiltrees = classes.filter((c) => {
++    if (filterCycle && String(c.cycle_id) !== filterCycle) return false;
++    const cible = normaliser(classeLabelCourt(c.id));
++    return termesRecherche.every((t) => cible.includes(t));
++  });
+   const addBtn = (label, onClick) => (
+     <button type="button" className="btn btn-primary btn-sm" onClick={onClick}><i className="bx bx-plus me-1" /> {label}</button>
+   );
+@@ -285,9 +327,20 @@ export default function ConfigurationPage() {
+           <TableCard
+             title="Classes"
+             icon="bx-chalkboard"
+-            count={classes.length}
++            count={(filterCycle || termesRecherche.length) ? classesFiltrees.length : classes.length}
+             actions={(
+               <>
++                <div className="input-group input-group-sm" style={{ width: 220 }}>
++                  <span className="input-group-text"><i className="bx bx-search" /></span>
++                  <input
++                    type="search"
++                    className="form-control"
++                    placeholder="Rechercher une classe…"
++                    aria-label="Rechercher une classe"
++                    value={searchClasse}
++                    onChange={(e) => setSearchClasse(e.target.value)}
++                  />
++                </div>
+                 <Select className="form-select form-select-sm" style={{ width: 'auto' }} value={filterCycle} onChange={(e) => setFilterCycle(e.target.value)}>
+                   <option value="">Tous les cycles</option>
+                   {cycles.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+@@ -298,7 +351,7 @@ export default function ConfigurationPage() {
+           >
+             <table className="table table-hover mb-0">
+               <thead><tr><th>Cycle</th><th>Option</th><th>Effectif</th><th className="text-end">Actions</th></tr></thead>
+-              <TBody colSpan={4} loading={loading} rows={classesFiltrees.length} empty="Aucune classe.">
++              <TBody colSpan={4} loading={loading} rows={classesFiltrees.length} empty={(filterCycle || termesRecherche.length) ? 'Aucune classe ne correspond à la recherche.' : 'Aucune classe.'}>
+                 {classesFiltrees.map((c) => (
+                   <tr key={c.id}>
+                     <td><strong>{cycleLibelle(c.cycle_id)}</strong></td>
+@@ -306,7 +359,7 @@ export default function ConfigurationPage() {
+                     <td><span className="badge bg-label-primary">{c.effectif || 0}</span></td>
+                     <td className="text-end text-nowrap">
+                       <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'classe', data: c })} />
+-                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/classes/${c.id}`, `${cycleLibelle(c.cycle_id)} ${c.option || ''}`)} />
++                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimerClasse(c)} />
+                     </td>
+                   </tr>
+                 ))}
+@@ -385,6 +438,16 @@ export default function ConfigurationPage() {
+           onSaved={onSaved}
+         />
+       )}
++      {suppressionClasse && (
++        <SuppressionClasseModal
++          label={suppressionClasse.label}
++          liens={suppressionClasse.liens}
++          peutSupprimer={peutImporter}
++          enCours={suppressionClasse.enCours}
++          onConfirm={confirmerSuppressionClasse}
++          onClose={() => setSuppressionClasse(null)}
++        />
++      )}
+       {modal?.kind === 'cycle' && <CycleModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} />}
+       {modal?.kind === 'classe' && <ClasseModal data={modal.data} cycles={cycles} onClose={() => setModal(null)} onSaved={onSaved} />}
+       {modal?.kind === 'assignation' && (

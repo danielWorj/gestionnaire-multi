@@ -4,7 +4,7 @@ from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from services.structure_services import (
     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
-    update_entity_scoped, delete_entity_scoped,
+    update_entity_scoped, delete_entity_scoped, supprimer_classe, liens_classe,
     create_etablissement, update_etablissement, LOGOS_DIR,
 )
 from models.structure_models import (
@@ -16,6 +16,7 @@ from models.structure_models import (
 # dans pedagogie_api.py / Horaire dans emploi_du_temps_api.py — cf. synthèse
 # d'assignation Censeur/Surveillant ↔ Classe.
 from services.pedagogie_services import resolve_classe_ids_restriction
+from services.inscription_services import ROLES_SUPPRESSION_CASCADE
 
 
 # ---------------------------------------------------------------------------
@@ -232,8 +233,31 @@ def make_scoped_crud_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
+        if model is Classe:
+            # Classe vide -> supprimée ; classe liée -> 409 détaillé, sauf
+            # ?cascade=1 (Admin/SuperAdmin) qui supprime tout ce qui s'y rattache.
+            cascade = request.args.get("cascade", "").lower() in ("1", "true")
+            if cascade and get_jwt().get("role") not in ROLES_SUPPRESSION_CASCADE:
+                return jsonify({"erreur": "Seul un administrateur peut supprimer définitivement "
+                                          "une classe et ses données"}), 403
+            result, status = supprimer_classe(entity, etab_id, _current_classe_restriction(), cascade=cascade)
+            return jsonify(result), status
         result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
         return jsonify(result), status
+
+    if model is Classe:
+        @bp.route('/<int:id>/liens', methods=['GET'])
+        def get_liens(id):
+            # Ce qui est rattaché à la classe (élèves, notes, ...) : montré avant
+            # la suppression. Réservé à ceux qui peuvent supprimer (la garde du
+            # blueprint laisserait sinon lire en GET un Censeur/Surveillant).
+            if get_jwt().get("role") not in roles_ecriture:
+                return jsonify({"erreur": "Accès non autorisé"}), 403
+            etab_id = _current_etablissement_id()
+            entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
+            if not entity:
+                return jsonify({"erreur": "classe non trouvé"}), 404
+            return jsonify({"classe_id": entity.id, "liens": liens_classe(entity)}), 200
 
     return bp
 
