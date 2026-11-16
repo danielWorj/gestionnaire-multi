@@ -143,7 +143,7 @@ const ENSEIGNANTS = {
     separation: 'premier', harmoniser_casse: true, doublons: 'ignorer', sexe_defaut: '', prenom_absent: 'erreur',
     departement_defaut: '', grade_defaut: '', creer_comptes: true,
   },
-  optionsMemorisees: ['separation', 'harmoniser_casse', 'doublons', 'sexe_defaut', 'prenom_absent', 'departement_defaut', 'grade_defaut', 'creer_comptes'],
+  optionsMemorisees: ['separation', 'harmoniser_casse', 'sexe_defaut', 'prenom_absent', 'departement_defaut', 'grade_defaut', 'creer_comptes'],
   manquants: (champs, options) => {
     const m = [];
     if (!champs.has('nom_complet') && !champs.has('nom')) m.push('le nom (une colonne « Nom et prénoms », ou « Nom »)');
@@ -372,7 +372,7 @@ const MATIERES = {
   aideFichiers: "Tableau des matières, avec ou sans coefficients : « Matière | Classe | Coef | Professeur », ou en grille « Matière | 6e A | 5e A | … » avec le coefficient dans chaque case.",
   exempleCollage: 'Matière\tGroupe\tClasse\tCoef\tProfesseur\nMathématiques\tScientifiques\t6e A\t4\tABENG Marie',
   optionsDefaut: { groupe_defaut: '', doublons: 'ignorer', coefficient_defaut: '', enseignant_defaut: '', classes: {}, enseignants: {} },
-  optionsMemorisees: ['groupe_defaut', 'doublons', 'classes', 'enseignants'],
+  optionsMemorisees: ['groupe_defaut', 'classes', 'enseignants'],
   manquants: (champs, options) => {
     const m = [];
     if (!champs.has('matiere')) m.push('la colonne des matières');
@@ -637,7 +637,7 @@ const NOTES = {
   aideFichiers: "Votre relevé de notes Excel, Word ou CSV : une colonne d'élèves (nom ou matricule) et une colonne « Note », ou une colonne par séquence (« Séq 1 », « Séq 2 »…).",
   exempleCollage: 'Matricule\tNoms et prénoms\tSéq 1\n250237775\tABALA MBOUNDA Joseph\t12,5',
   optionsDefaut: { matiere_classe_id: '', sequence_id: '', note_sur: '20', doublons: 'ignorer' },
-  optionsMemorisees: ['note_sur', 'doublons'],
+  optionsMemorisees: ['note_sur'],
   manquants: (champs, options) => {
     const m = [];
     if (!champs.has('nom_complet') && !champs.has('nom') && !champs.has('matricule')) m.push("l'élève (colonne « Nom et prénoms », « Nom » ou « Matricule »)");
@@ -737,6 +737,14 @@ function OptionsTresorerie({ rep, options, setOpt, champsMappes }) {
         </Select>
         <div className="form-text">Un compte cité dans le fichier est retrouvé par son nom, ou par « caisse », « banque », « momo »… L'import ne crée jamais de compte.</div>
       </div>
+      <h6 className="mb-2 mt-3">Doublons</h6>
+      <div className="border rounded p-3 small">
+        <label className="form-check mb-0">
+          <input type="checkbox" className="form-check-input" checked={options.importer_doublons} onChange={setOpt('importer_doublons')} />
+          <span className="form-check-label">Importer aussi les lignes identiques du fichier (même date, sens, montant, compte et libellé)</span>
+        </label>
+        <div className="form-text">Décoché par défaut : seule la première de ces lignes est importée. Cochez uniquement s'il s'agit vraiment d'opérations distinctes.</div>
+      </div>
       <p className="small text-muted mt-3 mb-0"><i className="bx bx-info-circle me-1" />N'importez pas les paiements de scolarité : ils sont déjà comptés via le module Paiements. Une opération déjà enregistrée (même date, montant, compte et libellé) n'est jamais doublée.</p>
     </>
   );
@@ -749,7 +757,7 @@ const TRESORERIE = {
   titreIgnore: "Ce tableau ne ressemble pas à un cahier de caisse (pas de colonne de montant, ou ni date ni libellé). Cochez-le pour l'importer quand même.",
   aideFichiers: 'Cahier de caisse « Date | Libellé | Recettes | Dépenses », ou liste « Date | Type | Montant | Catégorie | Fonds | Compte ». Pour une dépense prise sur plusieurs fonds : « Scolarité:40000; APEE:10000 ».',
   exempleCollage: 'Date\tLibellé\tCatégorie\tRecettes\tDépenses\n03/10/2026\tAchat de craies\tFournitures\t\t15000',
-  optionsDefaut: { creer_categories: true, categorie_entree_defaut: '', categorie_sortie_defaut: '', fonds_defaut: '', compte_defaut: '' },
+  optionsDefaut: { creer_categories: true, categorie_entree_defaut: '', categorie_sortie_defaut: '', fonds_defaut: '', compte_defaut: '', importer_doublons: false },
   optionsMemorisees: ['creer_categories', 'categorie_entree_defaut', 'categorie_sortie_defaut', 'fonds_defaut', 'compte_defaut'],
   manquants: (champs) => [
     !champs.has('date') && "la date de chaque opération",

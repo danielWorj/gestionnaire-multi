@@ -10,6 +10,8 @@ from models.pedagogie_models import (
     GroupeMatiere, Matiere, Enseignant, TitulaireClasse, MatiereClasse,
     Departement, Grade, Censeur, Surveillant, CenseurClasse, SurveillantClasse
 )
+from services.inscription_services import ROLES_SUPPRESSION_CASCADE
+from services.suppression_affectation_services import historique_affectation, supprimer_affectation
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +129,29 @@ def make_pedagogie_scoped_blueprint(name, model, url_prefix,
         entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
         if not entity:
             return jsonify({"erreur": f"{name} non trouvé"}), 404
+        if model is MatiereClasse:
+            # Affectation vierge -> supprimée ; affectation liée (notes, cours,
+            # épreuves) -> 409 détaillé, sauf ?cascade=1 (Admin/SuperAdmin)
+            # qui supprime tout ce qui s'y rattache, journalisé.
+            cascade = request.args.get("cascade", "").lower() in ("1", "true")
+            if cascade and get_jwt().get("role") not in ROLES_SUPPRESSION_CASCADE:
+                return jsonify({"erreur": "Seul un administrateur peut supprimer définitivement "
+                                          "une affectation et ses données"}), 403
+            result, status = supprimer_affectation(entity, etab_id, cascade=cascade)
+            return jsonify(result), status
         result, status = delete_entity_scoped(entity, etab_id, _current_classe_restriction())
         return jsonify(result), status
+
+    if model is MatiereClasse:
+        @bp.route('/<int:id>/historique', methods=['GET'])
+        def get_historique(id):
+            """Notes, cours et épreuves rattachés à l'affectation (fenêtre de
+            confirmation de la suppression définitive)."""
+            etab_id = _current_etablissement_id()
+            entity = get_entity_scoped(model, id, etab_id, _current_classe_restriction()) if etab_id else None
+            if not entity:
+                return jsonify({"erreur": f"{name} non trouvé"}), 404
+            return jsonify(historique_affectation(entity)), 200
 
     return bp
 

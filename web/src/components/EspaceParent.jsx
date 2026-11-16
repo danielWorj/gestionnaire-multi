@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { API_BASE } from '../lib/api';
 import { prenomNom } from '../lib/espaceParent';
-import { formatDate, formatMontant, initiales } from './ui';
+import { formatDate, formatMontant } from './ui';
 import { Pastilles } from './Espace';
 import './parent.css';
 
@@ -18,7 +18,8 @@ export function PhotoEnfant({ eleve, taille = 48 }) {
   if (eleve?.a_photo && !echec) {
     return <img className="par-photo" style={style} src={`${API_BASE}/parent/enfants/${eleve.id}/photo`} alt="" onError={() => setEchec(true)} />;
   }
-  return <span className="par-photo par-photo-initiales" style={style} aria-hidden="true">{initiales(eleve?.nom, eleve?.prenom)}</span>;
+  // Pas de photo : icône de profil neutre (pas d'initiales).
+  return <span className="par-photo par-photo-initiales" style={{ ...style, fontSize: taille * 0.5 }} aria-hidden="true"><i className="bx bxs-user" /></span>;
 }
 
 export function ChoixEnfant({ enfants, enfant, onChoisir }) {

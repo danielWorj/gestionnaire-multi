@@ -32,6 +32,10 @@ from services.import_commun import (
 )
 from services.import_lecture import normaliser
 
+# Lignes pour lesquelles rien n'est écrit : en erreur, exclues par
+# l'utilisateur, ou doublons d'une ligne précédente des fichiers.
+INACTIFS = ('erreur', 'exclu', 'doublon')
+
 CHAMPS = [
     ('nom_complet', 'Nom et prénom(s) dans une même colonne', 'Une civilité (M., Mme, Mlle) en tête donne le sexe'),
     ('nom', 'Nom', ''),
@@ -248,10 +252,11 @@ def traiter(etablissement_id, payload, valider=False):
         cles = [k for k in (('e', email) if email else None,
                             ('t', chiffres_telephone(telephone)) if len(chiffres_telephone(telephone)) >= 8 else None,
                             ('i', _cle_identite(nom, '' if prenom_tiret else prenom)) if nom else None) if k]
+        # Par défaut, seule la première occurrence est importée : les
+        # suivantes passent au statut « doublon » (rien n'est écrit).
+        doublon_de = None
         if r['statut'] != 'exclu':
-            deja = next((vus[k] for k in cles if k in vus), None)
-            if deja:
-                r['erreurs'].append(f"Enseignant en double ({deja})")
+            doublon_de = next((vus[k] for k in cles if k in vus), None)
             for k in cles:
                 vus.setdefault(k, source)
 
@@ -311,9 +316,13 @@ def traiter(etablissement_id, payload, valider=False):
             r['erreurs'].append("Libellé de département ou de grade trop long (150 caractères maximum)")
         if r['erreurs'] and r['statut'] != 'exclu':
             r['statut'] = 'erreur'
+        if doublon_de and r['statut'] != 'exclu':
+            r['statut'] = 'doublon'
+            r['erreurs'], r['changements'] = [], []
+            r['avertissements'] = [f"Doublon de la ligne {doublon_de} : non importé"]
 
         # Compte de connexion
-        if r['statut'] in ('erreur', 'exclu') or not options['creer_comptes']:
+        if r['statut'] in INACTIFS or not options['creer_comptes']:
             r['compte'] = 'non'
         elif existant is not None and existant.utilisateur_id:
             r['compte'] = 'deja'
@@ -325,7 +334,7 @@ def traiter(etablissement_id, payload, valider=False):
     if options['creer_comptes'] and not role_enseignant:
         return {'erreur': "Rôle « Enseignant » introuvable : lancez l'initialisation des rôles (flask init-roles)."}, 500
 
-    actifs = [r for r in resultats if r['statut'] not in ('erreur', 'exclu')]
+    actifs = [r for r in resultats if r['statut'] not in INACTIFS]
     nouveaux_dep = {cle_libelle(r['donnees']['departement']) for r in actifs
                     if r['donnees']['departement_nouveau'] and (r['statut'] == 'nouveau' or 'departement' in r['changements'])}
     nouveaux_grades = {cle_libelle(r['donnees']['grade']) for r in actifs
@@ -342,7 +351,7 @@ def traiter(etablissement_id, payload, valider=False):
         'resume': {
             'total': len(resultats),
             'nouveaux': resume['nouveau'], 'mises_a_jour': resume['maj'], 'existants': resume['existant'],
-            'erreurs': resume['erreur'], 'exclus': resume['exclu'],
+            'erreurs': resume['erreur'], 'exclus': resume['exclu'], 'doublons': resume['doublon'],
             'comptes': sum(1 for r in resultats if r['compte'] == 'a_creer'),
             'departements_nouveaux': len(nouveaux_dep),
             'grades_nouveaux': len(nouveaux_grades),
@@ -378,7 +387,7 @@ def _enregistrer(etablissement_id, resultats, options, dep_par_cle, grade_par_cl
     identifiants = []
 
     for r in resultats:
-        if r['statut'] in ('erreur', 'exclu'):
+        if r['statut'] in INACTIFS:
             continue
         d = r['donnees']
         if r['enseignant_id'] is None:

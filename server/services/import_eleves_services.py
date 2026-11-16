@@ -30,6 +30,10 @@ from services.import_commun import (
 )
 from services.import_lecture import ErreurLecture, lire_fichier, normaliser
 
+# Lignes pour lesquelles rien n'est écrit : en erreur, exclues par
+# l'utilisateur, ou doublons d'une ligne précédente des fichiers.
+INACTIFS = ('erreur', 'exclu', 'doublon')
+
 # ---------------------------------------------------------------------------
 # Champs de l'application et synonymes des intitulés de colonnes
 # ---------------------------------------------------------------------------
@@ -515,15 +519,23 @@ def traiter(etablissement_id, payload, valider=False):
             elif any(e.date_naissance == date_naissance for e in homonymes if date_naissance):
                 r['avertissements'].append("Un élève de même nom et même date de naissance existe déjà avec un autre matricule")
 
-        # Doublons à l'intérieur des fichiers importés
+        # Doublons à l'intérieur des fichiers importés. Par défaut, seule la
+        # première occurrence est importée : les suivantes passent au statut
+        # « doublon » (rien n'est écrit pour elles, inscription comprise). Un
+        # même matricule porté par deux élèves différents reste une erreur.
         cle_id = (_cle_identite(nom, prenom), date_naissance)
+        doublon_de = None
         if r['statut'] != 'exclu':
             if matricule and matricule in vus_matricule:
-                r['erreurs'].append(f"Matricule {matricule} déjà présent ({vus_matricule[matricule]})")
-            elif not matricule and nom and prenom and cle_id in vus_identite and existant is None:
-                r['erreurs'].append(f"Élève en double ({vus_identite[cle_id]})")
+                source_deja, identite_deja = vus_matricule[matricule]
+                if identite_deja == _cle_identite(nom, prenom) or not (nom and prenom):
+                    doublon_de = source_deja
+                else:
+                    r['erreurs'].append(f"Matricule {matricule} déjà utilisé par un autre élève ({source_deja})")
+            elif not matricule and nom and prenom and cle_id in vus_identite:
+                doublon_de = vus_identite[cle_id]
             if matricule:
-                vus_matricule.setdefault(matricule, source)
+                vus_matricule.setdefault(matricule, (source, _cle_identite(nom, prenom)))
             if nom and prenom:
                 vus_identite.setdefault(cle_id, source)
 
@@ -574,7 +586,9 @@ def traiter(etablissement_id, payload, valider=False):
                 if len(donnees[champ] or '') > maxi:
                     r['erreurs'].append(f"{champ.replace('_', ' ').capitalize()} trop long ({maxi} caractères maximum)")
             if not matricule:
-                if options['matricules_auto']:
+                if doublon_de:
+                    pass
+                elif options['matricules_auto']:
                     sans_matricule.append(r)
                 else:
                     r['erreurs'].append("Matricule manquant")
@@ -583,12 +597,18 @@ def traiter(etablissement_id, payload, valider=False):
             elif r['erreurs']:
                 r['statut'] = 'erreur'
 
+        if doublon_de and r['statut'] != 'exclu':
+            r['statut'] = 'doublon'
+            r['erreurs'] = []
+            r['changements'] = []
+            r['avertissements'] = [f"Doublon de la ligne {doublon_de} : non importé"]
+
         # Inscription pour l'année choisie
         if not options['inscrire'] or not annee_id:
             r['inscription'] = 'non'
         elif classe_id is None:
             r['inscription'] = 'sans_classe'
-            if r['statut'] not in ('erreur', 'exclu') and options['inscrire']:
+            if r['statut'] not in INACTIFS and options['inscrire']:
                 r['avertissements'].append(
                     f"Classe « {libelle} » non associée : pas d'inscription" if libelle else "Aucune classe : pas d'inscription")
         elif existant is not None and existant.id in inscriptions_annee:
@@ -628,7 +648,7 @@ def traiter(etablissement_id, payload, valider=False):
             return {'erreur': "Parent par défaut invalide pour cet établissement."}, 400
     for r in resultats:
         p = r['donnees']['parent']
-        if r['statut'] in ('erreur', 'exclu'):
+        if r['statut'] in INACTIFS:
             r['parent'] = None
             continue
         if r['eleve_id'] is not None and (r['statut'] != 'maj' or not p):
@@ -643,7 +663,7 @@ def traiter(etablissement_id, payload, valider=False):
             r['parent'] = 'defaut'
 
     resume = Counter(r['statut'] for r in resultats)
-    a_inscrire = sum(1 for r in resultats if r['statut'] not in ('erreur', 'exclu') and r['inscription'] == 'nouvelle')
+    a_inscrire = sum(1 for r in resultats if r['statut'] not in INACTIFS and r['inscription'] == 'nouvelle')
     reponse = {
         'colonnes': colonnes,
         'mapping': mapping,
@@ -657,12 +677,12 @@ def traiter(etablissement_id, payload, valider=False):
         'resume': {
             'total': len(resultats),
             'nouveaux': resume['nouveau'], 'mises_a_jour': resume['maj'], 'existants': resume['existant'],
-            'erreurs': resume['erreur'], 'exclus': resume['exclu'],
+            'erreurs': resume['erreur'], 'exclus': resume['exclu'], 'doublons': resume['doublon'],
             'inscriptions': a_inscrire,
             'matricules_generes': sum(1 for r in resultats if r['matricule_genere'] and r['statut'] == 'nouveau'),
             'parents_nouveaux': len({(r['donnees']['parent']['email'] or chiffres_telephone(r['donnees']['parent']['telephone'])
                                       or r['parent_libelle']) for r in resultats if r.get('parent') == 'nouveau'}),
-            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu')),
+            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in INACTIFS),
         },
     }
 
@@ -742,7 +762,7 @@ def _enregistrer(etablissement_id, resultats, options, annee_id, parent_defaut, 
         return parent_fallback
 
     for r in resultats:
-        if r['statut'] in ('erreur', 'exclu'):
+        if r['statut'] in INACTIFS:
             continue
         d = r['donnees']
         if r['eleve_id'] is None:

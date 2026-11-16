@@ -205,6 +205,32 @@
 .print-signature { display: flex; justify-content: space-between; margin-top: 50px; font-size: 11px; }
 .print-signature div { width: 45%; text-align: center; }
 .print-signature span { display: block; margin-top: 45px; border-top: 1px solid #333; }
+.liste-section { margin-top: 18px; }
+
+/* Aperçu à l'écran d'une liste de classe (components/ListeClasse.jsx) :
+   reste dans la carte quelle que soit la largeur ; le tableau défile
+   horizontalement dans son cadre au lieu de faire déborder la page. */
+.liste-classe-carte { max-width: 100%; overflow: hidden; }
+.liste-apercu { min-width: 0; }
+.liste-apercu .print-doc { max-width: 100%; overflow: hidden; box-shadow: 0 1px 4px rgba(67, 89, 113, .12); }
+.print-table-scroll { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.liste-apercu .print-table td { overflow-wrap: anywhere; }
+.liste-apercu .print-etab, .liste-apercu .print-etab-sub { overflow-wrap: anywhere; }
+@media (max-width: 575.98px) {
+  .liste-apercu { padding: 0.5rem; }
+  .liste-apercu .print-doc { padding: 10px; }
+  .liste-apercu .print-table { min-width: 460px; }
+  .liste-apercu .print-meta { gap: 2px 12px; }
+  .liste-apercu .print-signature { margin-top: 28px; gap: 12px; }
+  .liste-apercu .print-signature span { margin-top: 28px; }
+}
+
+/* Élève sans photo : icône de profil à la place des initiales. */
+.eleve-sans-photo .bx { font-size: 1.35em; line-height: 1; }
+
+/* Portail d'impression : invisible à l'écran, seul contenu imprimé quand il
+   existe (body.impression-portail). */
+.print-portail { display: none; }
 
 /* Connexion par code + PIN : saisie en gros caractères espacés, lisible
    sur un petit écran. */
@@ -231,6 +257,20 @@
   .print-meta { break-after: avoid; }
   .print-signature { break-inside: avoid; }
   .print-page-break { break-after: page; }
+
+  /* Liste de classe : le reste de l'application sort de la mise en page
+     (display:none, pas seulement invisible) → aucune page blanche en trop. */
+  html:has(body.impression-portail), body.impression-portail {
+    height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important;
+  }
+  body.impression-portail > *:not(.print-portail) { display: none !important; }
+  body.impression-portail > .print-portail { display: block !important; position: static !important; }
+  body.impression-portail .print-portail, body.impression-portail .print-portail * { visibility: visible !important; }
+  .print-portail .print-doc { padding: 0; border-radius: 0; }
+  .print-portail .print-table-scroll { overflow: visible !important; }
+  .print-portail .print-table { min-width: 0 !important; }
+  .print-portail .liste-section-suite { break-before: page; page-break-before: always; margin-top: 0; }
+  .print-portail .print-signature { break-inside: avoid; page-break-inside: avoid; }
 }
 
 /* Journal des modifications (components/Historique.jsx) */

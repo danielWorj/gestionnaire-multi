@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import {
-  age, classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, IconBtn, initiales, PageHeader, Pager,
+  age, classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, IconBtn, PageHeader, Pager,
   SortTh, StatCard, TableCard, TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
@@ -37,8 +37,8 @@ const fullName = (e) => `${e.prenom || ''} ${e.nom || ''}`.trim();
 
 const MODULES_FICHES = ['dossier_inscription', 'eleve', 'parent', 'inscription'];
 
-// Photo d'identité si l'élève en a une (repli sur les initiales si elle ne
-// se charge pas, hors connexion par exemple), sinon ses initiales.
+// Photo d'identité si l'élève en a une ; sinon (ou si elle ne se charge pas,
+// hors connexion par exemple) une icône de profil neutre. Pas d'initiales.
 function AvatarEleve({ e, taille = '' }) {
   const src = photoEleveSrc(e);
   // URL qui n'a pas pu se charger : une nouvelle photo (autre URL) est retentée.
@@ -47,7 +47,7 @@ function AvatarEleve({ e, taille = '' }) {
     <div className={`avatar flex-shrink-0 ${taille}`}>
       {src && src !== srcEnEchec
         ? <img src={src} alt={`Photo de ${fullName(e)}`} className="rounded-circle" style={{ objectFit: 'cover' }} loading="lazy" onError={() => setSrcEnEchec(src)} />
-        : <span className={`avatar-initial rounded-circle ${e.sexe === 'F' ? 'bg-label-danger' : 'bg-label-info'}`}>{initiales(e.nom, e.prenom)}</span>}
+        : <span className="avatar-initial rounded-circle bg-label-secondary eleve-sans-photo" role="img" aria-label={`${fullName(e)} : pas de photo`}><i className="bx bxs-user" /></span>}
     </div>
   );
 }
@@ -176,7 +176,7 @@ export default function ElevesPage() {
 
   const chips = [
     filters.q && ['q', `« ${filters.q.trim().toLowerCase()} »`],
-    filters.classe && ['classe', classeLabel(classeById[filters.classe])],
+    filters.classe && ['classe', classeById[filters.classe]?.option || classeLabel(classeById[filters.classe])],
     filters.sexe && ['sexe', filters.sexe === 'M' ? 'Garçons' : 'Filles'],
     filters.statut && ['statut', filters.statut],
     filters.scolarite && ['scolarite', SCOLARITE_LABELS[filters.scolarite]],
@@ -394,6 +394,26 @@ export default function ElevesPage() {
   /* ── Liste de la classe sélectionnée (impression / PDF / CSV) ── */
   const classeChoisie = filters.classe ? classeById[filters.classe] : null;
 
+  // Effectifs de la classe choisie pour l'année des filtres : tous les élèves
+  // inscrits dans la classe, indépendamment des autres filtres (recherche,
+  // sexe, âge…) qui ne réduisent que la liste affichée.
+  const statsClasse = useMemo(() => {
+    if (!classeChoisie) return null;
+    const anneeId = Number(annee) || null;
+    const ids = new Set(inscriptions
+      .filter((i) => i.classe_id === classeChoisie.id && (!anneeId || i.annee_scolaire_id === anneeId))
+      .map((i) => i.eleve_id));
+    let filles = 0;
+    let garcons = 0;
+    ids.forEach((id) => {
+      const el = eleveById[id];
+      if (el?.sexe === 'F') filles++;
+      else if (el?.sexe === 'M') garcons++;
+    });
+    return { total: ids.size, filles, garcons, autres: ids.size - filles - garcons };
+  }, [classeChoisie, annee, inscriptions, eleveById]);
+  const pct = (n) => (statsClasse?.total ? `${Math.round((n / statsClasse.total) * 100)} % de la classe` : '—');
+
   const imprimerListeClasse = () => {
     if (!classeChoisie) return;
     // La fenêtre doit s'ouvrir pendant le clic, sinon le navigateur la bloque.
@@ -422,6 +442,12 @@ export default function ElevesPage() {
     ? annees.map((a) => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (en cours)' : ''}</option>)
     : <option value="">Aucune année</option>;
   const classeOptions = classesTriees.map((c) => <option key={c.id} value={c.id}>{classeLabel(c)}</option>);
+  // Filtres : la classe seule (« 6 eme A »), sans le cycle ; repli sur le
+  // libellé complet si la classe n'a pas d'option.
+  const classeCourte = useCallback((c) => (c?.option || '').trim() || classeLabel(c), [classeLabel]);
+  const classeOptionsCourtes = [...classes]
+    .sort((a, b) => classeCourte(a).localeCompare(classeCourte(b), 'fr', { numeric: true }))
+    .map((c) => <option key={c.id} value={c.id}>{classeCourte(c)}</option>);
 
   return (
     <>
@@ -515,8 +541,8 @@ export default function ElevesPage() {
           <div className="filtres-mobile d-md-none">
             <input type="search" className="form-control" placeholder="Nom, prénom, matricule…" value={filters.q} onChange={setFilter('q')} />
             <div className="row g-2 mt-0">
-              <div className="col-6"><label className="form-label">Année scolaire</label><Select className="form-select" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
-              <div className="col-6"><label className="form-label">Classe</label><Select className="form-select" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes</option>{classeOptions}</Select></div>
+              <div className="col-12"><label className="form-label">Année scolaire</label><Select className="form-select" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
+              <div className="col-12"><label className="form-label">Classe</label><Select className="form-select" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes les classes</option>{classeOptionsCourtes}</Select></div>
             </div>
             <button type="button" className="btn btn-outline-primary w-100 filtres-bouton" onClick={() => setFiltresOuverts(true)}>
               <i className="bx bx-slider-alt me-2" /> Plus de filtres
@@ -528,7 +554,7 @@ export default function ElevesPage() {
           <div className="row g-2 align-items-end d-none d-md-flex">
             <div className="col-md-3"><label className="form-label">Rechercher</label><input type="search" className="form-control form-control-sm" placeholder="Nom, prénom, matricule…" value={filters.q} onChange={setFilter('q')} /></div>
             <div className="col-md-2"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
-            <div className="col-md-2"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes</option>{classeOptions}</Select></div>
+            <div className="col-md-2"><label className="form-label">Classe</label><Select className="form-select form-select-sm" value={filters.classe} onChange={setFilter('classe')}><option value="">Toutes</option>{classeOptionsCourtes}</Select></div>
             <div className="col-md-1"><label className="form-label">Sexe</label><Select className="form-select form-select-sm" value={filters.sexe} onChange={setFilter('sexe')}><option value="">Tous</option><option value="M">Garçons</option><option value="F">Filles</option></Select></div>
             <div className="col-md-2"><label className="form-label">Statut de l'élève</label><Select className="form-select form-select-sm" value={filters.statut} onChange={setFilter('statut')}><option value="">Tous</option><option value="Actif">Actif</option><option value="Inactif">Inactif</option></Select></div>
             <div className="col-md-2"><label className="form-label">Scolarité</label><Select className="form-select form-select-sm" value={filters.scolarite} onChange={setFilter('scolarite')}><option value="">Tous</option>{Object.entries(SCOLARITE_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</Select></div>
@@ -592,6 +618,15 @@ export default function ElevesPage() {
           </div>
         </div>
       </div>
+
+      {/* Effectifs de la classe choisie */}
+      {statsClasse && (
+        <div className="row g-3 mb-3">
+          <StatCard className="col-sm-4" label={`Effectif total · ${classeCourte(classeChoisie)}`} loading={loading} value={statsClasse.total} sub={`${anneeLabel(annee)}${statsClasse.autres ? ` · ${statsClasse.autres} sexe non renseigné` : ''}`} icon="bx-group" color="primary" />
+          <StatCard className="col-sm-4" label="Filles" loading={loading} value={statsClasse.filles} sub={pct(statsClasse.filles)} icon="bx-female-sign" color="danger" />
+          <StatCard className="col-sm-4" label="Garçons" loading={loading} value={statsClasse.garcons} sub={pct(statsClasse.garcons)} icon="bx-male-sign" color="info" />
+        </div>
+      )}
 
       {/* Répertoire */}
       <TableCard title="Répertoire" icon="bx-list-ul" count={filtered.length} footer={null}>

@@ -307,6 +307,7 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
 
         r = {'id': rid, 'source': source, 'erreurs': [], 'avertissements': [], 'statut': 'nouveau',
              'inscription_id': None, 'notes': []}
+        doublon_de = None
         if rid in exclues:
             r['statut'] = 'exclu'
         eleve, alerte = retrouver(v)
@@ -320,9 +321,12 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
             if v.get('matricule') and eleve['matricule'] \
                     and normaliser_matricule(v['matricule']) != normaliser_matricule(eleve['matricule']):
                 r['avertissements'].append(f"Matricule du fichier « {v['matricule']} » différent de « {eleve['matricule']} »")
+            # Élève présent deux fois : par défaut seule la première ligne
+            # est importée, les suivantes passent au statut « doublon ».
+            doublon_de = None
             if r['statut'] != 'exclu':
                 if eleve['id'] in vus:
-                    r['erreurs'].append(f"Élève déjà présent plus haut ({vus[eleve['id']]})")
+                    doublon_de = vus[eleve['id']]
                 else:
                     vus[eleve['id']] = source
 
@@ -357,7 +361,13 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
                                                    f"({_libelle_note(existante.absent, ancienne)}), conservée")
             r['notes'].append(n)
 
-        if r['erreurs'] and r['statut'] != 'exclu':
+        if doublon_de and r['statut'] != 'exclu':
+            r['statut'] = 'doublon'
+            r['erreurs'] = []
+            r['avertissements'] = [f"Doublon de la ligne {doublon_de} : non importé (seules les notes de la première ligne sont prises)"]
+            for n in r['notes']:
+                n['statut'], n['motif'] = 'ignoree', 'doublon'
+        elif r['erreurs'] and r['statut'] != 'exclu':
             r['statut'] = 'erreur'
         elif r['statut'] != 'exclu':
             statuts = {n['statut'] for n in r['notes']}
@@ -371,7 +381,7 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
 
     if colonnes_sans_sequence:
         for r in resultats:
-            if r['statut'] not in ('erreur', 'exclu'):
+            if r['statut'] not in ('erreur', 'exclu', 'doublon'):
                 r['avertissements'].append("Colonnes sans séquence correspondante ignorées : "
                                            + ', '.join(sorted(colonnes_sans_sequence)))
                 break
@@ -386,14 +396,14 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         'resume': {
             'total': len(resultats),
             'nouveaux': resume['nouveau'], 'mises_a_jour': resume['maj'], 'existants': resume['existant'],
-            'erreurs': resume['erreur'], 'exclus': resume['exclu'],
+            'erreurs': resume['erreur'], 'exclus': resume['exclu'], 'doublons': resume['doublon'],
             'notes_nouvelles': sum(1 for n in toutes if n['statut'] == 'nouvelle'),
             'notes_maj': sum(1 for n in toutes if n['statut'] == 'maj'),
             'absents': sum(1 for n in toutes if n['statut'] in ('nouvelle', 'maj') and n['absent']),
             'lignes_sans_note': sans_note,
             'eleves_absents_du_fichier': len(roster) - len(notes_par_eleve),
             'effectif': len(roster),
-            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu')),
+            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu', 'doublon')),
         },
     })
     if not valider:

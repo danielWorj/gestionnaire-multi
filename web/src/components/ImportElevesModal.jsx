@@ -44,12 +44,15 @@ const OPTIONS_DEFAUT = {
 
 // Options mémorisées d'un import à l'autre (par établissement) : la
 // correspondance des colonnes et des classes, et les choix de traitement.
-const OPTIONS_MEMORISEES = ['separation', 'harmoniser_casse', 'doublons', 'matricules_auto', 'prefixe_matricule', 'lieu_defaut', 'sexe_defaut', 'classe_depuis_titre'];
+// « doublons » n'en fait pas partie : chaque import repart sur « ne pas
+// modifier les élèves déjà enregistrés » (aucune mise à jour par défaut).
+const OPTIONS_MEMORISEES = ['separation', 'harmoniser_casse', 'matricules_auto', 'prefixe_matricule', 'lieu_defaut', 'sexe_defaut', 'classe_depuis_titre'];
 
 const STATUTS = {
   nouveau: ['Nouveau', 'bg-label-success'],
   maj: ['Mis à jour', 'bg-label-info'],
   existant: ['Déjà enregistré', 'bg-label-secondary'],
+  doublon: ['Doublon · ignoré', 'bg-label-warning'],
   erreur: ['Erreur', 'bg-label-danger'],
   exclu: ['Exclu', 'bg-label-dark'],
 };
@@ -266,7 +269,7 @@ export default function ImportElevesModal({ parents = [], onClose, onImported })
     if (!rep) return [];
     const q = recherche.trim().toLowerCase();
     return rep.lignes.filter((l) => {
-      if (filtre === 'alertes' && !(l.avertissements.length && l.statut !== 'erreur' && l.statut !== 'exclu')) return false;
+      if (filtre === 'alertes' && !(l.avertissements.length && !['erreur', 'exclu', 'doublon'].includes(l.statut))) return false;
       if (filtre !== 'tous' && filtre !== 'alertes' && l.statut !== filtre) return false;
       if (q) {
         const d = l.donnees;
@@ -500,6 +503,7 @@ export default function ImportElevesModal({ parents = [], onClose, onImported })
               ['nouveau', 'Nouveaux', r.nouveaux, 'success'],
               ['maj', 'Mis à jour', r.mises_a_jour, 'info'],
               ['existant', 'Déjà enregistrés', r.existants, 'secondary'],
+              ['doublon', 'Doublons ignorés', r.doublons || 0, 'warning'],
               ['erreur', 'Erreurs', r.erreurs, 'danger'],
               ['alertes', 'À vérifier', r.avertissements, 'warning'],
               ['exclu', 'Exclues', r.exclus, 'dark'],
@@ -523,6 +527,12 @@ export default function ImportElevesModal({ parents = [], onClose, onImported })
             </div>
           </div>
 
+          {r.doublons > 0 && (
+            <div className="alert alert-info small py-2">
+              <i className="bx bx-copy me-1" />
+              {r.doublons} élève{r.doublons > 1 ? 's' : ''} en double dans les fichiers : seule la première occurrence est importée, les copies sont ignorées.
+            </div>
+          )}
           {r.erreurs > 0 && (
             <div className="alert alert-warning small py-2">
               <i className="bx bx-error me-1" />

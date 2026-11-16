@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { downloadCsv, formatDate, useToast } from './ui';
 import EnteteEtablissement from './EnteteEtablissement';
 import Select from './Select';
@@ -39,6 +40,17 @@ export default function GenerateurListeClasse({
   });
   const [derniereListe, setDerniereListe] = useState(null);
   const [optionsOuvertes, setOptionsOuvertes] = useState(false);
+
+  // Impression : la liste est rendue une seconde fois dans un portail placé
+  // directement sous <body>. Pendant l'impression, tout le reste du <body>
+  // (l'application entière) passe en display:none : seule la liste occupe
+  // des pages, sans pages blanches dues aux graphiques ou au registre restés
+  // dans la mise en page (ce que faisait visibility:hidden).
+  useEffect(() => {
+    if (!derniereListe) return undefined;
+    document.body.classList.add('impression-portail');
+    return () => document.body.classList.remove('impression-portail');
+  }, [derniereListe]);
 
   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
   const classesTriees = useMemo(() => [...classes].sort((a, b) => classeLabel(a).localeCompare(classeLabel(b))), [classes, classeLabel]);
@@ -146,14 +158,14 @@ export default function GenerateurListeClasse({
     : <option value="">Aucune année</option>;
 
   return (
-    <div className="card mb-4">
-      <div className="card-header d-flex align-items-center justify-content-between">
+    <div className="card mb-4 liste-classe-carte">
+      <div className="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h5 className="mb-0"><i className="bx bx-file me-2 text-primary" />Liste des élèves inscrits</h5>
         <span className="badge bg-label-secondary">Par classe et par date</span>
       </div>
       <div className="card-body">
         {masquerAnneeClasse && (
-          <p className="text-muted small mb-3"><i className="bx bx-info-circle me-1" />L'année scolaire et la classe suivent les filtres ci-dessous.</p>
+          <p className="text-muted small mb-3"><i className="bx bx-info-circle me-1" />L'année scolaire et la classe suivent les filtres ci-dessus.</p>
         )}
         <div className="row g-2 align-items-end">
           {!masquerAnneeClasse && (
@@ -187,9 +199,15 @@ export default function GenerateurListeClasse({
         </div>
       </BottomSheet>
       {derniereListe && (
-        <div className="card-body border-top bg-lighter print-area" ref={apercuRef}>
+        <div className="card-body border-top bg-lighter liste-apercu" ref={apercuRef}>
           <ListeImprimable liste={derniereListe} etablissement={etablissement} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
         </div>
+      )}
+      {derniereListe && createPortal(
+        <div className="print-portail" aria-hidden="true">
+          <ListeImprimable liste={derniereListe} etablissement={etablissement} classeById={classeById} classeLabel={classeLabel} anneeLabel={anneeLabel} />
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -207,17 +225,18 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
         <span><b>Classes :</b> {L.sections.length}</span>
         <span><b>Éditée le :</b> {formatDate(new Date().toISOString())}</span>
       </div>
-      {L.sections.length ? L.sections.map((sec) => {
+      {L.sections.length ? L.sections.map((sec, idxSection) => {
         const g = sec.lignes.filter((i) => i.sexe === 'M').length;
         const f = sec.lignes.filter((i) => i.sexe === 'F').length;
         return (
-          <div key={sec.classeId} style={{ marginTop: 18 }}>
+          <div key={sec.classeId} className={`liste-section ${idxSection > 0 ? 'liste-section-suite' : ''}`}>
             <div className="print-meta">
               <span><b>Classe :</b> {classeLabel(classeById[sec.classeId])}</span>
               <span><b>Effectif :</b> {sec.lignes.length}</span>
               <span><b>Garçons :</b> {g}</span>
               <span><b>Filles :</b> {f}</span>
             </div>
+            <div className="print-table-scroll">
             <table className="print-table">
               <thead>
                 <tr>
@@ -241,6 +260,7 @@ function ListeImprimable({ liste: L, etablissement, classeById, classeLabel, ann
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         );
       }) : <p style={{ marginTop: 20 }}>Aucun élève ne correspond à ces critères.</p>}

@@ -492,17 +492,10 @@ export default function InscriptionsPage() {
         <p className="text-muted mt-3 mb-0 small">Les mois sont rangés dans l'ordre de l'année scolaire, de septembre à août.</p>
       </ChartPanel>
 
-      {/* Liste des élèves inscrits */}
-      <GenerateurListeClasse
-        lignes={lignesListe} classes={classes} classeLabel={classeLabel} annees={annees}
-        annee={annee} onAnneeChange={changeAnnee} etablissement={etablissement}
-        masquerAnneeClasse classeFiltre={filters.classe}
-      />
-
       {/* Filtres — ordinateur */}
       <div className="card mb-3 d-none d-md-block">
         <div className="card-body">
-          <h6 className="mb-3"><i className="bx bx-filter-alt me-1" /> Filtres {chips.length > 0 && <span className="badge rounded-pill bg-primary ms-1">{chips.length}</span>}</h6>
+          <h6 className="mb-3"><i className="bx bx-filter-alt me-1" /> Filtres des inscriptions {chips.length > 0 && <span className="badge rounded-pill bg-primary ms-1">{chips.length}</span>}</h6>
           <div className="row g-2 align-items-end">
             <div className="col-md-3"><label className="form-label">Rechercher un élève</label><input type="search" className="form-control form-control-sm" placeholder="Nom, prénom, matricule…" value={filters.q} onChange={setFilter('q')} /></div>
             <div className="col-md-2"><label className="form-label">Année scolaire</label><Select className="form-select form-select-sm" value={annee} onChange={(e) => changeAnnee(e.target.value)}>{anneeOptions}</Select></div>
@@ -527,6 +520,7 @@ export default function InscriptionsPage() {
       {/* Filtres — mobile : l'essentiel + bouton vers la feuille glissante */}
       <div className="card mb-3 d-md-none">
         <div className="card-body p-3">
+          <h6 className="mb-2 d-flex align-items-center"><i className="bx bx-filter-alt me-1" /> Filtres des inscriptions {chips.length > 0 && <span className="badge rounded-pill bg-primary ms-1">{chips.length}</span>}</h6>
           <div className="position-relative mb-2">
             <i className="bx bx-search position-absolute top-50 translate-middle-y ms-3 text-muted" />
             <input type="search" className="form-control ps-5" placeholder="Rechercher un élève…" aria-label="Rechercher un élève" value={filters.q} onChange={setFilter('q')} />
@@ -562,6 +556,13 @@ export default function InscriptionsPage() {
           <div className="col-7"><button type="button" className="btn btn-primary w-100" onClick={() => setFiltresOuverts(false)}>Voir {filtered.length} résultat{filtered.length > 1 ? 's' : ''}</button></div>
         </div>
       </BottomSheet>
+
+      {/* Liste des élèves inscrits */}
+      <GenerateurListeClasse
+        lignes={lignesListe} classes={classes} classeLabel={classeLabel} annees={annees}
+        annee={annee} onAnneeChange={changeAnnee} etablissement={etablissement}
+        masquerAnneeClasse classeFiltre={filters.classe}
+      />
 
       {/* Registre */}
       <TableCard title="Registre des inscriptions" icon="bx-table" count={filtered.length}>

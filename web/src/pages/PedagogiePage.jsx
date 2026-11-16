@@ -7,6 +7,8 @@ import { AvecChoixClasse } from '../components/Espace';
 import './notes.css';
 import Select from '../components/Select';
 import { SkelListe } from '../components/Skeleton';
+import { useSuppressionAffectation } from '../components/SuppressionAffectationModal';
+import { roleDe } from '../components/Layout';
 
 // Portage de server/static/templates/pedagogie.html (Censeur / Surveillant) :
 // affectations matière / enseignant des classes assignées. /classes/ et
@@ -25,7 +27,7 @@ export default function PedagogiePage() {
 function PedagogieContenu({ classeImposee = null }) {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
-  const { activeEtablissementId } = useAuth();
+  const { activeEtablissementId, user } = useAuth();
 
   const [data, setData] = useState({ classes: [], cycles: [], matieres: [], enseignants: [], matieresClasse: [] });
   const [loading, setLoading] = useState(true);
@@ -76,17 +78,15 @@ function PedagogieContenu({ classeImposee = null }) {
   const cyclesPresents = useMemo(() => [...new Set(classes.map((c) => c.cycle_id))].map((id) => ({ id, libelle: cycleLibelle(id) })).sort((a, b) => a.libelle.localeCompare(b.libelle)), [classes, cycleLibelle]);
   const classesAffichees = classesTriees.filter((c) => (!filterCycle || String(c.cycle_id) === filterCycle) && (!filterClasse || String(c.id) === filterClasse));
 
-  const supprimer = async (mc) => {
-    const ok = await confirm(`Retirer « ${matiereNom(mc.matiere_id)} » de cette classe ? Les cours déjà programmés sur cette affectation seront également supprimés de l'emploi du temps.`);
-    if (!ok) return;
-    try {
-      await api.del(`/matieres-classe/${mc.id}`);
-      toast('Affectation supprimée.');
-      await loadMatieresClasse();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  };
+  // Suppression en deux temps (confirmation, puis historique des données
+  // liées et suppression définitive réservée à l'administrateur).
+  const [demanderSuppression, suppressionNode] = useSuppressionAffectation({
+    confirm,
+    toast,
+    peutSupprimerDefinitivement: ['Admin', 'SuperAdmin'].includes(roleDe(user)),
+    onSupprime: loadMatieresClasse,
+  });
+  const supprimer = (mc) => demanderSuppression(mc, `${matiereNom(mc.matiere_id)} — ${classeLabel(mc.classe_id)}`);
 
   let zone;
   if (loading) {
@@ -156,6 +156,7 @@ function PedagogieContenu({ classeImposee = null }) {
         {zone}
         {modalNode}
         {confirmNode}
+        {suppressionNode}
       </>
     );
   }
@@ -198,6 +199,7 @@ function PedagogieContenu({ classeImposee = null }) {
 
       {modalNode}
       {confirmNode}
+      {suppressionNode}
     </>
   );
 }

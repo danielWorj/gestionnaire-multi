@@ -547,9 +547,13 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         mc, jour, (debut, fin), _salle = r['_cle']
         cle = (mc.id, jour, debut, fin)
         if cle in deja:
-            r['statut'] = 'existant'
-            if deja[cle] != 'base':
-                r['avertissements'].append(f"Cours déjà présent plus haut ({deja[cle]})")
+            if deja[cle] == 'base':
+                r['statut'] = 'existant'
+            else:
+                # Même cours deux fois dans les fichiers : seule la première
+                # occurrence est importée.
+                r['statut'] = 'doublon'
+                r['avertissements'].append(f"Doublon de la ligne {deja[cle]} : non importé")
             continue
         conflit = chevauche(occupe_classe[(mc.classe_id, jour)], debut, fin)
         if conflit:
@@ -584,11 +588,11 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         'resume': {
             'total': len(resultats),
             'nouveaux': resume['nouveau'], 'mises_a_jour': 0, 'existants': resume['existant'],
-            'erreurs': resume['erreur'], 'exclus': resume['exclu'],
+            'erreurs': resume['erreur'], 'exclus': resume['exclu'], 'doublons': resume['doublon'],
             'creneaux_nouveaux': len({r['_cle'][2] for r in actifs if r['donnees']['creneau_nouveau']}),
             'horaires_supprimes': nb_supprimes,
             'classes_remplacees': len(classes_remplacees),
-            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu')),
+            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu', 'doublon')),
         },
     }
     if not valider:

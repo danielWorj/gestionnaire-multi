@@ -29,6 +29,7 @@ export const STATUTS = {
   nouveau: ['Nouveau', 'bg-label-success'],
   maj: ['Mis à jour', 'bg-label-info'],
   existant: ['Déjà enregistré', 'bg-label-secondary'],
+  doublon: ['Doublon · ignoré', 'bg-label-warning'],
   erreur: ['Erreur', 'bg-label-danger'],
   exclu: ['Exclu', 'bg-label-dark'],
 };
@@ -224,7 +225,7 @@ export default function ImportAssistant({ config, optionsInitiales, onClose, onI
     if (!rep) return [];
     const q = recherche.trim().toLowerCase();
     return rep.lignes.filter((l) => {
-      if (filtre === 'alertes' && !(l.avertissements.length && l.statut !== 'erreur' && l.statut !== 'exclu')) return false;
+      if (filtre === 'alertes' && !(l.avertissements.length && !['erreur', 'exclu', 'doublon'].includes(l.statut))) return false;
       if (filtre !== 'tous' && filtre !== 'alertes' && l.statut !== filtre) return false;
       if (q && !`${Object.values(l.donnees).filter((x) => typeof x === 'string').join(' ')} ${l.source}`.toLowerCase().includes(q)) return false;
       return true;
@@ -463,6 +464,7 @@ export default function ImportAssistant({ config, optionsInitiales, onClose, onI
               ['nouveau', 'Nouveaux', r.nouveaux, 'success'],
               ['maj', 'Mis à jour', r.mises_a_jour, 'info'],
               ['existant', 'Déjà enregistrés', r.existants, 'secondary'],
+              ['doublon', 'Doublons ignorés', r.doublons || 0, 'warning'],
               ['erreur', 'Erreurs', r.erreurs, 'danger'],
               ['alertes', 'À vérifier', r.avertissements, 'warning'],
               ['exclu', 'Exclues', r.exclus, 'dark'],
@@ -484,6 +486,12 @@ export default function ImportAssistant({ config, optionsInitiales, onClose, onI
             </div>
           </div>
 
+          {r.doublons > 0 && (
+            <div className="alert alert-info small py-2">
+              <i className="bx bx-copy me-1" />
+              {r.doublons} ligne{r.doublons > 1 ? 's' : ''} en double dans les fichiers : seule la première occurrence est importée, les copies sont ignorées.
+            </div>
+          )}
           {r.erreurs > 0 && (
             <div className="alert alert-warning small py-2">
               <i className="bx bx-error me-1" />

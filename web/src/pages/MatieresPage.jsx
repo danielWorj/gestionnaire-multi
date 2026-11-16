@@ -8,6 +8,7 @@ import {
 import Select from '../components/Select';
 import ImportModal from '../components/importConfigs';
 import { roleDe } from '../components/Layout';
+import { useSuppressionAffectation } from '../components/SuppressionAffectationModal';
 
 // Portage de server/static/templates/matiere.html : groupes de matières,
 // matières et affectations matière → classe (pedagogie_api.py, cloisonné
@@ -142,6 +143,15 @@ export default function MatieresPage() {
     filtres.matiere && ['matiere', `Matière : ${matiereLabel(Number(filtres.matiere))}`],
     filtres.enseignant && ['enseignant', `Enseignant : ${enseignantLabel(Number(filtres.enseignant))}`],
   ].filter(Boolean);
+
+  // Affectations : confirmation, puis historique des données liées (notes,
+  // cours, épreuves) et suppression définitive réservée à l'administrateur.
+  const [demanderSuppressionAffectation, suppressionAffectationNode] = useSuppressionAffectation({
+    confirm,
+    toast,
+    peutSupprimerDefinitivement: peutImporter,
+    onSupprime: loadAffectations,
+  });
 
   const supprimer = async (path, label, reload) => {
     if (!(await confirm(`Supprimer « ${label} » ? Cette action est irréversible.`))) return;
@@ -336,7 +346,7 @@ export default function MatieresPage() {
                     <td><span className="badge bg-label-warning">{a.coefficient}</span></td>
                     <td className="text-end">
                       <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => openAffectation(a)} />
-                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/matieres-classe/${a.id}`, `${labelClasse(a.classe_id)} — ${matiereLabel(a.matiere_id)}`, loadAffectations)} />
+                      <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => demanderSuppressionAffectation(a, `${matiereLabel(a.matiere_id)} — ${labelClasse(a.classe_id)}`)} />
                     </td>
                   </tr>
                 ))}
@@ -374,6 +384,7 @@ export default function MatieresPage() {
       )}
       {importOuvert && <ImportModal module="matieres" onClose={() => setImportOuvert(false)} onImported={loadAll} />}
       {confirmNode}
+      {suppressionAffectationNode}
     </>
   );
 }

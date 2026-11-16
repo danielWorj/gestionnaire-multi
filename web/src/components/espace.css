@@ -131,8 +131,14 @@
 /* ── Filtres / pastilles ──────────────────────────────────────────────── */
 .esp-filtres { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
 @media (min-width: 768px) { .esp-filtres { flex-direction: row; align-items: center; } }
-.esp-recherche { position: relative; flex: 0 1 320px; }
-.esp-recherche .bx { position: absolute; left: 0.8rem; top: 50%; transform: translateY(-50%); color: var(--esp-texte-doux); }
+/* Mobile : colonne pleine largeur. Une base flex de 320px dans un conteneur
+   en colonne s'appliquerait à la HAUTEUR (barre géante, icône décalée). */
+.esp-recherche { position: relative; flex: none; width: 100%; }
+@media (min-width: 768px) {
+  .esp-filtres > .esp-recherche { flex: 0 1 320px; width: auto; }
+  .esp-filtres > .esp-pastilles { flex: 1 1 auto; min-width: 0; }
+}
+.esp-recherche .bx { position: absolute; left: 0.8rem; top: 50%; transform: translateY(-50%); color: var(--esp-texte-doux); pointer-events: none; z-index: 1; line-height: 1; }
 .esp-recherche .form-control { padding-left: 2.2rem; min-height: 42px; border-radius: 999px; }
 
 .esp-pastilles {

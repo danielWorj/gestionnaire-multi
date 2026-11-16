@@ -202,6 +202,9 @@ def _options(brutes):
     o = dict(brutes or {})
     return {
         'creer_categories': o.get('creer_categories', True) is not False,
+        # Lignes identiques dans les fichiers (même date, sens, montant, compte
+        # et libellé) : non importées par défaut, sauf demande explicite.
+        'importer_doublons': o.get('importer_doublons') is True,
         'categorie_entree_defaut': nettoyer_espaces(str(o.get('categorie_entree_defaut') or ''))[:LIBELLE_CATEGORIE_MAX],
         'categorie_sortie_defaut': nettoyer_espaces(str(o.get('categorie_sortie_defaut') or ''))[:LIBELLE_CATEGORIE_MAX],
         'fonds_defaut': _vers_int(o.get('fonds_defaut')),
@@ -395,8 +398,15 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
                 r['statut'] = 'existant'
                 avert.append("Opération déjà enregistrée (même date, montant, compte et libellé) : ignorée")
             elif cle in vus:
-                avert.append(f"Ligne identique plus haut ({vus[cle]}) : vérifiez qu'il ne s'agit pas d'un doublon")
-            vus.setdefault(cle, source)
+                if options['importer_doublons']:
+                    avert.append(f"Ligne identique plus haut ({vus[cle]}) : importée quand même (option choisie)")
+                else:
+                    r['statut'] = 'doublon'
+                    avert.append(f"Doublon de la ligne {vus[cle]} : non importé")
+            # Une ligne exclue par l'utilisateur ne compte pas comme première
+            # occurrence : sa copie plus bas reste importable.
+            if rid not in exclues:
+                vus.setdefault(cle, source)
 
         if rid in exclues:
             r['statut'] = 'exclu'
@@ -434,7 +444,8 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         'resume': {
             'total': len(resultats), 'nouveaux': statuts['nouveau'], 'mises_a_jour': 0,
             'existants': statuts['existant'], 'erreurs': statuts['erreur'], 'exclus': statuts['exclu'],
-            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu')),
+            'doublons': statuts['doublon'],
+            'avertissements': sum(1 for r in resultats if r['avertissements'] and r['statut'] not in ('erreur', 'exclu', 'doublon')),
             'categories_nouvelles': len(utilisees),
             'total_entrees': somme('ENTREE'), 'total_sorties': somme('SORTIE'), 'total_transferts': somme('TRANSFERT'),
         },
