@@ -217,3 +217,40 @@ def test_bulletin_disponible_apres_reglement(monde, secretaire, admin, connecter
     assert _bulletin(parent, monde).status_code == 200
     versements = parent.get('/api/parent/mon-espace').get_json()['enfants'][0]['versements']
     assert len(versements) == 1 and versements[0]['montant'] == 50000
+
+
+# ---------------------------------------------------------------------------
+# Bulletins des années précédentes
+# ---------------------------------------------------------------------------
+
+def _annee_precedente(monde):
+    """L'élève était en 6e l'an dernier (2025-2026), séquence terminée."""
+    from models.structure_models import AnneeScolaire, Trimestre
+    annee = AnneeScolaire(etablissement_id=monde.etab_id, libelle='2025-2026', active=False)
+    db.session.add(annee)
+    db.session.flush()
+    tri = Trimestre(annee_scolaire_id=annee.id, libelle='T1')
+    db.session.add(tri)
+    db.session.flush()
+    seq = Sequence(trimestre_id=tri.id, libelle='Seq1', date_debut=date(2025, 9, 1), date_fin=date(2025, 10, 15))
+    db.session.add(seq)
+    db.session.add(Inscription(eleve_id=monde.eleve_id, classe_id=monde.classe_id, annee_scolaire_id=annee.id,
+                               date_inscription=date(2025, 9, 1)))
+    db.session.commit()
+    return annee.id, seq.id
+
+
+def test_parent_consulte_les_bulletins_des_annees_precedentes(monde, secretaire, connecter):
+    annee_id, seq_id = _annee_precedente(monde)
+    parent = connecter(_ouvrir_acces(secretaire, monde))
+    enfant = parent.get('/api/parent/mon-espace').get_json()['enfants'][0]
+    anciennes = enfant['annees_anterieures']
+    assert [a['annee'] for a in anciennes] == ['2025-2026']
+    assert f'seq:{seq_id}' in {p['value'] for p in anciennes[0]['periodes']}
+    rep = parent.get(f'/api/parent/enfants/{monde.eleve_id}/bulletin',
+                     query_string={'periode': f'seq:{seq_id}', 'annee_scolaire_id': annee_id})
+    assert rep.status_code == 200, rep.get_json()
+    # Une année future / inconnue : refusée.
+    rep = parent.get(f'/api/parent/enfants/{monde.eleve_id}/bulletin',
+                     query_string={'periode': f'seq:{seq_id}', 'annee_scolaire_id': 9999})
+    assert rep.status_code == 404

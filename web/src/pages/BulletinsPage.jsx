@@ -7,8 +7,10 @@ import './notes.css';
 import './bulletin.css';
 import Select from '../components/Select';
 import { SkelListe } from '../components/Skeleton';
+import { useVerificationTrous } from '../components/TrousModal';
 
-// Bulletins séquentiels, trimestriels et annuels (Censeur et Surveillant).
+// Bulletins séquentiels, trimestriels et annuels (Admin, SuperAdmin, Censeur,
+// Surveillant, enseignant titulaire de la classe).
 // Calcul et mise en page côté serveur (/api/bulletins/, cf.
 // server/services/bulletin_services.py) : l'aperçu HTML, l'impression et le
 // PDF utilisent le même gabarit (server/static/templates/bulletins/bulletin.html).
@@ -120,6 +122,12 @@ function BulletinsClasse({ classeId }) {
     return q ? liste.filter((e) => `${e.nom} ${e.prenom} ${e.matricule || ''}`.toLowerCase().includes(q)) : liste;
   }, [donnees, ordreTri, recherche]);
 
+  // Avant d'imprimer / télécharger : fenêtre des notes manquantes (saisir
+  // la note ou dispenser l'élève), cf. components/TrousModal.jsx.
+  const { verifierPuis, fenetre: fenetreTrous } = useVerificationTrous({
+    classeId, annee, periode, onModifie: () => setVersion((v) => v + 1),
+  });
+
   const idsOuErreur = (ids) => {
     if (!ids.length) toast('Aucun élève sélectionné.', 'error');
     return ids.length ? ids.join(',') : null;
@@ -227,28 +235,28 @@ function BulletinsClasse({ classeId }) {
                 <label className="form-check-label small" htmlFor="checkToutSelectionner">Tous</label>
               </div>
             </div>
-            <div className="card-body py-2 border-bottom d-grid gap-2">
+            <div className="bulletin-actions">
               <div className="btn-group btn-group-sm">
-                <button type="button" className="btn btn-primary" disabled={!coches.size || occupe} onClick={() => imprimer([...coches])}>
+                <button type="button" className="btn btn-primary" disabled={!coches.size || occupe} onClick={() => verifierPuis(() => imprimer([...coches]))}>
                   {occupe === 'impression' ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-printer me-1" />}Imprimer la sélection ({coches.size})
                 </button>
-                <button type="button" className="btn btn-outline-primary" disabled={!coches.size || occupe} onClick={() => telechargerPdf([...coches])}>
+                <button type="button" className="btn btn-outline-primary bulletin-pdf" disabled={!coches.size || occupe} onClick={() => verifierPuis(() => telechargerPdf([...coches]))}>
                   {occupe === 'pdf' ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bxs-file-pdf me-1" />}PDF
                 </button>
               </div>
               <div className="btn-group btn-group-sm">
-                <button type="button" className="btn btn-outline-secondary" disabled={!selection || occupe} onClick={() => imprimer([selection])}><i className="bx bx-file me-1" />Imprimer ce bulletin</button>
-                <button type="button" className="btn btn-outline-secondary" disabled={!selection || occupe} onClick={() => telechargerPdf([selection])}><i className="bx bxs-file-pdf me-1" />PDF</button>
+                <button type="button" className="btn btn-outline-secondary" disabled={!selection || occupe} onClick={() => verifierPuis(() => imprimer([selection]))}><i className="bx bx-file me-1" />Imprimer ce bulletin</button>
+                <button type="button" className="btn btn-outline-secondary bulletin-pdf" disabled={!selection || occupe} onClick={() => verifierPuis(() => telechargerPdf([selection]))}><i className="bx bxs-file-pdf me-1" />PDF</button>
               </div>
             </div>
-            <div className="card-body py-2 border-bottom">
-              <label className="form-label"><i className="bx bx-sort-a-z me-1" />Ordonner / produire par</label>
-              <Select className="form-select form-select-sm" value={ordreTri} onChange={(e) => setOrdreTri(e.target.value)}>
-                <option value="alphabetique">Ordre alphabétique</option>
-                <option value="rang">Rang (classement)</option>
-              </Select>
-            </div>
-            <div className="card-body py-2 border-bottom">
+            <div className="bulletin-outils">
+              <div className="bulletin-tri">
+                <label className="form-label mb-0 text-nowrap small" htmlFor="ordreTriBulletins"><i className="bx bx-sort-a-z me-1" />Ordonner / produire par</label>
+                <Select id="ordreTriBulletins" className="form-select form-select-sm" value={ordreTri} onChange={(e) => setOrdreTri(e.target.value)}>
+                  <option value="alphabetique">Ordre alphabétique</option>
+                  <option value="rang">Rang (classement)</option>
+                </Select>
+              </div>
               <div className="input-group input-group-sm input-group-merge">
                 <span className="input-group-text"><i className="bx bx-search" /></span>
                 <input type="search" className="form-control" placeholder="Rechercher un élève (nom, prénom, matricule…)" aria-label="Rechercher un élève" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
@@ -283,6 +291,7 @@ function BulletinsClasse({ classeId }) {
         </div>
       </div>
 
+      {fenetreTrous}
       {aImprimer && <iframe ref={impressionRef} title="Impression des bulletins" className="bulletin-impression" srcDoc={aImprimer} onLoad={lancerImpression} />}
     </>
   );

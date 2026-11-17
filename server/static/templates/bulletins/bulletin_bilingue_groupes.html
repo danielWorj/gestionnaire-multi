@@ -1,0 +1,194 @@
+{#- Modèle « Bilingue, totaux par groupe » (mode Lycée) : en-tête bilingue,
+    une ligne TOTAL par groupe de matières avec sa moyenne dans chaque
+    colonne, puis quatre blocs (résultat, profil de la classe, travail,
+    conduite) et trois visas. Données : bulletin_services.construire_bulletins,
+    cf. structure_models.MODELES_BULLETIN. -#}
+{%- macro note(v) -%}
+  {%- if v is none -%}-{%- elif v == 'ABS' -%}Abs{%- elif v == 'DISP' -%}Disp.{%- else -%}{{ '%.2f' | format(v) }}{%- endif -%}
+{%- endmacro -%}
+{%- macro oui(v) -%}{{ 'Oui' if v else 'Non' }}{%- endmacro -%}
+{%- set etab = data.etablissement -%}
+{%- set cols = data.colonnes_notes -%}
+{%- set st = data.statistiques -%}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bulletins — {{ data.classe.label }} — {{ data.periode.libelle }}</title>
+<style>
+  @page { size: A4 portrait; margin: 9mm 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; font-size: 8.2pt; color: #111; }
+  .page + .page { break-before: page; page-break-before: always; }
+  @media screen {
+    body { background: #e9ebee; padding: 14px 0; }
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto 14px; padding: 9mm 10mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  }
+  table { border-collapse: collapse; width: 100%; }
+  .entete td { vertical-align: top; text-align: center; font-weight: 700; font-size: 7.8pt; line-height: 1.35; }
+  .entete .logo img { max-height: 20mm; max-width: 24mm; }
+  .etab { text-align: center; font-weight: 700; font-size: 12pt; margin-top: 1mm; }
+  .etab-info { text-align: center; font-size: 8pt; padding-bottom: 1.5mm; border-bottom: 0.8pt solid #333; }
+  .titre { text-align: center; font-weight: 700; font-size: 10.5pt; margin-top: 2.5mm; }
+  .sous-titre { text-align: center; font-weight: 700; font-size: 8.6pt; margin-bottom: 2.5mm; }
+  .eleve { border: 1.2pt solid #111; padding: 2mm 4mm; }
+  .eleve h2 { margin: 0 0 1mm; font-size: 9.6pt; }
+  .eleve td { padding: 0.3mm 0; font-size: 8.4pt; vertical-align: top; }
+  .eleve td.photo { width: 22mm; text-align: right; vertical-align: middle; }
+  .eleve td.photo img { width: 19mm; height: 24mm; object-fit: cover; border: 0.6pt solid #333; }
+  .notes { margin-top: 3mm; }
+  .notes th { background: #4682b4; color: #fff; text-align: left; font-size: 7.8pt; padding: 1.6mm 1.2mm; border: 0.6pt solid #222; }
+  .notes td { border: 0.6pt solid #222; padding: 1.1mm 1.2mm; font-size: 7.8pt; }
+  .notes td.mat { width: 26%; }
+  .notes tr.groupe td { background: #f2f2f2; font-weight: 700; }
+  .notes tr.groupe td.app { text-transform: uppercase; }
+  .notes td.nc { font-style: italic; color: #555; }
+  .blocs { margin-top: 4mm; }
+  .blocs th { background: #4682b4; color: #fff; font-size: 7.8pt; padding: 1.4mm; border: 0.6pt solid #222; }
+  .blocs td { border: 0.6pt solid #222; padding: 0.9mm 1.4mm; font-size: 7.8pt; }
+  .blocs td.fort { font-weight: 700; }
+  .blocs td.resultat { text-align: center; font-weight: 700; font-size: 10pt; text-transform: uppercase; }
+  .visas { margin-top: 3mm; }
+  .visas td { border: 1pt solid #111; width: 33.33%; height: 27mm; text-align: center; vertical-align: top; padding: 2mm; font-weight: 700; font-size: 8pt; }
+  .visas .signataire { margin-top: 13mm; font-size: 7pt; }
+  .mention-bas { margin-top: 2mm; font-size: 6.4pt; line-height: 1.5; }
+</style>
+</head>
+<body>
+{%- for b in data.bulletins %}
+{%- set e = b.eleve %}
+<div class="page">
+  <table class="entete">
+    <tr>
+      <td style="width:40%">
+        <div>RÉPUBLIQUE DU CAMEROUN</div>
+        <div>Paix-Travail-Patrie</div>
+        <div>**********</div>
+        <div>Ministère des Enseignements Secondaires</div>
+        {%- if etab.region %}<div>Délégation Régionale : {{ etab.region }}</div>{% endif %}
+      </td>
+      <td class="logo" style="width:20%">{% if logo_src %}<img src="{{ logo_src }}" alt="">{% endif %}</td>
+      <td style="width:40%">
+        <div>REPUBLIC OF CAMEROON</div>
+        <div>Peace-Work-Fatherland</div>
+        <div>**********</div>
+        <div>Ministry of Secondary Education</div>
+        {%- if etab.region %}<div>Regional Delegation: {{ etab.region }}</div>{% endif %}
+      </td>
+    </tr>
+  </table>
+  <div class="etab">{{ etab.nom }}</div>
+  <div class="etab-info">
+    {%- if etab.bp_numero %}B.P. {{ etab.bp_numero }} {% endif %}{{ etab.adresse or '' }}{% if etab.telephone %} Tél: {{ etab.telephone }}{% endif %}
+  </div>
+
+  <div class="titre">BULLETIN SCOLAIRE - {{ data.periode.libelle }}</div>
+  <div class="sous-titre">Année Scolaire: {{ data.annee.libelle }}</div>
+
+  {%- set photo_src = photos.get(e.id) %}
+  <div class="eleve">
+    <table>
+      <tr>
+        <td colspan="2"><h2>INFORMATIONS DE L'ÉLÈVE</h2></td>
+        {%- if photo_src %}<td class="photo" rowspan="4"><img src="{{ photo_src }}" alt="Photo de {{ e.nom }} {{ e.prenom }}"></td>{% endif %}
+      </tr>
+      <tr><td style="width:58%">Nom et Prénom: {{ e.nom }} {{ e.prenom }}</td><td>Matricule: {{ e.matricule or '' }}</td></tr>
+      <tr><td>Né(e) le: {{ e.date_naissance or '' }} à {{ e.lieu_naissance or 'Non spécifié' }}</td><td>Classe: {{ data.classe.label }}</td></tr>
+      <tr><td>Enseignant(e) principal(e): {{ data.titulaire or '' }}</td><td>Effectif: {{ data.effectif }}</td></tr>
+    </table>
+  </div>
+
+  <table class="notes">
+    <thead>
+      <tr>
+        <th>MATIÈRES</th>
+        {%- for c in cols %}<th>{{ c.libelle }}</th>{% endfor %}
+        <th>MOY</th><th>COEF</th><th>TOTAL</th><th>RANG</th><th>APPRÉCIATION</th>
+      </tr>
+    </thead>
+    <tbody>
+    {%- for g in b.groupes %}
+      {%- for l in g.lignes %}
+      <tr>
+        <td class="mat">{{ l.matiere }}</td>
+        {%- for v in l.cellules %}<td>{{ note(v) }}</td>{% endfor %}
+        {%- if l.classe %}
+        <td>{{ note(l.moyenne) }}</td>
+        <td>{{ l.coefficient }}</td>
+        <td>{{ note(l.points) }}</td>
+        <td>{{ l.rang if l.rang is not none else '-' }}</td>
+        <td>{{ l.appreciation_longue or '' }}</td>
+        {%- else %}
+        <td>-</td><td>{{ l.coefficient }}</td><td>-</td>
+        <td class="nc" colspan="2">{{ "Dispensé(e)" if l.dispense else "Non classé(e)" }}</td>
+        {%- endif %}
+      </tr>
+      {%- endfor %}
+      <tr class="groupe">
+        <td>TOTAL {{ g.libelle | upper }}</td>
+        {%- for v in g.moyennes_colonnes %}<td>{{ note(v) }}</td>{% endfor %}
+        <td>{{ note(g.moyenne) }}</td>
+        <td>{{ '%.1f' | format(g.total_coef) }}</td>
+        <td>{{ note(g.total_points) }}</td>
+        <td>-</td>
+        <td class="app">{{ g.appreciation_longue or '' }}</td>
+      </tr>
+    {%- endfor %}
+    </tbody>
+  </table>
+
+  {%- set t = b.travail %}
+  {%- set d = b.discipline_totaux %}
+  <table class="blocs">
+    <tr>
+      <th colspan="2" style="width:26%">RÉSULTAT DE L'ÉLÈVE</th>
+      <th colspan="2" style="width:24%">PROFIL DE LA CLASSE</th>
+      <th colspan="2" style="width:25%">TRAVAIL DE L'ÉLÈVE</th>
+      <th colspan="2" style="width:25%">CONDUITE DE L'ÉLÈVE</th>
+    </tr>
+    <tr>
+      <td>Moyenne de l'élève</td><td class="fort">{{ note(b.moyenne) }} / 20</td>
+      <td>Moyenne &gt;= 10</td><td>{{ st.nb_sup_10 }}</td>
+      <td>Tableau d'Honneur</td><td>{{ oui(t.tableau_honneur) }}</td>
+      <td>Absences Totales</td><td>{{ d.absences_justifiees + d.absences_non_justifiees }} H</td>
+    </tr>
+    <tr>
+      <td>Rang de l'élève</td><td class="fort">{{ b.rang if b.rang is not none else '-' }} / {{ data.effectif }}</td>
+      <td>Moyenne Classe</td><td>{{ note(st.moyenne_classe) }}</td>
+      <td>T.H + Encouragement</td><td>{{ oui(t.encouragements) }}</td>
+      <td>Absences NJ</td><td>{{ d.absences_non_justifiees }} H</td>
+    </tr>
+    <tr>
+      <td colspan="2" rowspan="3" class="resultat">{{ b.appreciation_longue or 'Non classé(e)' }}</td>
+      <td>% Réussite</td><td>{{ ('%.0f' | format(st.taux_reussite)) ~ '%' if st.taux_reussite is not none else '-' }}</td>
+      <td>T.H + Félicitation</td><td>{{ oui(t.felicitations) }}</td>
+      <td>Exclusions</td><td>{{ d.exclusions }} Jrs</td>
+    </tr>
+    <tr>
+      <td>Moyenne Max</td><td>{{ note(st.moyenne_max) }}</td>
+      <td>Avertissement Travail</td><td>{{ oui(t.avertissement) }}</td>
+      <td>Aver. Conduite</td><td></td>
+    </tr>
+    <tr>
+      <td>Moyenne Min</td><td>{{ note(st.moyenne_min) }}</td>
+      <td>Blâme Travail</td><td>{{ oui(t.blame) }}</td>
+      <td>Blâme Conduite</td><td></td>
+    </tr>
+  </table>
+
+  <table class="visas">
+    <tr>
+      <td>VISA DU PARENT</td>
+      <td>DÉCISION DU CONSEIL DE CLASSE</td>
+      <td>VISA DU CHEF D'ÉTABLISSEMENT<div class="signataire">LE PRINCIPAL</div></td>
+    </tr>
+  </table>
+
+  <div class="mention-bas">
+    Le bulletin est délivré sans rature, ni surcharge.<br>
+    Report card issued without erasures or overwriting.
+  </div>
+</div>
+{%- endfor %}
+</body>
+</html>

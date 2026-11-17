@@ -1,0 +1,196 @@
+{#- Document du conseil de classe (séquence, trimestre, année) d'une classe,
+    d'un niveau, d'un cycle ou de tout l'établissement.
+    Gabarit unique pour l'aperçu HTML et le PDF (WeasyPrint), cf. api/conseil_api.py.
+    Données : conseil_services.construire_conseil. AUCUN calcul ici. -#}
+{%- set etab = data.etablissement -%}
+{%- macro n(v) -%}{%- if v is none -%}—{%- else -%}{{ ('%05.2f' | format(v)).replace('.', ',') }}{%- endif -%}{%- endmacro -%}
+{%- macro pct(v) -%}{%- if v is none -%}—{%- else -%}{{ ('%.1f' | format(v)).replace('.', ',') }} %{%- endif -%}{%- endmacro -%}
+{%- macro rang(r, sexe) -%}{%- if r is none -%}N.C.{%- elif r == 1 -%}{{ '1ère' if sexe == 'F' else '1er' }}{%- else -%}{{ r }}e{%- endif -%}{%- endmacro -%}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Conseil de classe — {{ data.intitule }} — {{ data.periode.libelle }}</title>
+<style>
+  @page {
+    size: A4; margin: 10mm;
+    @bottom-right { content: "Page " counter(page) " / " counter(pages); font-family: "DejaVu Sans", Arial, sans-serif; font-size: 6.5pt; color: #555; }
+  }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; color: #111; font-size: 8pt; }
+  @media screen {
+    body { background: #e9ebee; padding: 14px 0; }
+    .feuille { width: 210mm; margin: 0 auto 14px; padding: 10mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  }
+  .saut { break-before: page; page-break-before: always; }
+  table { border-collapse: collapse; width: 100%; }
+  .entete td { vertical-align: top; font-size: 7.4pt; line-height: 1.35; }
+  .entete .etab { font-weight: 700; font-size: 9pt; text-transform: uppercase; }
+  .entete .logo { max-height: 16mm; max-width: 24mm; }
+  .entete .droite { text-align: right; }
+  h1 { text-align: center; font-size: 14pt; margin: 3mm 0 1mm; letter-spacing: .04em; }
+  .sous-titre { text-align: center; font-size: 9.5pt; font-weight: 700; margin-bottom: 4mm; }
+  h2 { font-size: 10.5pt; margin: 5mm 0 2mm; padding: 1.2mm 2mm; background: #e6e6e6; border-left: 3pt solid #333; }
+  h3 { font-size: 8.8pt; margin: 3.5mm 0 1.5mm; text-transform: uppercase; letter-spacing: .03em; }
+  .grille th, .grille td { border: 0.4pt solid #333; padding: 0.9mm 1.2mm; text-align: center; }
+  .grille th { background: #f1f1f1; font-weight: 700; }
+  .grille td.g { text-align: left; }
+  .grille tr { break-inside: avoid; page-break-inside: avoid; }
+  .kpi { display: table; width: 100%; table-layout: fixed; margin-bottom: 2mm; }
+  .kpi > div { display: table-cell; border: 0.4pt solid #333; padding: 1.5mm; text-align: center; }
+  .kpi .v { font-size: 11pt; font-weight: 700; display: block; }
+  .kpi .l { font-size: 6.8pt; color: #444; }
+  .deux { display: table; width: 100%; table-layout: fixed; }
+  .deux > div { display: table-cell; vertical-align: top; padding-right: 3mm; }
+  .deux > div:last-child { padding-right: 0; padding-left: 3mm; }
+  .liste { margin: 0; padding-left: 4mm; }
+  .liste li { margin-bottom: .4mm; }
+  .vide { color: #666; font-style: italic; }
+  .rouge { color: #c00; }
+  .signatures td { width: 33%; text-align: center; height: 22mm; vertical-align: top; font-weight: 700; padding-top: 4mm; }
+  .edition { text-align: right; font-size: 6.8pt; color: #555; margin-top: 2mm; }
+</style>
+</head>
+<body>
+
+{%- macro entete() %}
+  <table class="entete"><tr>
+    <td style="width:40%">
+      <div class="etab">{{ etab.nom }}</div>
+      {%- if etab.bp %}<div>B.P. {{ etab.bp_numero or etab.bp }}{% if etab.region %} — {{ etab.region }}{% endif %}</div>{% endif %}
+      {%- if etab.telephone %}<div>Tél : {{ etab.telephone }}</div>{% endif %}
+    </td>
+    <td style="width:20%; text-align:center">{% if logo_src %}<img class="logo" src="{{ logo_src }}" alt="">{% endif %}</td>
+    <td class="droite">Année scolaire {{ data.annee.libelle }}<br>{{ data.periode.libelle }}</td>
+  </tr></table>
+{%- endmacro %}
+
+{%- macro kpis(s) %}
+  <div class="kpi">
+    <div><span class="v">{{ s.effectif }}</span><span class="l">Effectif</span></div>
+    <div><span class="v">{{ s.nb_classes }}</span><span class="l">Élèves classés</span></div>
+    <div><span class="v">{{ n(s.moyenne) }}</span><span class="l">Moyenne générale</span></div>
+    <div><span class="v">{{ n(s.moyenne_max) }}</span><span class="l">Plus forte</span></div>
+    <div><span class="v">{{ n(s.moyenne_min) }}</span><span class="l">Plus faible</span></div>
+    <div><span class="v">{{ s.nb_sup_10 }}</span><span class="l">Moyenne ≥ 10</span></div>
+    <div><span class="v">{{ pct(s.taux_reussite) }}</span><span class="l">Taux de réussite</span></div>
+  </div>
+{%- endmacro %}
+
+{%- macro repartition(r) %}
+  <table class="grille"><tr>{% for x in r %}<th>{{ x.libelle }}</th>{% endfor %}</tr>
+  <tr>{% for x in r %}<td>{{ x.nombre }}</td>{% endfor %}</tr></table>
+{%- endmacro %}
+
+{#- ===== Synthèse (niveau / cycle / établissement) ===== -#}
+{%- if data.portee != 'classe' %}
+<div class="feuille">
+  {{ entete() }}
+  <h1>CONSEIL DE CLASSE — SYNTHÈSE</h1>
+  <div class="sous-titre">{{ data.intitule }} · {{ data.periode.titre }} · {{ data.globale.nb_classes_scolaires }} classe(s)</div>
+  {{ kpis(data.globale) }}
+  <h3>Répartition des moyennes</h3>
+  {{ repartition(data.globale.repartition) }}
+  <h3>Comparatif des classes (par taux de réussite)</h3>
+  <table class="grille">
+    <tr><th>Rang</th><th>Classe</th><th>Niveau</th><th>Effectif</th><th>Classés</th><th>Moyenne</th><th>Plus forte</th><th>Plus faible</th><th>Réussite</th><th>Professeur principal</th></tr>
+    {%- for c in data.comparatif %}
+    <tr><td>{{ loop.index }}</td><td class="g">{{ c.classe }}</td><td>{{ c.niveau }}</td><td>{{ c.effectif }}</td><td>{{ c.nb_classes }}</td>
+      <td class="{{ 'rouge' if c.moyenne is not none and c.moyenne < 10 }}">{{ n(c.moyenne) }}</td><td>{{ n(c.moyenne_max) }}</td><td>{{ n(c.moyenne_min) }}</td>
+      <td>{{ pct(c.taux_reussite) }}</td><td class="g">{{ c.titulaire or '—' }}</td></tr>
+    {%- endfor %}
+  </table>
+  <h3>Meilleurs élèves</h3>
+  {%- if data.globale.meilleurs %}
+  <table class="grille"><tr><th>N°</th><th>Élève</th><th>Classe</th><th>Moyenne</th></tr>
+    {%- for e in data.globale.meilleurs %}<tr><td>{{ loop.index }}</td><td class="g">{{ e.nom }}</td><td>{{ e.classe }}</td><td>{{ n(e.moyenne) }}</td></tr>{% endfor %}
+  </table>
+  {%- else %}<p class="vide">Aucun élève classé.</p>{% endif %}
+  <table class="signatures"><tr><td>Le censeur</td><td></td><td>Le chef d'établissement</td></tr></table>
+  <div class="edition">Édité le {{ date_edition }}</div>
+</div>
+{%- endif %}
+
+{#- ===== Détail par classe ===== -#}
+{%- for s in data.classes %}
+<div class="feuille{{ ' saut' if data.portee != 'classe' or not loop.first }}">
+  {{ entete() }}
+  <h1>CONSEIL DE CLASSE</h1>
+  <div class="sous-titre">{{ s.classe.label }} · {{ data.periode.titre }}{% if s.titulaire %} · Professeur principal : {{ s.titulaire }}{% endif %}</div>
+  {{ kpis(s) }}
+
+  <div class="deux">
+    <div>
+      <h3>Répartition des moyennes</h3>
+      {{ repartition(s.repartition) }}
+    </div>
+    <div>
+      <h3>Résultats par sexe</h3>
+      <table class="grille"><tr><th></th><th>Effectif</th><th>Classés</th><th>≥ 10</th><th>Réussite</th><th>Moyenne</th></tr>
+        {%- for k in ['F', 'M'] %}{% set x = s.par_sexe[k] %}
+        <tr><td class="g">{{ x.libelle }}</td><td>{{ x.effectif }}</td><td>{{ x.classes }}</td><td>{{ x.reussite }}</td><td>{{ pct(x.taux) }}</td><td>{{ n(x.moyenne) }}</td></tr>
+        {%- endfor %}
+      </table>
+    </div>
+  </div>
+
+  <h3>Résultats par matière</h3>
+  <table class="grille">
+    <tr><th>Matière</th><th>Coef.</th><th>Enseignant</th><th>Moy. classe</th><th>Plus forte</th><th>Plus faible</th><th>≥ 10</th><th>Réussite</th></tr>
+    {%- for m in s.matieres %}
+    <tr><td class="g">{{ m.matiere }}</td><td>{{ m.coefficient }}</td><td class="g">{{ m.enseignant or '—' }}</td>
+      <td class="{{ 'rouge' if m.moyenne is not none and m.moyenne < 10 }}">{{ n(m.moyenne) }}</td><td>{{ n(m.note_max) }}</td><td>{{ n(m.note_min) }}</td>
+      <td>{{ m.reussite }}/{{ m.classes }}</td><td>{{ pct(m.taux) }}</td></tr>
+    {%- endfor %}
+  </table>
+
+  <div class="deux">
+    <div>
+      <h3>Distinctions</h3>
+      {%- for d in s.distinctions %}
+      <div><strong>{{ d.libelle }}</strong> : {{ d.eleves | length }}</div>
+      {%- if d.eleves %}<ul class="liste">{% for e in d.eleves %}<li>{{ e.nom }} ({{ n(e.moyenne) }})</li>{% endfor %}</ul>{% endif %}
+      {%- endfor %}
+    </div>
+    <div>
+      <h3>Sanctions de travail</h3>
+      {%- for d in s.sanctions %}
+      <div><strong>{{ d.libelle }}</strong> : {{ d.eleves | length }}</div>
+      {%- if d.eleves %}<ul class="liste">{% for e in d.eleves %}<li>{{ e.nom }} ({{ n(e.moyenne) }})</li>{% endfor %}</ul>{% endif %}
+      {%- endfor %}
+      <h3>Discipline</h3>
+      <table class="grille"><tr><th>Abs. non just.</th><th>Abs. just.</th><th>Retards</th><th>Exclusions</th></tr>
+        <tr><td>{{ s.discipline.absences_non_justifiees or 0 }}</td><td>{{ s.discipline.absences_justifiees or 0 }}</td><td>{{ s.discipline.retards or 0 }}</td><td>{{ s.discipline.exclusions or 0 }}</td></tr></table>
+      {%- if s.absents %}
+      <div style="margin-top:1.5mm"><strong>Les plus absents</strong></div>
+      <ul class="liste">{% for e in s.absents %}<li>{{ e.nom }} : {{ e.non_justifiees }} h non just.{% if e.exclusions %}, {{ e.exclusions }} exclusion(s){% endif %}</li>{% endfor %}</ul>
+      {%- endif %}
+    </div>
+  </div>
+
+  <h3>Élèves en difficulté (moyenne &lt; 10)</h3>
+  {%- if s.difficulte %}
+  <table class="grille"><tr><th>Élève</th><th>Moyenne</th><th>Rang</th><th>Matières sous la moyenne</th></tr>
+    {%- for e in s.difficulte %}<tr><td class="g">{{ e.nom }}</td><td class="rouge">{{ n(e.moyenne) }}</td><td>{{ e.rang }}</td><td class="g">{{ e.matieres_faibles | join(', ') }}</td></tr>{% endfor %}
+  </table>
+  {%- else %}<p class="vide">Aucun élève sous la moyenne.</p>{% endif %}
+
+  <h3>{{ 'Classement et propositions de décision' if data.periode.type == 'annuel' else 'Classement' }}</h3>
+  <table class="grille">
+    <tr><th>Rang</th><th>N°</th><th>Élève</th><th>Statut</th><th>Moyenne</th><th>Mention</th><th>Travail</th>{% if data.periode.type == 'annuel' %}<th>Proposition</th><th>Décision du conseil</th>{% endif %}</tr>
+    {%- for e in s.classement %}
+    <tr><td>{{ rang(e.rang, e.sexe) }}</td><td>{{ e.numero }}</td><td class="g">{{ e.nom }}</td><td>{{ e.statut }}</td>
+      <td class="{{ 'rouge' if e.moyenne is not none and e.moyenne < 10 }}">{{ n(e.moyenne) }}</td><td>{{ e.mention or '—' }}</td><td class="g">{{ e.sanction or '—' }}</td>
+      {%- if data.periode.type == 'annuel' %}<td>{{ e.decision or '—' }}</td><td style="width:28mm"></td>{% endif %}</tr>
+    {%- endfor %}
+  </table>
+  {%- if s.nb_non_classes %}<p class="vide">{{ s.nb_non_classes }} élève(s) non classé(s) : notes manquantes sur la période.</p>{% endif %}
+
+  <h3>Observations du conseil</h3>
+  <div style="border:0.4pt solid #333; height:22mm"></div>
+  <table class="signatures"><tr><td>Le professeur principal</td><td>Le censeur</td><td>Le chef d'établissement</td></tr></table>
+  <div class="edition">Édité le {{ date_edition }}</div>
+</div>
+{%- endfor %}
+</body>
+</html>

@@ -5,6 +5,51 @@ from extensions import db
 from models.authentification_models import CODE_LENGTH, generer_code_unique
 
 
+# ---------------------------------------------------------------------------
+# Modes d'évaluation, choisis par établissement ET par année scolaire :
+#   - lycee    : une note par séquence (fonctionnement historique) ;
+#   - college  : chaque séquence a un CC (30 %) et un DS (70 %) ;
+#   - institut : chaque séquence a un CC, un DS et une évaluation
+#                trimestrielle (Ev. Tr.), à parts égales.
+# composantes : (code stocké dans Note.composante, libellé, poids). La note
+# de la séquence vaut Σ(poids × note) / Σ poids ; une composante absente ou
+# non saisie compte 0 (cf. mode_evaluation_services.notes_par_sequence).
+# ---------------------------------------------------------------------------
+MODE_EVALUATION_DEFAUT = 'lycee'
+MODES_EVALUATION = {
+    'lycee': {'libelle': 'Lycée', 'composantes': (('note', 'Note', 1),)},
+    'college': {'libelle': 'Collège', 'composantes': (('cc', 'CC', 3), ('ds', 'DS', 7))},
+    'institut': {'libelle': 'Institut', 'composantes': (('cc', 'CC', 1), ('ds', 'DS', 1), ('evtr', 'Ev. Tr.', 1))},
+}
+
+# ---------------------------------------------------------------------------
+# Modèles de bulletin (gabarits static/templates/bulletins/), propres à un ou
+# plusieurs modes d'évaluation. L'établissement choisit le sien parmi ceux de
+# SON mode ; si l'année imprimée a un autre mode, le modèle par défaut de ce
+# mode est utilisé (cf. mode_evaluation_services.modele_bulletin_effectif).
+#   gabarit       : fichier Jinja ;
+#   extremes      : colonne note min / note max de la classe ;
+#   colonne_note  : après les évaluations d'une séquence, colonne « Note »
+#                   (note de la séquence, ex. 30 % CC + 70 % DS en Collège).
+# ---------------------------------------------------------------------------
+MODELES_BULLETIN = {
+    'original': {'libelle': 'Original', 'modes': ('lycee',), 'gabarit': 'bulletin.html'},
+    'original_extremes': {'libelle': 'Original + rang et extrêmes', 'modes': ('lycee',),
+                          'gabarit': 'bulletin.html', 'extremes': True},
+    'bilingue_groupes': {'libelle': 'Bilingue, totaux par groupe', 'modes': ('lycee',),
+                         'gabarit': 'bulletin_bilingue_groupes.html'},
+    'professeurs_groupes': {'libelle': 'Professeurs et moyenne de classe', 'modes': ('lycee',),
+                            'gabarit': 'bulletin_professeurs_groupes.html'},
+    'original_college': {'libelle': 'Original', 'modes': ('college',),
+                         'gabarit': 'bulletin_evaluations.html', 'colonne_note': True},
+    'original_institut': {'libelle': 'Original', 'modes': ('institut',),
+                          'gabarit': 'bulletin_evaluations.html'},
+}
+# Modèle par défaut de chaque mode (création d'établissement, repli).
+MODELES_BULLETIN_DEFAUT = {'lycee': 'original', 'college': 'original_college', 'institut': 'original_institut'}
+MODELE_BULLETIN_DEFAUT = MODELES_BULLETIN_DEFAUT[MODE_EVALUATION_DEFAUT]
+
+
 class Etablissement(db.Model):
     __tablename__ = 'etablissement'
 
@@ -26,6 +71,15 @@ class Etablissement(db.Model):
     # <racine_projet>/storage/logos/ (cf. services/structure_services.py).
     logo = db.Column(db.String(255))
 
+    # Mode d'évaluation choisi à la création de l'établissement : sert de
+    # valeur par défaut à chaque nouvelle année scolaire, qui porte ensuite
+    # SON mode (AnneeScolaire.mode_evaluation, seul utilisé par les calculs).
+    mode_evaluation = db.Column(db.String(10), nullable=False, default=MODE_EVALUATION_DEFAUT,
+                                server_default=MODE_EVALUATION_DEFAUT)
+    # Modèle de bulletin (cf. MODELES_BULLETIN), parmi ceux du mode d'évaluation.
+    modele_bulletin = db.Column(db.String(30), nullable=False, default=MODELE_BULLETIN_DEFAUT,
+                                server_default=MODELE_BULLETIN_DEFAUT)
+
     # Relations : un établissement possède son propre référentiel de cycles,
     # ses classes et ses années scolaires (isolation par etablissement_id)
     cycles = db.relationship('Cycle', backref='etablissement', lazy=True)
@@ -38,7 +92,7 @@ class Etablissement(db.Model):
 
     def to_dict(self):
         data = {k: getattr(self, k) for k in ['id', 'code', 'nom', 'nom_bilingue', 'adresse',
-                'bp', 'telephone', 'region', 'logo']}
+                'bp', 'telephone', 'region', 'logo', 'mode_evaluation', 'modele_bulletin']}
         # URL prête à l'emploi pour un <img src="..."> côté frontend, construite
         # à partir du nom de fichier stocké — jamais exposée telle quelle en base.
         data['logo_url'] = f"/api/etablissements/storage/logos/{self.logo}" if self.logo else None
@@ -68,6 +122,27 @@ class Cycle(db.Model):
                 "libelle": self.libelle}
 
 
+class Niveau(db.Model):
+    """Niveau d'enseignement (6e, 5e, Tle, MACO 2…) regroupant les classes
+    parallèles d'un établissement (6e A, 6e B…). Un élève qui change de
+    classe AU SEIN DU MÊME NIVEAU garde ses notes et ses paiements (cf.
+    changement_classe_services) ; le niveau sert aussi au statut redoublant
+    du bulletin et aux conseils de classe par niveau."""
+    __tablename__ = 'niveau'
+
+    id = db.Column(db.Integer, primary_key=True)
+    etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
+    libelle = db.Column(db.String(50), nullable=False)
+    ordre = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+
+    __table_args__ = (db.UniqueConstraint('etablissement_id', 'libelle', name='uq_niveau_etablissement'),)
+
+    classes = db.relationship('Classe', backref='niveau', lazy=True)
+
+    def to_dict(self):
+        return {k: getattr(self, k) for k in ['id', 'etablissement_id', 'libelle', 'ordre']}
+
+
 class Classe(db.Model):
     __tablename__ = 'classe'
 
@@ -75,6 +150,9 @@ class Classe(db.Model):
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     cycle_id = db.Column(db.Integer, db.ForeignKey('cycle.id'), nullable=False)
     option = db.Column(db.String(50))
+    # Niveau (cf. Niveau) ; None : déduit du nom de la classe (cf.
+    # bulletin_services.niveau_classe).
+    niveau_id = db.Column(db.Integer, db.ForeignKey('niveau.id'), nullable=True)
 
     @property
     def effectif(self):
@@ -85,7 +163,7 @@ class Classe(db.Model):
 
     def to_dict(self, effectif=None):
         data = {k: getattr(self, k) for k in ['id', 'etablissement_id', 'cycle_id',
-                'option']}
+                'option', 'niveau_id']}
         data['effectif'] = self.effectif if effectif is None else effectif
         return data
 
@@ -97,13 +175,33 @@ class AnneeScolaire(db.Model):
     etablissement_id = db.Column(db.Integer, db.ForeignKey('etablissement.id'), nullable=False)
     libelle = db.Column(db.String(20), nullable=False)
     active = db.Column(db.Boolean, default=False)
+    # Mode d'évaluation de l'année (cf. MODES_EVALUATION) : modifiable tant
+    # qu'aucune note n'a été saisie dans l'année, définitif ensuite.
+    mode_evaluation = db.Column(db.String(10), nullable=False, default=MODE_EVALUATION_DEFAUT,
+                                server_default=MODE_EVALUATION_DEFAUT)
 
     __table_args__ = (db.UniqueConstraint('etablissement_id', 'libelle', name='uq_annee_scolaire_etablissement'),)
 
     trimestres = db.relationship('Trimestre', backref='annee_scolaire', lazy=True)
 
+    @property
+    def mode_verrouille(self):
+        """Vrai dès qu'une note existe dans l'année : son mode est alors définitif."""
+        if self.id is None:
+            return False
+        from models.evaluation_models import Note
+        return db.session.query(
+            Note.query
+            .join(Sequence, Sequence.id == Note.sequence_id)
+            .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
+            .filter(Trimestre.annee_scolaire_id == self.id)
+            .exists()
+        ).scalar()
+
     def to_dict(self):
-        return {k: getattr(self, k) for k in ['id', 'etablissement_id', 'libelle', 'active']}
+        data = {k: getattr(self, k) for k in ['id', 'etablissement_id', 'libelle', 'active', 'mode_evaluation']}
+        data['mode_verrouille'] = self.mode_verrouille
+        return data
 
 
 class Trimestre(db.Model):
@@ -126,8 +224,19 @@ class Trimestre(db.Model):
         return d
 
 
+# État de la saisie des notes d'une séquence (cf. Sequence.verrou_depuis).
+ETATS_SAISIE = ('auto', 'cloturee', 'ouverte')
+
+
 class Sequence(db.Model):
-    """Pas de etablissement_id direct : rattaché via trimestre_id -> annee_scolaire_id."""
+    """Pas de etablissement_id direct : rattaché via trimestre_id -> annee_scolaire_id.
+
+    Verrouillage de la saisie des notes (etat_saisie) :
+      - 'auto'     : ouverte jusqu'à sa date de fin incluse, verrouillée ensuite ;
+      - 'cloturee' : clôturée par l'administration (depuis cloturee_le) ;
+      - 'ouverte'  : rouverte par l'administration, même après sa date de fin.
+    Une séquence verrouillée n'est plus modifiable que par l'Admin et le
+    SuperAdmin (cf. evaluation_services.refus_verrou)."""
     __tablename__ = 'sequence'
 
     id = db.Column(db.Integer, primary_key=True)
@@ -135,11 +244,31 @@ class Sequence(db.Model):
     libelle = db.Column(db.String(10), nullable=False)
     date_debut = db.Column(db.Date)
     date_fin = db.Column(db.Date)
+    etat_saisie = db.Column(db.String(10), nullable=False, default='auto', server_default='auto')
+    cloturee_le = db.Column(db.DateTime, nullable=True)
+
+    def verrou_depuis(self):
+        """Moment (UTC naïf) à partir duquel la saisie est verrouillée, ou
+        None si elle est ouverte."""
+        from datetime import datetime, time, timedelta
+        if self.etat_saisie == 'ouverte':
+            return None
+        if self.etat_saisie == 'cloturee':
+            return self.cloturee_le or datetime.min
+        if self.date_fin:
+            return datetime.combine(self.date_fin + timedelta(days=1), time.min)
+        return None
+
+    def est_verrouillee(self, moment=None):
+        from datetime import datetime
+        depuis = self.verrou_depuis()
+        return depuis is not None and (moment or datetime.utcnow()) >= depuis
 
     def to_dict(self):
-        d = {k: getattr(self, k) for k in ['id', 'trimestre_id', 'libelle']}
+        d = {k: getattr(self, k) for k in ['id', 'trimestre_id', 'libelle', 'etat_saisie']}
         if self.date_debut: d['date_debut'] = self.date_debut.isoformat()
         if self.date_fin: d['date_fin'] = self.date_fin.isoformat()
+        d['verrouillee'] = self.est_verrouillee()
         return d
 
 def annee_active(etablissement_id):
@@ -151,6 +280,35 @@ def annee_active(etablissement_id):
     return next((a for a in annees if a.active), None) or max(annees, key=lambda a: a.libelle, default=None)
 
 
+def cle_trimestre(trimestre):
+    """Clé de tri CHRONOLOGIQUE d'un trimestre : sa date de début, à défaut
+    celle de sa première séquence datée, à défaut l'ordre de création."""
+    debut = trimestre.date_debut or min((s.date_debut for s in trimestre.sequences if s.date_debut), default=None)
+    return (debut is None, debut or date.min, trimestre.id)
+
+
+def cle_sequence(sequence):
+    """Clé de tri CHRONOLOGIQUE d'une séquence (trimestre, puis date de
+    début, puis ordre de création) : règle UNIQUE de l'application (bulletins,
+    PV, espaces de saisie, séquence en cours)."""
+    return (cle_trimestre(sequence.trimestre), sequence.date_debut is None,
+            sequence.date_debut or date.min, sequence.id)
+
+
+def trier_sequences(sequences):
+    return sorted(sequences, key=cle_sequence)
+
+
+def sequences_de_annee(annee_id):
+    """Séquences d'une année scolaire, dans l'ordre chronologique."""
+    return trier_sequences(
+        Sequence.query
+        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
+        .filter(Trimestre.annee_scolaire_id == annee_id)
+        .all()
+    )
+
+
 def sequence_courante(annee):
     """Séquence « en cours » de l'année (celle dont les dates encadrent
     aujourd'hui ; à défaut la dernière commencée ; à défaut la première), ou
@@ -158,13 +316,7 @@ def sequence_courante(annee):
     la saisie des notes (espaces enseignant/censeur, vue réseau)."""
     if annee is None:
         return None
-    sequences = (
-        Sequence.query
-        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-        .filter(Trimestre.annee_scolaire_id == annee.id)
-        .order_by(Trimestre.id, Sequence.id)
-        .all()
-    )
+    sequences = sequences_de_annee(annee.id)
     if not sequences:
         return None
     aujourdhui = date.today()

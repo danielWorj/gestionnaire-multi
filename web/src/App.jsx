@@ -1,42 +1,64 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import Layout, { roleDe } from './components/Layout';
+import Layout, { roleAutorise, roleDe } from './components/Layout';
 import LoadingScreen from './components/LoadingScreen';
 import { AvecChoixClasse } from './components/Espace';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
-import DashboardPage from './pages/DashboardPage';
-import ChangePasswordPage from './pages/ChangePasswordPage';
-import EtablissementsPage from './pages/EtablissementsPage';
-import EtablissementDashboardPage from './pages/EtablissementDashboardPage';
-import MatieresPage from './pages/MatieresPage';
-import EnseignantsPage from './pages/EnseignantsPage';
-import ElevesPage from './pages/ElevesPage';
-import ParentsPage from './pages/ParentsPage';
-import InscriptionsPage from './pages/InscriptionsPage';
-import ListesClassesPage from './pages/ListesClassesPage';
-import ConfigurationPage from './pages/ConfigurationPage';
-import PaiementsPage from './pages/PaiementsPage';
-import TresoreriePage from './pages/TresoreriePage';
-import HorairePage from './pages/HorairePage';
-import PedagogiePage from './pages/PedagogiePage';
-import CenseurNotesPage from './pages/CenseurNotesPage';
-import BulletinsPage from './pages/BulletinsPage';
-import ProcesVerbalPage from './pages/ProcesVerbalPage';
-import EnseignantNotesPage from './pages/EnseignantNotesPage';
-import EnseignantHorairePage from './pages/EnseignantHorairePage';
-import EnseignantClassesPage from './pages/EnseignantClassesPage';
-import EnseignantEpreuvesPage from './pages/EnseignantEpreuvesPage';
-import EpreuvesPage from './pages/EpreuvesPage';
-import EspaceAccueilPage from './pages/EspaceAccueilPage';
-import ChoixEspacePage from './pages/ChoixEspacePage';
 import AccesRefusePage from './pages/AccesRefusePage';
-import JournalPage from './pages/JournalPage';
-import UtilisateursPage from './pages/UtilisateursPage';
-import SuperAdminsPage from './pages/SuperAdminsPage';
-import ParentAccueilPage from './pages/ParentAccueilPage';
-import ParentPaiementsPage from './pages/ParentPaiementsPage';
-import ParentBulletinsPage from './pages/ParentBulletinsPage';
+// Les pages sont chargées à la demande (une par fichier JS) : le premier
+// affichage ne télécharge que la connexion et le cadre de l'application. Le
+// service worker garde quand même tous ces fichiers pour le hors connexion.
+// Après une mise à jour, un onglet resté ouvert peut réclamer un fichier de
+// page qui n'existe plus : on recharge alors l'application une seule fois.
+const RECHARGE_KEY = 'pageRechargee';
+const page = (charger) => lazy(() => charger().then((module) => {
+  try { sessionStorage.removeItem(RECHARGE_KEY); } catch { /* stockage indisponible */ }
+  return module;
+}).catch((erreur) => {
+  let dejaRecharge = true;
+  try {
+    dejaRecharge = sessionStorage.getItem(RECHARGE_KEY) === '1';
+    if (!dejaRecharge) sessionStorage.setItem(RECHARGE_KEY, '1');
+  } catch { /* stockage indisponible : pas de rechargement automatique */ }
+  if (!dejaRecharge) {
+    window.location.reload();
+    return new Promise(() => {});
+  }
+  throw erreur;
+}));
+const DashboardPage = page(() => import('./pages/DashboardPage'));
+const ChangePasswordPage = page(() => import('./pages/ChangePasswordPage'));
+const EtablissementsPage = page(() => import('./pages/EtablissementsPage'));
+const EtablissementDashboardPage = page(() => import('./pages/EtablissementDashboardPage'));
+const MatieresPage = page(() => import('./pages/MatieresPage'));
+const EnseignantsPage = page(() => import('./pages/EnseignantsPage'));
+const ElevesPage = page(() => import('./pages/ElevesPage'));
+const ParentsPage = page(() => import('./pages/ParentsPage'));
+const InscriptionsPage = page(() => import('./pages/InscriptionsPage'));
+const ListesClassesPage = page(() => import('./pages/ListesClassesPage'));
+const ConfigurationPage = page(() => import('./pages/ConfigurationPage'));
+const PaiementsPage = page(() => import('./pages/PaiementsPage'));
+const TresoreriePage = page(() => import('./pages/TresoreriePage'));
+const HorairePage = page(() => import('./pages/HorairePage'));
+const PedagogiePage = page(() => import('./pages/PedagogiePage'));
+const CenseurNotesPage = page(() => import('./pages/CenseurNotesPage'));
+const BulletinsPage = page(() => import('./pages/BulletinsPage'));
+const ProcesVerbalPage = page(() => import('./pages/ProcesVerbalPage'));
+const ConseilClassePage = page(() => import('./pages/ConseilClassePage'));
+const EnseignantNotesPage = page(() => import('./pages/EnseignantNotesPage'));
+const EnseignantHorairePage = page(() => import('./pages/EnseignantHorairePage'));
+const EnseignantClassesPage = page(() => import('./pages/EnseignantClassesPage'));
+const EnseignantEpreuvesPage = page(() => import('./pages/EnseignantEpreuvesPage'));
+const EpreuvesPage = page(() => import('./pages/EpreuvesPage'));
+const EspaceAccueilPage = page(() => import('./pages/EspaceAccueilPage'));
+const ChoixEspacePage = page(() => import('./pages/ChoixEspacePage'));
+const JournalPage = page(() => import('./pages/JournalPage'));
+const UtilisateursPage = page(() => import('./pages/UtilisateursPage'));
+const SuperAdminsPage = page(() => import('./pages/SuperAdminsPage'));
+const ParentAccueilPage = page(() => import('./pages/ParentAccueilPage'));
+const ParentPaiementsPage = page(() => import('./pages/ParentPaiementsPage'));
+const ParentBulletinsPage = page(() => import('./pages/ParentBulletinsPage'));
 
 function AucunRole() {
   const { logout } = useAuth();
@@ -88,6 +110,8 @@ function ProtectedRoute({ children, sansEspace = false }) {
 
 const ADMIN = ['Admin', 'SuperAdmin'];
 const CENSEUR = ['Censeur', 'Surveillant'];
+// Pseudo-rôle : enseignant titulaire d'une classe (cf. roleAutorise).
+const TITULAIRE = 'Titulaire';
 // Secrétariat : élèves, parents et inscriptions (mêmes droits API que l'Admin
 // sur ces trois ressources, cf. server/api/inscription_api.py).
 const SCOLARITE = [...ADMIN, 'Secretaire'];
@@ -98,6 +122,14 @@ const TOUS_LES_PROFILS = [...ADMIN, ...CENSEUR, 'Enseignant', 'Secretaire', 'Com
 function EmploiDuTempsSelonRole() {
   const { user } = useAuth();
   const role = roleDe(user);
+  if (role === 'Enseignant') {
+    // Titulaire : emploi du temps complet de sa classe (consultation).
+    return (
+      <AvecChoixClasse titre="Emploi du temps de ma classe" icon="bx-calendar-check" avecAvancement={false}>
+        {({ classeId, classe }) => <EnseignantHorairePage key={classeId} classeImposee={classeId} classeLabel={classe?.label || ''} />}
+      </AvecChoixClasse>
+    );
+  }
   if (CENSEUR.includes(role)) {
     // Censeur / Surveillant : choix de la classe sur des cartes d'abord.
     const variant = role === 'Censeur' ? 'censeur' : 'surveillant';
@@ -130,14 +162,19 @@ const PAGES = [
   { path: 'configuration', element: <ConfigurationPage />, roles: ADMIN },
   { path: 'paiements', element: <PaiementsPage />, roles: [...ADMIN, 'Comptable'] },
   { path: 'tresorerie', element: <TresoreriePage />, roles: [...ADMIN, 'Comptable'] },
-  { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR] },
+  // Enseignant : uniquement s'il est titulaire (professeur principal), pour
+  // ses classes — cf. TITULAIRE ci-dessous et le serveur.
+  { path: 'emploi-du-temps', element: <EmploiDuTempsSelonRole />, roles: [...ADMIN, ...CENSEUR, TITULAIRE] },
   { path: 'pedagogie', element: <PedagogiePage />, roles: CENSEUR },
-  // SuperAdmin : lecture ET saisie des notes de l'établissement choisi.
-  { path: 'notes', element: <CenseurNotesPage />, roles: [...CENSEUR, 'SuperAdmin'] },
-  { path: 'bulletins', element: <BulletinsPage />, roles: [...CENSEUR, ...ADMIN] },
-  // Procès-verbal d'évaluation d'une classe pour une séquence (aperçu,
-  // impression, PDF) : Admin et SuperAdmin uniquement, comme /api/pv.
-  { path: 'proces-verbal', element: <ProcesVerbalPage />, roles: ADMIN },
+  // Admin / SuperAdmin : lecture ET saisie des notes, et discipline.
+  { path: 'notes', element: <CenseurNotesPage />, roles: [...CENSEUR, ...ADMIN, TITULAIRE] },
+  { path: 'bulletins', element: <BulletinsPage />, roles: [...CENSEUR, ...ADMIN, TITULAIRE] },
+  // Procès-verbal d'évaluation (aperçu, impression, PDF), comme /api/pv :
+  // Admin/SuperAdmin, Censeur/Surveillant (leurs classes), titulaire.
+  { path: 'proces-verbal', element: <ProcesVerbalPage />, roles: [...ADMIN, ...CENSEUR, TITULAIRE] },
+  // Conseil de classe : Censeur (ses classes), Admin / SuperAdmin (classe,
+  // niveau, cycle ou établissement), comme /api/conseil.
+  { path: 'conseil-de-classe', element: <ConseilClassePage />, roles: [...ADMIN, 'Censeur'] },
   { path: 'enseignant/notes', element: <EnseignantNotesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/classes', element: <EnseignantClassesPage />, roles: ['Enseignant'] },
   { path: 'enseignant/emploi-du-temps', element: <EnseignantHorairePage />, roles: ['Enseignant'] },
@@ -145,7 +182,7 @@ const PAGES = [
   // filtre, ajoute et télécharge celles de tout l'établissement.
   { path: 'enseignant/epreuves', element: <EnseignantEpreuvesPage />, roles: ['Enseignant'] },
   { path: 'epreuves', element: <EpreuvesPage />, roles: ADMIN },
-  { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur'] },
+  { path: 'journal', element: <JournalPage />, roles: [...ADMIN, 'Censeur', 'Comptable'] },
   // Espace parent : uniquement les enfants de la famille connectée.
   { path: 'parent/paiements', element: <ParentPaiementsPage />, roles: ['Parent'] },
   { path: 'parent/bulletins', element: <ParentBulletinsPage />, roles: ['Parent'] },
@@ -169,7 +206,7 @@ function Accueil() {
 
 function RoleRoute({ roles, children }) {
   const { user } = useAuth();
-  if (!roles.includes(roleDe(user))) {
+  if (!roleAutorise(roles, user)) {
     return <AccesRefusePage />;
   }
   return children;
@@ -179,6 +216,7 @@ function App() {
   const { user } = useAuth();
 
   return (
+    <Suspense fallback={<LoadingScreen />}>
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/superadmin/login" element={user ? <Navigate to="/" replace /> : <LoginPage superadmin />} />
@@ -201,6 +239,7 @@ function App() {
 
       <Route path="*" element={<Navigate to={user ? '/' : '/login'} replace />} />
     </Routes>
+    </Suspense>
   );
 }
 

@@ -268,6 +268,11 @@ def get_current_user():
     # Rôle actif du token, s'il fait toujours partie des rôles du compte ;
     # sinon None : le front repasse par le choix d'espace (/choisir-role).
     data['role'] = next((r for r in data['roles'] if r['libelle'] == claims.get('role')), None)
+    # Enseignant titulaire (professeur principal) : ouvre les rubriques de sa
+    # classe (notes & discipline, bulletins, PV, emploi du temps).
+    if data['role'] and data['role']['libelle'] == 'Enseignant':
+        from services.pedagogie_services import classe_ids_titulaire
+        data['est_titulaire'] = bool(classe_ids_titulaire(identity))
     return jsonify(data), 200
 
 

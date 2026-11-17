@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { NAV_COURTE, NAV_MOBILE, roleInfo } from '../lib/espaces';
@@ -68,14 +68,16 @@ export const MENU_SECTIONS = [
     items: [
       { to: '/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', roles: [...ADMIN, ...CENSEUR] },
       { to: '/enseignant/emploi-du-temps', label: 'Horaires', icon: 'bx-calendar', roles: ['Enseignant'] },
+      { to: '/emploi-du-temps', label: 'Emploi du temps de ma classe', icon: 'bx-calendar-check', roles: ['Titulaire'] },
     ],
   },
   {
     header: 'Notes',
     items: [
-      { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: [...CENSEUR, 'SuperAdmin'] },
-      { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: [...CENSEUR, ...ADMIN] },
-      { to: '/proces-verbal', label: 'Procès-verbal', icon: 'bx-table', roles: ADMIN },
+      { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', roles: [...CENSEUR, ...ADMIN, 'Titulaire'] },
+      { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', roles: [...CENSEUR, ...ADMIN, 'Titulaire'] },
+      { to: '/proces-verbal', label: 'Procès-verbal', icon: 'bx-table', roles: [...ADMIN, ...CENSEUR, 'Titulaire'] },
+      { to: '/conseil-de-classe', label: 'Conseil de classe', icon: 'bx-group', roles: [...ADMIN, 'Censeur'] },
     ],
   },
   {
@@ -89,23 +91,22 @@ export const MENU_SECTIONS = [
     header: 'Configuration',
     items: [
       { to: '/configuration', label: 'Configuration', icon: 'bx-cog', roles: ADMIN },
-      { to: '/journal', label: 'Journal des modifications', icon: 'bx-history', roles: [...ADMIN, 'Censeur'] },
+      { to: '/journal', label: 'Journal des modifications', icon: 'bx-history', roles: [...ADMIN, 'Censeur', 'Comptable'] },
     ],
   },
 ];
 
+// Rôles d'un élément de menu / d'une route. 'Titulaire' désigne un
+// Enseignant titulaire (professeur principal) d'au moins une classe.
+export const roleAutorise = (roles, user) => {
+  const role = roleDe(user);
+  return roles.includes(role) || (role === 'Enseignant' && Boolean(user?.est_titulaire) && roles.includes('Titulaire'));
+};
+
 export const roleDe = (user) => (user?.type === 'superadmin' ? 'SuperAdmin' : user?.role?.libelle || user?.role || '');
 
-function getInitials(name) {
-  return (name || 'U')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('');
-}
-
-const estActif = (to, pathname) => (to === '/' ? pathname === '/' : pathname.startsWith(to));
+// '/etablissement' ne doit pas s'allumer sur '/etablissements'.
+const estActif = (to, pathname) => (to === '/' ? pathname === '/' : pathname === to || pathname.startsWith(`${to}/`));
 
 // Mobile et tablette (< 1200px) : barre du haut compacte, barre de
 // navigation basse et menu complet dans une feuille glissante. Ordinateur :
@@ -119,6 +120,9 @@ export default function Layout() {
   const contenuRef = useRef(null);
 
   const role = roleDe(user);
+  // Rôles servant au filtrage du menu : le rôle actif, plus « Titulaire »
+  // pour un enseignant professeur principal (cf. roleAutorise).
+  const rolesMenu = role === 'Enseignant' && user?.est_titulaire ? [role, 'Titulaire'] : [role];
   const roleLabel = role === 'SuperAdmin' ? 'SuperAdmin' : role ? roleInfo(role).label : 'Compte';
   const multiRoles = (user?.roles?.length || 0) > 1;
   // Notifications : comptes d'établissement, dans leur espace actif.
@@ -168,7 +172,7 @@ export default function Layout() {
 
           <ul className="menu-inner py-1">
             {MENU_SECTIONS.map((section) => (
-              <MenuSection key={section.header || 'root'} section={section} pathname={location.pathname} role={role} />
+              <MenuSection key={section.header || 'root'} section={section} pathname={location.pathname} roles={rolesMenu} />
             ))}
           </ul>
         </aside>
@@ -193,7 +197,7 @@ export default function Layout() {
             )}
             {avecNotifications && <NotificationsMobile notif={notif} />}
             <button type="button" className="app-topbar-avatar" onClick={() => setMenuMobileOuvert(true)} aria-label="Mon compte">
-              <span className="avatar-initial rounded-circle bg-label-primary">{getInitials(user?.nom)}</span>
+              <span className="avatar-initial rounded-circle bg-label-primary"><i className="bx bx-user" /></span>
             </button>
           </header>
 
@@ -246,19 +250,14 @@ export default function Layout() {
                     onClick={() => setUserMenuOpen((open) => !open)}
                     aria-expanded={userMenuOpen}
                   >
-                    <div className="avatar avatar-online">
-                      <span className="avatar-initial rounded-circle bg-label-primary">{getInitials(user?.nom)}</span>
-                    </div>
+                    <span className="navbar-compte" title={user?.nom || 'Mon compte'}>
+                      <i className="bx bx-user-circle" />
+                    </span>
                   </button>
                   <ul className={`dropdown-menu dropdown-menu-end ${userMenuOpen ? 'show' : ''}`} data-bs-popper="static">
                     <li>
                       <div className="dropdown-item">
                         <div className="d-flex">
-                          <div className="flex-shrink-0 me-3">
-                            <div className="avatar avatar-online">
-                              <span className="avatar-initial rounded-circle bg-label-primary">{getInitials(user?.nom)}</span>
-                            </div>
-                          </div>
                           <div className="flex-grow-1">
                             <span className="fw-semibold d-block">{user?.nom || 'Utilisateur'}</span>
                             <small className="text-muted">{roleLabel}</small>
@@ -310,7 +309,9 @@ export default function Layout() {
           <div className="content-wrapper">
             <div className="container-xxl flex-grow-1 container-p-y app-content" ref={contenuRef}>
               <HorsLigne role={role} />
-              <Outlet />
+              <Suspense fallback={<div className="text-center py-5"><span className="spinner-border text-primary" role="status" aria-label="Chargement" /></div>}>
+                <Outlet />
+              </Suspense>
             </div>
 
             <footer className="content-footer footer bg-footer-theme">
@@ -325,11 +326,10 @@ export default function Layout() {
         </div>
       </div>
 
-      <NavMobile role={role} pathname={location.pathname} menuOuvert={menuMobileOuvert} onMenu={() => setMenuMobileOuvert(true)} />
+      <NavMobile roles={rolesMenu} pathname={location.pathname} menuOuvert={menuMobileOuvert} onMenu={() => setMenuMobileOuvert(true)} />
 
       <BottomSheet open={menuMobileOuvert} onClose={() => setMenuMobileOuvert(false)} className="menu-mobile">
         <div className="mm-profil">
-          <span className="avatar-initial rounded-circle bg-label-primary mm-avatar">{getInitials(user?.nom)}</span>
           <div className="min-w-0 flex-grow-1">
             <div className="mm-nom">{user?.nom || 'Utilisateur'}</div>
             <div className="mm-role">{roleLabel}{user?.code_connexion && <> · Code <span className="font-monospace">{user.code_connexion}</span></>}</div>
@@ -360,7 +360,7 @@ export default function Layout() {
         <div className="mm-section">
           <div className="mm-etiquette">Rubriques</div>
           <div className="mm-grille">
-            {itemsDuRole(role).map((item) => (
+            {itemsDuRole(rolesMenu).map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -398,10 +398,12 @@ export default function Layout() {
 
 // Onglets de la barre basse : ceux de NAV_MOBILE pour le rôle (à défaut, les
 // premières entrées de son menu), puis « Menu » qui ouvre tout le reste.
-const itemsDuRole = (role) => MENU_SECTIONS.flatMap((section) => section.items.filter((item) => item.roles.includes(role)));
+const pourRoles = (item, roles) => item.roles.some((r) => roles.includes(r));
+const itemsDuRole = (roles) => MENU_SECTIONS.flatMap((section) => section.items.filter((item) => pourRoles(item, roles)));
 
-function ongletsMobiles(role) {
-  const items = itemsDuRole(role);
+function ongletsMobiles(roles) {
+  const role = roles[0];
+  const items = itemsDuRole(roles);
   const parChemin = new Map(items.map((item) => [item.to, item]));
   const voulus = NAV_MOBILE[role] || items.slice(0, 4).map((item) => item.to);
   const onglets = voulus.map((to) => parChemin.get(to)).filter(Boolean);
@@ -409,8 +411,8 @@ function ongletsMobiles(role) {
   return onglets;
 }
 
-function NavMobile({ role, pathname, menuOuvert, onMenu }) {
-  const onglets = ongletsMobiles(role);
+function NavMobile({ roles, pathname, menuOuvert, onMenu }) {
+  const onglets = ongletsMobiles(roles);
   return (
     <nav className="app-nav-basse" aria-label="Navigation principale">
       {onglets.map((item) => {
@@ -430,8 +432,8 @@ function NavMobile({ role, pathname, menuOuvert, onMenu }) {
   );
 }
 
-function MenuSection({ section, pathname, role }) {
-  const items = section.items.filter((item) => item.roles.includes(role));
+function MenuSection({ section, pathname, roles }) {
+  const items = section.items.filter((item) => pourRoles(item, roles));
   if (items.length === 0) {
     return null;
   }

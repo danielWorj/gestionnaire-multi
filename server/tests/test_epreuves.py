@@ -465,15 +465,15 @@ def test_pagination_enseignant_par_6(monde, connecter):
     assert prof.get(f'{URL_ENSEIGNANT}?page=abc').get_json()['page'] == 1
 
 
-def test_pagination_admin_par_10(monde, connecter):
-    _en_base(monde, 14)
+def test_pagination_admin_par_25(monde, connecter):
+    _en_base(monde, 30)
     admin = connecter(monde.admin_compte)
 
     p1 = admin.get(URL_ADMIN).get_json()
-    assert (p1['total'], p1['page'], p1['pages'], p1['per_page']) == (14, 1, 2, 10)
-    assert len(p1['items']) == 10
+    assert (p1['total'], p1['page'], p1['pages'], p1['per_page']) == (30, 1, 2, 25)
+    assert len(p1['items']) == 25
     p2 = admin.get(f'{URL_ADMIN}?page=2').get_json()
-    assert [e['titre'] for e in p2['items']] == ['Ep 4', 'Ep 3', 'Ep 2', 'Ep 1']
+    assert [e['titre'] for e in p2['items']] == ['Ep 5', 'Ep 4', 'Ep 3', 'Ep 2', 'Ep 1']
 
     # per_page explicite, borné à 50.
     assert len(admin.get(f'{URL_ADMIN}?per_page=3').get_json()['items']) == 3

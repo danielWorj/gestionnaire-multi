@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Modal from './Modal';
 import { formatDate, formatMontant } from './ui';
+import { libelleSequenceNote } from './ModeEvaluation';
 
 // Fenêtre affichée après le refus « élève déjà lié à des notes / paiements » :
 // journal des notes et des paiements + bouton de suppression DÉFINITIVE
@@ -37,7 +38,7 @@ export default function SuppressionEleveModal({ historique, message, peutSupprim
             {notes.map((n) => (
               <tr key={n.id}>
                 <td>{n.annee || '—'}</td>
-                <td>{n.sequence}</td>
+                <td>{libelleSequenceNote(n)}</td>
                 <td>{n.matiere}</td>
                 <td className="text-end">{n.absent ? <span className="badge bg-label-secondary">Absent</span> : (n.valeur ?? '—')}</td>
                 <td className="text-muted small">{formatDate(n.date)}</td>

@@ -23,7 +23,7 @@ from sqlalchemy import func
 from extensions import db
 from models.inscription_models import Eleve, Inscription
 from models.paiements_models import LignePaiement, Paiement, TrancheClasse
-from models.structure_models import annee_active
+from models.structure_models import AnneeScolaire, annee_active
 from services.bulletin_services import classe_label, periodes_disponibles, sequences_annee
 from services.paiements_services import tranche_exigible
 
@@ -201,6 +201,7 @@ def suivi_enfants(parent, aujourdhui=None):
             })
 
     publiees = periodes_publiees(annee.id, aujourdhui) if annee else []
+    anterieurs = bulletins_anterieurs(eleves, annee, aujourdhui)
     enfants = []
     for e in eleves:
         insc = inscriptions[e.id]
@@ -220,6 +221,9 @@ def suivi_enfants(parent, aujourdhui=None):
             "paiements": situation,
             "versements": versements.get(insc.id, []) if insc else [],
             "bulletin": ({**etat_bulletin(insc, situation), "periodes": publiees} if insc else None),
+            # Bulletins des années précédentes (même règle de blocage, sur
+            # les frais de l'année concernée).
+            "annees_anterieures": anterieurs.get(e.id, []),
         })
     return {
         "annee_scolaire": {"id": annee.id, "libelle": annee.libelle} if annee else None,
@@ -227,7 +231,32 @@ def suivi_enfants(parent, aujourdhui=None):
     }
 
 
-def contexte_bulletin(parent, eleve_id, periode, aujourdhui=None):
+def bulletins_anterieurs(eleves, annee_courante, aujourdhui=None):
+    """{eleve_id: [{annee_scolaire_id, annee, classe, bloque, motif,
+    periodes}]} : inscriptions des années ANTÉRIEURES à l'année en cours
+    (libellé plus petit), de la plus récente à la plus ancienne."""
+    aujourdhui = aujourdhui or date.today()
+    ids = [e.id for e in eleves]
+    if not ids:
+        return {}
+    query = Inscription.query.join(AnneeScolaire, AnneeScolaire.id == Inscription.annee_scolaire_id) \
+        .filter(Inscription.eleve_id.in_(ids))
+    if annee_courante is not None:
+        query = query.filter(AnneeScolaire.libelle < annee_courante.libelle)
+    inscriptions = query.all()
+    situations = situations_paiement(inscriptions, aujourdhui)
+    resultat = {}
+    for insc in sorted(inscriptions, key=lambda i: i.annee_scolaire.libelle, reverse=True):
+        etat = etat_bulletin(insc, situations.get(insc.id))
+        resultat.setdefault(insc.eleve_id, []).append({
+            "annee_scolaire_id": insc.annee_scolaire_id, "annee": insc.annee_scolaire.libelle,
+            "classe": classe_label(insc.classe), "bloque": etat["bloque"], "motif": etat["motif"],
+            "periodes": periodes_publiees(insc.annee_scolaire_id, aujourdhui),
+        })
+    return resultat
+
+
+def contexte_bulletin(parent, eleve_id, periode, aujourdhui=None, annee_scolaire_id=None):
     """Vérifie qu'un parent peut ouvrir le bulletin de cet enfant pour
     cette période. Retourne ((inscription, annee), None) ou (None, (erreur,
     status)) — 403 'bulletin_bloque' si des frais échus restent impayés."""
@@ -236,9 +265,17 @@ def contexte_bulletin(parent, eleve_id, periode, aujourdhui=None):
     if eleve is None:
         return None, ({"erreur": "Élève introuvable"}, 404)
     annee = annee_active(parent.etablissement_id)
+    if annee_scolaire_id and (annee is None or int(annee_scolaire_id) != annee.id):
+        # Année antérieure : seulement une année où l'enfant était inscrit,
+        # antérieure à l'année en cours.
+        autre = db.session.get(AnneeScolaire, int(annee_scolaire_id))
+        if autre is None or autre.etablissement_id != parent.etablissement_id \
+                or (annee is not None and autre.libelle >= annee.libelle):
+            return None, ({"erreur": "Année scolaire introuvable"}, 404)
+        annee = autre
     insc = inscription_courante(eleve, annee)
     if insc is None:
-        return None, ({"erreur": "Cet élève n'est pas inscrit pour l'année en cours"}, 404)
+        return None, ({"erreur": "Cet élève n'était pas inscrit cette année-là"}, 404)
     if periode not in {p["value"] for p in periodes_publiees(annee.id, aujourdhui)}:
         return None, ({"erreur": "Ce bulletin n'est pas encore disponible : la période n'est pas terminée"}, 404)
     situation = situations_paiement([insc], aujourdhui).get(insc.id)

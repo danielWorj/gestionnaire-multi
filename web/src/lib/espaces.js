@@ -25,9 +25,19 @@ export const roleInfo = (libelle) => ROLES_INFO[libelle] || { label: libelle, ic
 const RUBRIQUES_CENSEUR = [
   { to: '/notes', label: 'Notes & discipline', icon: 'bx-spreadsheet', color: 'primary', description: 'Notes de vos classes et suivi disciplinaire' },
   { to: '/bulletins', label: 'Bulletins', icon: 'bx-file', color: 'success', description: 'Bulletins par séquence ou trimestre' },
+  { to: '/proces-verbal', label: 'Procès-verbal', icon: 'bx-table', color: 'info', description: 'PV des évaluations de vos classes' },
   { to: '/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', color: 'warning', description: 'Grilles horaires de vos classes' },
   { to: '/pedagogie', label: 'Pédagogie', icon: 'bx-git-branch', color: 'info', description: 'Matières et enseignants par classe' },
   { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', color: 'secondary', description: 'Imprimer ou télécharger la liste des élèves' },
+];
+
+// Rubriques supplémentaires de l'enseignant titulaire (professeur
+// principal), pour les classes dont il a la charge.
+export const RUBRIQUES_TITULAIRE = [
+  { to: '/notes', label: 'Ma classe : notes & discipline', icon: 'bx-spreadsheet', color: 'primary', description: 'Toutes les notes de votre classe et son suivi disciplinaire' },
+  { to: '/bulletins', label: 'Bulletins de ma classe', icon: 'bx-file', color: 'success', description: 'Bulletins par séquence, trimestre ou année' },
+  { to: '/proces-verbal', label: 'Procès-verbal', icon: 'bx-table', color: 'info', description: 'PV des évaluations de votre classe' },
+  { to: '/emploi-du-temps', label: 'Emploi du temps de ma classe', icon: 'bx-calendar-check', color: 'warning', description: 'Grille horaire de votre classe' },
 ];
 
 export const RUBRIQUES = {
@@ -38,7 +48,7 @@ export const RUBRIQUES = {
     { to: '/enseignant/emploi-du-temps', label: 'Emploi du temps', icon: 'bx-calendar', color: 'warning', description: 'Vos cours de la semaine' },
     { to: '/listes-classes', label: 'Listes de classe', icon: 'bx-list-ul', color: 'info', description: 'Imprimer ou télécharger la liste de vos classes' },
   ],
-  Censeur: RUBRIQUES_CENSEUR,
+  Censeur: [...RUBRIQUES_CENSEUR, { to: '/conseil-de-classe', label: 'Conseil de classe', icon: 'bx-group', color: 'primary', description: 'Bilan de vos classes : séquence, trimestre, année' }],
   Surveillant: RUBRIQUES_CENSEUR,
 };
 
@@ -66,6 +76,7 @@ export const NAV_COURTE = {
   '/notes': 'Notes',
   '/bulletins': 'Bulletins',
   '/proces-verbal': 'PV',
+  '/conseil-de-classe': 'Conseil',
   '/emploi-du-temps': 'Horaires',
   '/pedagogie': 'Pédagogie',
   '/parent/paiements': 'Paiements',

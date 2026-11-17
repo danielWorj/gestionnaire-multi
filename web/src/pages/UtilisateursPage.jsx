@@ -7,7 +7,7 @@ import CompteFormModal, { libelleRole } from '../components/CompteFormModal';
 import { fmtHorodatage } from '../components/Historique';
 import Select from '../components/Select';
 import {
-  FilterChips, IdentifiantsModal, PageHeader, Pager, SortTh, StatCard, TBody, TableCard, downloadCsv, initiales,
+  FilterChips, IdentifiantsModal, PageHeader, Pager, RowActions, SortTh, StatCard, TBody, TableCard, downloadCsv,
   useConfirm, usePagination, useToast,
 } from '../components/ui';
 
@@ -91,7 +91,7 @@ export default function UtilisateursPage() {
       });
   }, [comptes, filtres.etablissement, filtres.role, filtres.statut, recherche, tri]);
 
-  const pagination = usePagination(visibles, 50);
+  const pagination = usePagination(visibles, 25);
 
   const stats = useMemo(() => {
     const l = comptes || [];
@@ -234,25 +234,17 @@ export default function UtilisateursPage() {
               <SortTh sortKey="etablissement" sort={tri} setSort={setTri}>Établissement</SortTh>
               <th>Rôles</th>
               <th>Statut</th>
-              <SortTh sortKey="connexion" sort={tri} setSort={setTri}>Dernière connexion</SortTh>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={6} loading={comptes === null} error={erreur} rows={visibles.length} empty="Aucun compte ne correspond." emptyIcon="bx-search">
+          <TBody colSpan={5} loading={comptes === null} error={erreur} rows={visibles.length} empty="Aucun compte ne correspond." emptyIcon="bx-search">
             {pagination.slice.map((u) => {
               const statut = statutDe(u);
               return (
                 <tr key={u.id} className={u.actif ? '' : 'text-muted'}>
                   <td>
-                    <div className="d-flex align-items-center gap-2">
-                      <div className="avatar avatar-sm flex-shrink-0">
-                        <span className={`avatar-initial rounded-circle ${u.actif ? 'bg-label-primary' : 'bg-label-secondary'}`}>{initiales(u.nom)}</span>
-                      </div>
-                      <div>
-                        <div className="fw-semibold">{u.nom}</div>
-                        <small className="text-muted"><span className="font-monospace fw-semibold">{u.code_connexion}</span>{u.email && <> · {u.email}</>}</small>
-                      </div>
-                    </div>
+                    <div className="fw-semibold">{u.nom}</div>
+                    <small className="text-muted font-monospace">{u.code_connexion}</small>
                   </td>
                   <td className="small">{u.etablissement_nom || etabNom(u.etablissement_id)}</td>
                   <td>
@@ -265,16 +257,15 @@ export default function UtilisateursPage() {
                     </div>
                   </td>
                   <td><span className={`badge ${statut.cls}`}>{statut.label}</span></td>
-                  <td className="small">{u.dernier_login ? fmtHorodatage(u.dernier_login) : <span className="text-warning">Jamais</span>}</td>
                   <td className="text-end">
                     {occupe === u.id ? <span className="spinner-border spinner-border-sm text-primary" /> : (
-                      <>
-                        <button type="button" className="btn btn-sm btn-icon btn-outline-secondary" title="Modifier" aria-label={`Modifier ${u.nom}`} onClick={() => setFormulaire({ compte: u })}><i className="bx bx-edit-alt" /></button>
-                        <button type="button" className={`btn btn-sm btn-icon ms-1 ${u.verrouille ? 'btn-outline-danger' : 'btn-outline-secondary'}`} title={u.verrouille ? 'Débloquer (nouveau PIN)' : 'Réinitialiser le PIN'} aria-label={`Réinitialiser le PIN de ${u.nom}`} onClick={() => reinitialiser(u)} disabled={!u.actif}><i className={`bx ${u.verrouille ? 'bx-lock-open' : 'bx-key'}`} /></button>
-                        {u.actif
-                          ? <button type="button" className="btn btn-sm btn-icon btn-outline-danger ms-1" title="Désactiver" aria-label={`Désactiver ${u.nom}`} onClick={() => basculerActif(u)}><i className="bx bx-block" /></button>
-                          : <button type="button" className="btn btn-sm btn-outline-success ms-1" onClick={() => basculerActif(u)}><i className="bx bx-check-circle me-1" />Réactiver</button>}
-                      </>
+                      <RowActions actions={[
+                        { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormulaire({ compte: u }) },
+                        { icon: u.verrouille ? 'bx-lock-open' : 'bx-key', label: u.verrouille ? 'Débloquer (nouveau PIN)' : 'Réinitialiser le PIN', onClick: () => reinitialiser(u), disabled: !u.actif },
+                        u.actif
+                          ? { icon: 'bx-block', label: 'Désactiver', danger: true, onClick: () => basculerActif(u) }
+                          : { icon: 'bx-check-circle', label: 'Réactiver', onClick: () => basculerActif(u) },
+                      ]} />
                     )}
                   </td>
                 </tr>

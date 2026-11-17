@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import Modal from './Modal';
 import { api } from '../lib/api';
 import Select from './Select';
@@ -12,33 +12,50 @@ import { Skel, SkelLignesTableau } from './Skeleton';
 
 const ToastContext = createContext(() => {});
 
+const TOAST_DUREE = 4500; // ms d'affichage
+const TOAST_SORTIE = 280; // ms de l'animation de sortie (cf. .notif-toast-sortie)
+const TOAST_TYPES = {
+  success: { icon: 'bx-check', titre: 'Succès' },
+  error: { icon: 'bx-x', titre: 'Erreur' },
+  warning: { icon: 'bx-error', titre: 'Attention' },
+  info: { icon: 'bx-info-circle', titre: 'Information' },
+};
+
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const nextId = useRef(0);
 
+  // Sortie en deux temps : le toast glisse vers la droite, puis il est retiré.
+  const dismiss = useCallback((id) => {
+    setToasts((list) => list.map((t) => (t.id === id ? { ...t, sortie: true } : t)));
+    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), TOAST_SORTIE);
+  }, []);
+
   // toast(message, 'error') ou toast(message) — même signature que les anciennes pages.
   const toast = useCallback((message, type = 'success') => {
     const id = nextId.current++;
-    setToasts((list) => [...list, { id, type, message }]);
-    setTimeout(() => setToasts((list) => list.filter((t) => t.id !== id)), 4500);
-  }, []);
-
-  const dismiss = (id) => setToasts((list) => list.filter((t) => t.id !== id));
+    setToasts((list) => [...list, { id, type: TOAST_TYPES[type] ? type : 'success', message }]);
+    setTimeout(() => dismiss(id), TOAST_DUREE);
+  }, [dismiss]);
 
   return (
     <ToastContext.Provider value={toast}>
       {children}
-      <div className="toast-container position-fixed bottom-0 end-0 p-3" style={{ zIndex: 2000 }}>
-        {toasts.map((t) => (
-          <div key={t.id} className="toast show" role="alert">
-            <div className="toast-header">
-              <i className={`bx me-2 ${t.type === 'error' ? 'bx-x-circle text-danger' : t.type === 'warning' ? 'bx-error text-warning' : 'bx-check-circle text-success'}`} />
-              <strong className="me-auto">{t.type === 'error' ? 'Erreur' : t.type === 'warning' ? 'Attention' : 'Succès'}</strong>
-              <button type="button" className="btn-close" aria-label="Fermer" onClick={() => dismiss(t.id)} />
+      <div className="notif-toasts" aria-live="polite">
+        {toasts.map((t) => {
+          const info = TOAST_TYPES[t.type];
+          return (
+            <div key={t.id} className={`notif-toast notif-toast-${t.type}${t.sortie ? ' notif-toast-sortie' : ''}`} role={t.type === 'error' ? 'alert' : 'status'}>
+              <span className="notif-toast-icone"><i className={`bx ${info.icon}`} /></span>
+              <div className="notif-toast-texte">
+                <div className="notif-toast-titre">{info.titre}</div>
+                <div className="notif-toast-message">{t.message}</div>
+              </div>
+              <button type="button" className="notif-toast-fermer" aria-label="Fermer" onClick={() => dismiss(t.id)}><i className="bx bx-x" /></button>
+              <span className="notif-toast-duree" style={{ animationDuration: `${TOAST_DUREE}ms` }} />
             </div>
-            <div className="toast-body">{t.message}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </ToastContext.Provider>
   );
@@ -194,11 +211,87 @@ export function TBody({ colSpan, loading, error, empty = 'Aucune donnée', empty
   return <tbody className="table-border-bottom-0" aria-busy={loading || undefined}>{content}</tbody>;
 }
 
+// Bouton icône discret (sans bordure), même rendu que RowActions.
 export function IconBtn({ icon, title, onClick, danger, disabled }) {
   return (
-    <button type="button" className={`btn btn-icon btn-sm ${danger ? 'btn-outline-danger' : 'btn-outline-secondary'} ms-1`} title={title} onClick={onClick} disabled={disabled}>
+    <button type="button" className={`row-action${danger ? ' row-action-danger' : ''}`} title={title} aria-label={title} onClick={onClick} disabled={disabled}>
       <i className={`bx ${icon}`} />
     </button>
+  );
+}
+
+// Actions d'une ligne de tableau, sans encombrer la colonne : la première
+// action visible (`principale`, sinon la première de la liste) reste un
+// bouton icône, les autres passent dans un menu « ⋯ ». Une action :
+// { icon, label, onClick, danger?, disabled?, hidden?, principale? }.
+// Menu en position fixe : il n'est pas coupé par le défilement du tableau.
+export function RowActions({ actions }) {
+  const visibles = actions.filter((a) => a && !a.hidden);
+  const principale = visibles.find((a) => a.principale) || visibles[0];
+  const autres = visibles.filter((a) => a !== principale);
+  const [position, setPosition] = useState(null);
+  const ref = useRef(null);
+  const ouvert = position !== null;
+
+  useEffect(() => {
+    if (!ouvert) return undefined;
+    const fermer = () => setPosition(null);
+    const clic = (event) => { if (ref.current && !ref.current.contains(event.target)) fermer(); };
+    const touche = (event) => { if (event.key === 'Escape') fermer(); };
+    document.addEventListener('mousedown', clic);
+    document.addEventListener('keydown', touche);
+    window.addEventListener('scroll', fermer, true);
+    window.addEventListener('resize', fermer);
+    return () => {
+      document.removeEventListener('mousedown', clic);
+      document.removeEventListener('keydown', touche);
+      window.removeEventListener('scroll', fermer, true);
+      window.removeEventListener('resize', fermer);
+    };
+  }, [ouvert]);
+
+  if (!principale) return null;
+
+  const basculer = (event) => {
+    if (ouvert) { setPosition(null); return; }
+    const r = event.currentTarget.getBoundingClientRect();
+    // Ouvre vers le haut si la ligne est en bas de l'écran.
+    const versLeHaut = window.innerHeight - r.bottom < 40 * autres.length + 24;
+    setPosition(versLeHaut
+      ? { bottom: window.innerHeight - r.top + 4, right: window.innerWidth - r.right }
+      : { top: r.bottom + 4, right: window.innerWidth - r.right });
+  };
+
+  return (
+    <div className="row-actions" ref={ref}>
+      <button type="button" className={`row-action${principale.danger ? ' row-action-danger' : ''}`} title={principale.label} aria-label={principale.label} onClick={principale.onClick} disabled={principale.disabled}>
+        <i className={`bx ${principale.icon}`} />
+      </button>
+      {autres.length > 0 && (
+        <>
+          <button type="button" className={`row-action${ouvert ? ' active' : ''}`} title="Plus d'actions" aria-label="Plus d'actions" aria-haspopup="menu" aria-expanded={ouvert} onClick={basculer}>
+            <i className="bx bx-dots-horizontal-rounded" />
+          </button>
+          {ouvert && (
+            <div className="dropdown-menu show row-actions-menu" role="menu" style={{ position: 'fixed', left: 'auto', ...position }}>
+              {autres.map((a) => (
+                <button
+                  key={a.label}
+                  type="button"
+                  role="menuitem"
+                  className={`dropdown-item${a.danger ? ' text-danger' : ''}`}
+                  disabled={a.disabled}
+                  title={a.title}
+                  onClick={() => { setPosition(null); a.onClick(); }}
+                >
+                  <i className={`bx ${a.icon} me-2`} />{a.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -227,13 +320,6 @@ export function Field({ label, required, className = 'mb-3', invalid, children, 
 }
 
 /* ── Formatage ────────────────────────────────────────────────────────── */
-
-export function initiales(nom, prenom) {
-  const parts = [prenom, nom].filter(Boolean).join(' ').trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '??';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
 
 export function formatDate(value) {
   if (!value) return '—';
@@ -268,7 +354,7 @@ export function age(iso) {
 
 /* ── Pagination (eleve.html, parent.html, inscription.html, paiements.html) ── */
 
-export function usePagination(list, initialSize = 50) {
+export function usePagination(list, initialSize = 25) {
   const [page, setPage] = useState(1);
   const [size, setSize] = useState(initialSize);
   const effective = size || list.length || 1;

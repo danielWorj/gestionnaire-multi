@@ -1,10 +1,15 @@
 import re
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
 from models.evaluation_models import Note, Discipline
 from models.pedagogie_models import MatiereClasse, TitulaireClasse
 from models.inscription_models import Inscription, STATUTS_INSCRIPTION_EN_COURS
-from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
+from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence, sequences_de_annee
 from services.import_commun import jetons_classe
+from services.trous_services import dispenses_de
+from services.mode_evaluation_services import (
+    composantes, est_compose, mode_de_annee, modele_bulletin_effectif, notes_par_sequence,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -17,6 +22,10 @@ from services.import_commun import jetons_classe
 # Règles (modèle du bulletin annuel papier) :
 #   - colonnes de notes : la séquence seule (séquentiel), les séquences du
 #     trimestre (trimestriel) ou toutes les séquences de l'année (annuel) ;
+#   - note d'une séquence : selon le mode d'évaluation de l'année (Lycée :
+#     la note saisie ; Collège/Institut : CC, DS(, Ev. Tr.) pondérés, cf.
+#     mode_evaluation_services) ; en Collège/Institut, les colonnes du
+#     bulletin séquentiel/trimestriel détaillent ces évaluations ;
 #   - moyenne d'une matière = moyenne des notes disponibles sur la période
 #     (séquences sans note ou élève absent ignorées) ;
 #   - matière sans aucune note -> « Non classé(e) », exclue des totaux ;
@@ -35,6 +44,8 @@ from services.import_commun import jetons_classe
 # Appréciation par matière (légende du bulletin).
 BAREME_APPRECIATION = [(16, 'A+'), (12, 'A'), (10, 'ECA'), (0, 'NA')]
 LEGENDE_APPRECIATION = "NA (Non Acquis) ; ECA (En Cours d'Acquisition) ; A (Acquis) ; A+ (Expert)"
+# Libellés en toutes lettres (modèles de bulletin qui n'impriment pas la légende).
+APPRECIATIONS_LONGUES = {'A+': 'Expert', 'A': 'Acquis', 'ECA': "En cours d'acquisition", 'NA': 'Non acquis'}
 
 MENTIONS = [(18, 'Excellent'), (16, 'Très bien'), (14, 'Bien'), (12, 'Assez bien'),
             (10, 'Passable'), (7, 'Médiocre'), (5, 'Faible'), (0, 'Très faible')]
@@ -56,6 +67,16 @@ class BulletinErreur(Exception):
         super().__init__(message)
         self.message = message
         self.status = status
+
+
+def _t2(valeur):
+    """Troncature à 2 décimales (jamais d'arrondi : 9,996 -> 9,99), comme
+    le procès-verbal. Le bruit des flottants est d'abord absorbé (12,999999…
+    issu d'une division exacte reste 13,00)."""
+    if valeur is None or isinstance(valeur, str):
+        return valeur
+    propre = Decimal(repr(float(valeur))).quantize(Decimal('1e-9'), rounding=ROUND_HALF_UP)
+    return float(propre.quantize(Decimal('0.01'), rounding=ROUND_DOWN))
 
 
 def _seuil(valeur, bareme):
@@ -97,6 +118,28 @@ def niveau_classe(classe):
     return (classe.cycle_id, (classe.option or '').strip().lower())
 
 
+def cle_niveau(classe):
+    """Niveau EFFECTIF d'une classe : son Niveau s'il est renseigné, sinon
+    celui déduit de son nom (niveau_classe). Deux classes du même niveau
+    sont parallèles (changement de classe sans perte des notes)."""
+    if classe.niveau_id:
+        return ('niveau', classe.niveau_id)
+    return ('auto',) + niveau_classe(classe)
+
+
+def libelle_niveau_deduit(classe):
+    """Libellé proposé pour le niveau d'une classe : « 6 eme A » -> « 6E »,
+    « MACO 2 » -> « MACO 2 », « Tle C » -> « TLE » ; préfixé du cycle quand
+    le niveau est lu dans l'option."""
+    cle = niveau_classe(classe)[1:]
+    jetons = [f"{j}e" if j.isdigit() and len(cle) == 1 else j for j in cle]
+    texte = ' '.join(jetons).upper().strip()
+    cycle = classe.cycle.libelle if classe.cycle else ''
+    if not texte:
+        return cycle or f"Classe #{classe.id}"
+    return texte[:50]
+
+
 def classe_label(classe):
     cycle = classe.cycle.libelle if classe.cycle else None
     if cycle and classe.option:
@@ -105,13 +148,7 @@ def classe_label(classe):
 
 
 def sequences_annee(annee_id):
-    return (
-        Sequence.query
-        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-        .filter(Trimestre.annee_scolaire_id == annee_id)
-        .order_by(Trimestre.id, Sequence.id)
-        .all()
-    )
+    return sequences_de_annee(annee_id)
 
 
 def periodes_disponibles(annee_id):
@@ -191,14 +228,50 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
     mc_ids = [mc.id for mc in matieres_classe]
 
     # notes[(inscription_id, matiere_classe_id, sequence_id)] = float | 'ABS'
-    notes = {}
+    # (note de la séquence, cf. mode_evaluation_services) ; detail[...] =
+    # {composante: float | 'ABS' | None} en mode Collège/Institut.
+    mode = mode_de_annee(annee)
+    notes, detail = {}, {}
     if insc_ids and mc_ids:
-        for n in Note.query.filter(Note.inscription_id.in_(insc_ids), Note.matiere_classe_id.in_(mc_ids),
-                                   Note.sequence_id.in_(seq_ids)).all():
-            if n.valeur is not None:
-                notes[(n.inscription_id, n.matiere_classe_id, n.sequence_id)] = float(n.valeur)
-            elif n.absent:
-                notes[(n.inscription_id, n.matiere_classe_id, n.sequence_id)] = 'ABS'
+        lignes_notes = Note.query.filter(Note.inscription_id.in_(insc_ids), Note.matiere_classe_id.in_(mc_ids),
+                                         Note.sequence_id.in_(seq_ids)).all()
+        for cle, ns in notes_par_sequence(lignes_notes, mode).items():
+            if ns.valeur is not None:
+                notes[cle] = _t2(ns.valeur)
+            elif ns.absent:
+                notes[cle] = 'ABS'
+            detail[cle] = {c: (_t2(v) if v not in (None, 'ABS') else v) for c, v in ns.composantes.items()}
+
+    # Dispenses (fenêtre des notes manquantes) : la matière ne compte pas
+    # pour l'élève sur cette séquence — ni points, ni coefficient.
+    dispenses = dispenses_de(insc_ids, mc_ids, seq_ids)
+    for (i_id, mc_id, s_id) in dispenses:
+        notes[(i_id, mc_id, s_id)] = 'DISP'
+        detail[(i_id, mc_id, s_id)] = {code: 'DISP' for code, _l, _p in composantes(mode)}
+
+    # Colonnes de notes du tableau : une par séquence, ou, en mode
+    # Collège/Institut hors bulletin annuel, une par évaluation de chaque
+    # séquence (« CC 1 », « DS 1 »…), comme sur le bulletin papier.
+    # Le modèle « Original » du Collège ajoute après CC et DS la colonne
+    # « Note » de la séquence (30 % CC + 70 % DS).
+    modele = modele_bulletin_effectif(etablissement.modele_bulletin, mode)
+    detailler = est_compose(mode) and type_periode != 'annuel'
+    colonnes = []
+    for s in sequences:
+        if detailler:
+            numero = _libelle_court_sequence(s).replace('SEQ', '')
+            colonnes += [{"libelle": f"{libelle} N°{numero}", "sequence_id": s.id, "composante": code}
+                         for code, libelle, _poids in composantes(mode)]
+            if modele['colonne_note']:
+                colonnes.append({"libelle": f"Note N°{numero}", "sequence_id": s.id, "composante": None})
+        else:
+            colonnes.append({"libelle": _libelle_court_sequence(s), "sequence_id": s.id, "composante": None})
+
+    def _cellule(insc_id, mc_id, colonne):
+        cle = (insc_id, mc_id, colonne["sequence_id"])
+        if colonne["composante"] is None:
+            return notes.get(cle)
+        return detail.get(cle, {}).get(colonne["composante"])
 
     disciplines = {}
     if insc_ids:
@@ -212,7 +285,7 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
     # quand le cycle est « Premier Cycle ».
     redoublants = set()
     if inscriptions:
-        niveau = niveau_classe(classe)
+        niveau = cle_niveau(classe)
         anterieures = (
             Inscription.query
             .join(Classe, Classe.id == Inscription.classe_id)
@@ -222,7 +295,7 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                     Classe.etablissement_id == etablissement.id)
             .all()
         )
-        redoublants = {i.eleve_id for i in anterieures if niveau_classe(i.classe) == niveau}
+        redoublants = {i.eleve_id for i in anterieures if cle_niveau(i.classe) == niveau}
 
     titulaire = TitulaireClasse.query.filter_by(classe_id=classe.id, annee_scolaire_id=annee.id).first()
 
@@ -231,8 +304,11 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
         v = notes.get((insc_id, mc_id, seq_id))
         return v if isinstance(v, float) else None
 
-    moy_matiere = {(i, mc.id): _moyenne([_valeur(i, mc.id, s) for s in seq_ids])
-                   for i in insc_ids for mc in matieres_classe}
+    # Moyennes tronquées à 2 décimales (valeurs imprimées) ; les rangs sont
+    # calculés sur les valeurs exactes, comme au procès-verbal.
+    moy_matiere_exacte = {(i, mc.id): _moyenne([_valeur(i, mc.id, s) for s in seq_ids])
+                          for i in insc_ids for mc in matieres_classe}
+    moy_matiere = {cle: _t2(v) for cle, v in moy_matiere_exacte.items()}
 
     moy_sequence = {}
     for i in insc_ids:
@@ -244,6 +320,39 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                     points += v * mc.coefficient
                     coefs += mc.coefficient
             moy_sequence[(i, s)] = points / coefs if coefs else None
+    rang_sequence = {s: _rangs({i: moy_sequence[(i, s)] for i in insc_ids}) for s in seq_ids}
+    moy_sequence = {cle: _t2(v) for cle, v in moy_sequence.items()}
+
+    # --- Évolution chronologique (graphe « rappel des moyennes ») -----------
+    # Moyenne générale de chaque séquence de l'année, de la première jusqu'à
+    # la dernière séquence de la période, et moyenne de la classe à chacune.
+    sequences_an = sequences_annee(annee.id)
+    fin = max((n for n, s in enumerate(sequences_an) if s.id in seq_ids), default=-1)
+    sequences_evolution = sequences_an[:fin + 1] or sequences
+    moy_evolution = dict(moy_sequence)
+    anterieures = [s.id for s in sequences_evolution if s.id not in seq_ids]
+    if anterieures and insc_ids and mc_ids:
+        notes_ant = {}
+        for cle, ns in notes_par_sequence(
+                Note.query.filter(Note.inscription_id.in_(insc_ids), Note.matiere_classe_id.in_(mc_ids),
+                                  Note.sequence_id.in_(anterieures)).all(), mode).items():
+            if ns.valeur is not None:
+                notes_ant[cle] = _t2(ns.valeur)
+        for cle in dispenses_de(insc_ids, mc_ids, anterieures):
+            notes_ant.pop(cle, None)
+        for i in insc_ids:
+            for s in anterieures:
+                points = coefs = 0
+                for mc in matieres_classe:
+                    v = notes_ant.get((i, mc.id, s))
+                    if v is not None:
+                        points += v * mc.coefficient
+                        coefs += mc.coefficient
+                moy_evolution[(i, s)] = _t2(points / coefs) if coefs else None
+    moy_classe_evolution = {}
+    for s in sequences_evolution:
+        valeurs = [moy_evolution.get((i, s.id)) for i in insc_ids]
+        moy_classe_evolution[s.id] = _t2(_moyenne(valeurs))
 
     def _moyenne_ponderee(i):
         points = coefs = 0
@@ -254,15 +363,24 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                 coefs += mc.coefficient
         return points / coefs if coefs else None
 
-    moy_periode = {i: _moyenne_ponderee(i) for i in insc_ids}
+    moy_periode_exacte = {i: _moyenne_ponderee(i) for i in insc_ids}
+    moy_periode = {i: _t2(v) for i, v in moy_periode_exacte.items()}
 
-    rang_periode = _rangs(moy_periode)
-    rang_sequence = {s: _rangs({i: moy_sequence[(i, s)] for i in insc_ids}) for s in seq_ids}
-    rang_matiere = {mc.id: _rangs({i: moy_matiere[(i, mc.id)] for i in insc_ids}) for mc in matieres_classe}
+    rang_periode = _rangs(moy_periode_exacte)
+    rang_matiere = {mc.id: _rangs({i: moy_matiere_exacte[(i, mc.id)] for i in insc_ids}) for mc in matieres_classe}
+
+    # Moyenne de la classe et extrêmes (note min / max) par matière, sur les
+    # élèves classés dans la matière.
+    stats_matiere = {}
+    for mc in matieres_classe:
+        valeurs = [moy_matiere[(i, mc.id)] for i in insc_ids if moy_matiere[(i, mc.id)] is not None]
+        stats_matiere[mc.id] = {"moyenne_classe": _t2(_moyenne(valeurs)),
+                                "note_min": min(valeurs) if valeurs else None,
+                                "note_max": max(valeurs) if valeurs else None}
 
     classees = [m for m in moy_periode.values() if m is not None]
     statistiques = {
-        "moyenne_classe": _moyenne(classees),
+        "moyenne_classe": _t2(_moyenne(classees)),
         "moyenne_min": min(classees) if classees else None,
         "moyenne_max": max(classees) if classees else None,
         "nb_classes": len(classees),
@@ -283,6 +401,36 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
     for g in groupes_ordonnes:
         g["matieres"].sort(key=lambda mc: (mc.matiere.libelle if mc.matiere else '').lower())
 
+    # Moyenne de chaque élève par groupe de matières, et son rang dans le groupe.
+    def _moyenne_groupe(i, mcs):
+        points = coefs = 0
+        for mc in mcs:
+            moy = moy_matiere[(i, mc.id)]
+            if moy is not None:
+                points += moy * mc.coefficient
+                coefs += mc.coefficient
+        return points / coefs if coefs else None
+
+    rang_groupe = [_rangs({i: _moyenne_groupe(i, g["matieres"]) for i in insc_ids}) for g in groupes_ordonnes]
+
+    # Numéro d'ordre de l'élève dans la liste alphabétique de la classe.
+    numeros = {insc.id: n for n, insc in enumerate(
+        sorted(inscriptions, key=lambda x: ((x.eleve.nom or '').lower(), (x.eleve.prenom or '').lower())), 1)}
+
+    def _moyennes_colonnes(insc_id, mcs):
+        """Moyenne de l'élève dans chaque colonne de notes : Σ(note × coef) /
+        Σ coef des matières notées dans cette colonne."""
+        resultat = []
+        for c in colonnes:
+            points = coefs = 0
+            for mc in mcs:
+                v = _cellule(insc_id, mc.id, c)
+                if isinstance(v, float):
+                    points += v * mc.coefficient
+                    coefs += mc.coefficient
+            resultat.append(_t2(points / coefs) if coefs else None)
+        return resultat
+
     def _enseignant_nom(mc):
         e = mc.enseignant
         return f"{e.nom} {e.prenom}".strip() if e else None
@@ -298,7 +446,7 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
         eleve = insc.eleve
         blocs = []
         total_coef = total_points = 0
-        for g in groupes_ordonnes:
+        for g_index, g in enumerate(groupes_ordonnes):
             lignes = []
             g_coef = g_points = 0
             for mc in g["matieres"]:
@@ -310,17 +458,27 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                     "matiere": mc.matiere.libelle if mc.matiere else f"Matière #{mc.matiere_id}",
                     "enseignant": _enseignant_nom(mc),
                     "notes": [notes.get((insc.id, mc.id, s)) for s in seq_ids],
+                    "cellules": [_cellule(insc.id, mc.id, c) for c in colonnes],
                     "moyenne": moy,
                     "coefficient": mc.coefficient,
-                    "points": moy * mc.coefficient if moy is not None else None,
+                    "points": _t2(moy * mc.coefficient) if moy is not None else None,
                     "rang": rang_matiere[mc.id][insc.id],
                     "appreciation": _seuil(moy, BAREME_APPRECIATION),
+                    "appreciation_longue": APPRECIATIONS_LONGUES.get(_seuil(moy, BAREME_APPRECIATION)),
                     "classe": moy is not None,
+                    # Dispensé sur toute la période : coefficient annulé.
+                    "dispense": all((insc.id, mc.id, s) in dispenses for s in seq_ids),
+                    **stats_matiere[mc.id],
                 })
             total_coef += g_coef
             total_points += g_points
+            g_moy = _t2(g_points / g_coef) if g_coef else None
             blocs.append({"libelle": g["libelle"], "lignes": lignes, "total_coef": g_coef,
-                          "total_points": g_points, "moyenne": g_points / g_coef if g_coef else None})
+                          "total_points": _t2(g_points), "moyenne": g_moy,
+                          "moyennes_colonnes": _moyennes_colonnes(insc.id, g["matieres"]),
+                          "rang": rang_groupe[g_index][insc.id],
+                          "appreciation": _seuil(g_moy, BAREME_APPRECIATION),
+                          "appreciation_longue": APPRECIATIONS_LONGUES.get(_seuil(g_moy, BAREME_APPRECIATION))})
 
         fiches = [disciplines.get((insc.id, s)) for s in seq_ids]
         discipline = [
@@ -331,6 +489,7 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
         ]
 
         moyenne = moy_periode[insc.id]
+        total_points = _t2(total_points)
         bulletins.append({
             "inscription_id": insc.id,
             "eleve": {
@@ -342,17 +501,34 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
                 "date_naissance": eleve.date_naissance.strftime('%d/%m/%Y') if eleve.date_naissance else None,
                 "lieu_naissance": eleve.lieu_naissance,
                 "statut": 'R' if eleve.id in redoublants else 'N',
+                "numero": numeros[insc.id],
             },
             "groupes": blocs,
             "total_coef": total_coef,
             "total_points": total_points,
+            "moyennes_colonnes": _moyennes_colonnes(insc.id, matieres_classe),
             "sequences": [{"moyenne": moy_sequence[(insc.id, s)], "rang": rang_sequence[s][insc.id]}
                           for s in seq_ids],
+            # Ordre chronologique, de la 1re séquence de l'année à la fin de la période.
+            "evolution": [{"libelle": _libelle_court_sequence(s), "moyenne": moy_evolution.get((insc.id, s.id)),
+                           "moyenne_classe": moy_classe_evolution[s.id]}
+                          for s in sequences_evolution],
             "moyenne": moyenne,
             "rang": rang_periode[insc.id],
             "mention": _seuil(moyenne, MENTIONS),
             "sanction": _seuil(moyenne, SANCTIONS_TRAVAIL),
+            "appreciation": _seuil(moyenne, BAREME_APPRECIATION),
+            "appreciation_longue": APPRECIATIONS_LONGUES.get(_seuil(moyenne, BAREME_APPRECIATION)),
+            # Cases « travail » des modèles de bulletin (mêmes seuils que SANCTIONS_TRAVAIL).
+            "travail": {
+                "tableau_honneur": moyenne is not None and moyenne >= 12,
+                "encouragements": moyenne is not None and 14 <= moyenne < 16,
+                "felicitations": moyenne is not None and moyenne >= 16,
+                "avertissement": moyenne is not None and 6 <= moyenne < 8,
+                "blame": moyenne is not None and moyenne < 6,
+            },
             "discipline": discipline,
+            "discipline_totaux": {champ: d["total"] for (champ, _l), d in zip(LIGNES_DISCIPLINE, discipline)},
             "observations": [f.observation for f in fiches if f and f.observation],
         })
 
@@ -369,6 +545,13 @@ def construire_bulletins(etablissement, classe_id, annee_id, periode, classe_ids
         "effectif": effectif,
         "periode": {"value": periode, "type": type_periode, "titre": titre, "libelle": libelle_periode},
         "sequences": [{"id": s.id, "libelle": s.libelle, "court": _libelle_court_sequence(s)} for s in sequences],
+        "mode_evaluation": mode,
+        # Gabarit d'impression (cf. structure_models.MODELES_BULLETIN).
+        "modele_bulletin": modele,
+        "colonnes_notes": [{"libelle": c["libelle"], "composante": c["composante"]} for c in colonnes],
+        # Colonne « moyenne » de la matière : dès que la période a plusieurs
+        # séquences, ou que la séquence est détaillée en évaluations.
+        "colonne_moyenne": len(sequences) > 1 or detailler,
         "statistiques": statistiques,
         "legende": LEGENDE_APPRECIATION,
         "bulletins": bulletins,

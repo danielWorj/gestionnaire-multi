@@ -6,11 +6,14 @@ import { useToast } from '../components/ui';
 import { AvecChoixClasse } from '../components/Espace';
 import Select from '../components/Select';
 import { SkelListe } from '../components/Skeleton';
+import { useVerificationTrous } from '../components/TrousModal';
 import './notes.css';
 import './procesVerbal.css';
 
 // Procès-verbal d'évaluation (« Contrôle continu N°x ») : le tableau de toute
-// une classe pour une séquence, en A4 paysage. Admin et SuperAdmin uniquement.
+// une classe, en A4 paysage, pour une séquence, une seule évaluation (CC, DS,
+// Ev. Tr. en Collège/Institut) ou un trimestre. Admin et SuperAdmin (toutes
+// les classes), Censeur et Surveillant (leurs classes), titulaire (sa classe).
 //
 // Tout est calculé et mis en page par le serveur (/api/pv/, cf.
 // server/services/pv_services.py) : aucune moyenne n'est recalculée ici.
@@ -53,13 +56,14 @@ const nomFichier = (texte) => texte.normalize('NFKD').replace(/[^ -~]/g, '').rep
 
 const pluriel = (n, mot) => `${n} ${mot}${n > 1 ? 's' : ''}`;
 
-// Séquences regroupées par trimestre (dans l'ordre renvoyé par le serveur).
-function parTrimestre(sequences) {
+// Périodes regroupées par trimestre (dans l'ordre renvoyé par le serveur) :
+// le trimestre lui-même, puis ses séquences et leurs évaluations.
+function parTrimestre(periodes) {
   const groupes = [];
-  sequences.forEach((s) => {
+  periodes.forEach((p) => {
     const dernier = groupes[groupes.length - 1];
-    if (dernier && dernier.trimestreId === s.trimestre_id) dernier.sequences.push(s);
-    else groupes.push({ trimestreId: s.trimestre_id, libelle: s.trimestre, sequences: [s] });
+    if (dernier && dernier.trimestreId === p.trimestre_id) dernier.periodes.push(p);
+    else groupes.push({ trimestreId: p.trimestre_id, libelle: p.type === 'trimestre' ? p.libelle.replace(/\s*\(.*$/, '') : '', periodes: [p] });
   });
   return groupes;
 }
@@ -95,14 +99,15 @@ function PvClasse({ classeId, espace }) {
   // cours est présélectionnée tant que l'utilisateur n'en a pas choisi une.
   const sequences = repSequences?.annee === annee ? repSequences.liste : null;
   const erreurSequences = repSequences?.annee === annee ? repSequences.erreur : null;
+  // `sequence` : valeur de la période choisie (seq:<id>, seq:<id>:cc, tri:<id>).
   const sequence = !sequences ? ''
-    : sequences.some((s) => String(s.id) === sequenceChoisie) ? sequenceChoisie
-      : String((sequences.find((s) => s.id === sequenceCouranteId) || sequences[0])?.id ?? '');
+    : sequences.some((s) => s.value === sequenceChoisie) ? sequenceChoisie
+      : ((sequences.find((s) => s.value === `seq:${sequenceCouranteId}`) || sequences.find((s) => s.type !== 'trimestre') || sequences[0])?.value ?? '');
 
   useEffect(() => {
     if (!annee) return undefined;
     let cancelled = false;
-    api.get(`/pv/sequences?annee_scolaire_id=${annee}`)
+    api.get(`/pv/periodes?annee_scolaire_id=${annee}`)
       .then((liste) => { if (!cancelled) setRepSequences({ annee, liste: liste || [], erreur: null }); })
       .catch((e) => {
         if (cancelled) return;
@@ -121,7 +126,7 @@ function PvClasse({ classeId, espace }) {
   useEffect(() => {
     if (!demande) return undefined;
     let cancelled = false;
-    api.get(`/pv/?${new URLSearchParams({ classe_id: classeId, annee_scolaire_id: annee, sequence_id: sequence })}`)
+    api.get(`/pv/?${new URLSearchParams({ classe_id: classeId, annee_scolaire_id: annee, periode: sequence })}`)
       .then((data) => { if (!cancelled) setRepPv({ selection, demande, donnees: data, erreur: null }); })
       .catch((e) => {
         if (cancelled) return;
@@ -142,7 +147,7 @@ function PvClasse({ classeId, espace }) {
   // Requête des sorties (aperçu, impression, PDF) : construite à partir des
   // données AFFICHÉES, pour que la feuille corresponde toujours au bandeau.
   const requete = useMemo(() => (donnees ? new URLSearchParams({
-    classe_id: donnees.classe.id, annee_scolaire_id: donnees.annee.id, sequence_id: donnees.sequence.id, ordre, valeurs,
+    classe_id: donnees.classe.id, annee_scolaire_id: donnees.annee.id, periode: donnees.periode.value, ordre, valeurs,
   }).toString() : ''), [donnees, ordre, valeurs]);
 
   // Aperçu : le gabarit du serveur, tel qu'il sera imprimé. Rechargé quand
@@ -215,7 +220,14 @@ function PvClasse({ classeId, espace }) {
   const enAttente = annees === null || (Boolean(annee) && sequences === null) || (chargement && !donnees);
   const sortiesInactives = !affichable || chargement || Boolean(occupe);
   const groupes = useMemo(() => parTrimestre(sequences || []), [sequences]);
-  const optionsSequence = (liste) => liste.map((s) => <option key={s.id} value={s.id}>{s.libelle}</option>);
+  const optionsSequence = (liste) => liste.map((p) => (
+    <option key={p.value} value={p.value}>{p.type === 'trimestre' ? `Trimestre entier — ${p.libelle}` : p.type === 'evaluation' ? `  ${p.libelle}` : p.libelle}</option>
+  ));
+
+  // Avant d'imprimer / télécharger : fenêtre des notes manquantes.
+  const { verifierPuis, fenetre: fenetreTrous } = useVerificationTrous({
+    classeId, annee, periode: sequence, onModifie: () => setVersion((v) => v + 1),
+  });
 
   return (
     <>
@@ -231,14 +243,14 @@ function PvClasse({ classeId, espace }) {
               </Select>
             </div>
             <div>
-              <label className="form-label">Séquence</label>
+              <label className="form-label">Période</label>
               <Select className="form-select form-select-sm" value={sequence} onChange={(e) => setSequenceChoisie(e.target.value)} disabled={!sequences?.length}>
                 {!annee ? <option value="">—</option>
                   : sequences === null ? <option value="">Chargement…</option>
                     : !sequences.length ? <option value="">Aucune séquence</option>
                       : groupes.map((g) => (g.libelle
-                        ? <optgroup key={g.trimestreId} label={g.libelle}>{optionsSequence(g.sequences)}</optgroup>
-                        : optionsSequence(g.sequences)))}
+                        ? <optgroup key={g.trimestreId} label={g.libelle}>{optionsSequence(g.periodes)}</optgroup>
+                        : optionsSequence(g.periodes)))}
               </Select>
             </div>
             <div>
@@ -257,10 +269,10 @@ function PvClasse({ classeId, espace }) {
             </div>
           </div>
           <div className="pv-actions">
-            <button type="button" className="btn btn-primary btn-sm" disabled={sortiesInactives} onClick={imprimer}>
+            <button type="button" className="btn btn-primary btn-sm" disabled={sortiesInactives} onClick={() => verifierPuis(imprimer)}>
               {occupe === 'impression' ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bx-printer me-1" />}Imprimer
             </button>
-            <button type="button" className="btn btn-outline-primary btn-sm" disabled={sortiesInactives} onClick={telechargerPdf}>
+            <button type="button" className="btn btn-outline-primary btn-sm" disabled={sortiesInactives} onClick={() => verifierPuis(telechargerPdf)}>
               {occupe === 'pdf' ? <span className="spinner-border spinner-border-sm me-1" /> : <i className="bx bxs-file-pdf me-1" />}Télécharger le PDF
             </button>
             <button type="button" className="btn btn-icon btn-sm btn-outline-secondary" title="Actualiser" aria-label="Actualiser" disabled={chargement || Boolean(occupe)} onClick={actualiser}>
@@ -299,7 +311,8 @@ function PvClasse({ classeId, espace }) {
               </li>
             ))}
           </ul>
-          <small>Un élève sans note dans une matière reste « N.C. » : ni moyenne ni rang. Un élève saisi « absent » compte 0 et reste classé.</small>
+          <small>Un élève sans note dans une matière reste « N.C. » : ni moyenne ni rang. Un élève saisi « absent » compte 0 et reste classé. Un élève dispensé d'une matière n'y a ni points ni coefficient.</small>
+          <div className="mt-2"><button type="button" className="btn btn-sm btn-warning" onClick={() => verifierPuis(() => {})}><i className="bx bx-edit me-1" />Compléter les notes manquantes</button></div>
         </div>
       )}
 
@@ -325,6 +338,7 @@ function PvClasse({ classeId, espace }) {
         <Vide icon="bx-error-circle" onReessayer={actualiser}>L'aperçu n'a pas pu être chargé.</Vide>
       )}
 
+      {fenetreTrous}
       {aImprimer && <iframe ref={impressionRef} title="Impression du procès-verbal" className="pv-impression" srcDoc={aImprimer} onLoad={lancerImpression} />}
     </>
   );

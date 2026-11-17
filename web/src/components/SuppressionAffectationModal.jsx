@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../lib/api';
 import Modal from './Modal';
 import { formatDate } from './ui';
+import { libelleSequenceNote } from './ModeEvaluation';
 
 // Suppression d'une affectation matière → classe, en deux temps :
 //  1. confirmation simple ; une affectation vierge est alors supprimée ;
@@ -100,7 +101,7 @@ export default function SuppressionAffectationModal({ historique, message, peutS
                 <td>{n.eleve}</td>
                 <td className="small text-muted">{n.matricule || '—'}</td>
                 <td className="small">{n.annee || '—'}</td>
-                <td className="small">{n.sequence}</td>
+                <td className="small">{libelleSequenceNote(n)}</td>
                 <td className="text-end">{n.absent ? <span className="badge bg-label-secondary">Absent</span> : (n.valeur ?? '—')}</td>
                 <td className="text-muted small">{formatDate(n.date)}</td>
               </tr>

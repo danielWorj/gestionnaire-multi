@@ -13,7 +13,7 @@ from config import config_by_name
 from extensions import db, migrate, ma, jwt, cors, limiter
 from api.structure_api import (
     cycle_bp, etablissement_bp, classe_bp,
-    annee_scolaire_bp, trimestre_bp, sequence_bp,
+    annee_scolaire_bp, trimestre_bp, sequence_bp, niveau_bp,
     etablissement_logo_bp,
 )
 from api.pedagogie_api import (
@@ -47,6 +47,8 @@ from api.tresorerie_api import tresorerie_bp
 from api.evaluation_api import note_bp, discipline_bp, enseignant_espace_bp, censeur_espace_bp
 from api.bulletin_api import bulletin_bp
 from api.pv_api import pv_bp
+from api.trous_api import trous_bp
+from api.conseil_api import conseil_bp
 # Épreuves (documents déposés par les enseignants) : vue et dépôt de
 # l'administration sous /api/epreuves ; les routes de l'enseignant sont dans
 # enseignant_espace_bp (/api/enseignant/epreuves) — cf. api/epreuve_api.py.
@@ -180,6 +182,7 @@ def create_app(env=None):
     app.register_blueprint(annee_scolaire_bp)
     app.register_blueprint(trimestre_bp)
     app.register_blueprint(sequence_bp)
+    app.register_blueprint(niveau_bp)
     app.register_blueprint(groupe_matiere_bp)
     app.register_blueprint(matiere_bp)
     app.register_blueprint(departement_bp)
@@ -238,6 +241,8 @@ def create_app(env=None):
     app.register_blueprint(bulletin_bp)
     # Procès-verbal d'évaluation (« Contrôle continu N°x ») : JSON, aperçu HTML et PDF paysage.
     app.register_blueprint(pv_bp)
+    app.register_blueprint(trous_bp)
+    app.register_blueprint(conseil_bp)
     # Épreuves : liste/dépôt/téléchargement/suppression pour Admin et
     # SuperAdmin. Les audits sont automatiques (activer_audit).
     app.register_blueprint(epreuve_bp)

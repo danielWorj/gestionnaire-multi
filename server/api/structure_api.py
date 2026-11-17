@@ -5,10 +5,10 @@ from services.structure_services import (
     create_entity, get_all_entities, get_entity_by_id, update_entity, delete_entity,
     create_entity_scoped, get_all_entities_scoped, get_entity_scoped,
     update_entity_scoped, delete_entity_scoped, supprimer_classe, liens_classe,
-    create_etablissement, update_etablissement, LOGOS_DIR,
+    create_etablissement, update_etablissement, LOGOS_DIR, generer_niveaux,
 )
 from models.structure_models import (
-    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence
+    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence, Niveau
 )
 # Réutilisé pour classe_bp ci-dessous (classe_scoped_self=True) : un
 # Censeur/Surveillant n'accède qu'aux classes qui lui ont été assignées,
@@ -300,3 +300,17 @@ annee_scolaire_bp = make_scoped_crud_blueprint('annee_scolaire', AnneeScolaire, 
                                                lecture_etablissement_roles=LECTURE_ETABLISSEMENT)
 trimestre_bp = make_scoped_crud_blueprint('trimestre', Trimestre, '/api/trimestres')
 sequence_bp = make_scoped_crud_blueprint('sequence', Sequence, '/api/sequences')
+# Niveaux (6e, 5e…) : lecture par tous les rôles d'établissement qui lisent
+# les classes, écriture Admin/SuperAdmin.
+niveau_bp = make_scoped_crud_blueprint('niveau', Niveau, '/api/niveaux',
+                                       lecture_etablissement_roles=LECTURE_ETABLISSEMENT)
+
+
+@niveau_bp.route('/generer', methods=['POST'])
+def niveaux_generer():
+    """Crée les niveaux à partir du nom des classes qui n'en ont pas."""
+    claims = get_jwt()
+    etab_id = request.args.get("etablissement_id", type=int) if claims.get("role") == "SuperAdmin"         else claims.get("etablissement_id")
+    if not etab_id:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+    return jsonify(generer_niveaux(etab_id)), 200

@@ -13,7 +13,10 @@ import { SkelLignesTableau, SkelListe } from '../components/Skeleton';
 // hebdomadaire (lecture seule) des cours de l'enseignant connecté, via
 // /enseignant/mon-espace et /enseignant/horaire (pré-filtrés côté serveur).
 
-export default function EnseignantHorairePage() {
+// classeImposee : emploi du temps COMPLET d'une classe dont l'enseignant
+// est titulaire (toutes matières et enseignants), au lieu du sien.
+export default function EnseignantHorairePage({ classeImposee = null, classeLabel = '' }) {
+  const vueClasse = Boolean(classeImposee);
   const toast = useToast();
   const { user } = useAuth();
   const etablissement = useEtablissementCourant();
@@ -47,7 +50,7 @@ export default function EnseignantHorairePage() {
     if (!annee) return;
     setLoading(true);
     try {
-      const payload = await api.get(`/enseignant/horaire?annee_scolaire_id=${annee}`);
+      const payload = await api.get(`/enseignant/horaire?annee_scolaire_id=${annee}${vueClasse ? `&classe_id=${classeImposee}` : ''}`);
       setGrille({ creneaux: payload.creneaux || [], horaires: payload.horaires || [] });
     } catch (e) {
       setGrille({ creneaux: [], horaires: [] });
@@ -55,7 +58,7 @@ export default function EnseignantHorairePage() {
     } finally {
       setLoading(false);
     }
-  }, [annee, signaler]);
+  }, [annee, signaler, vueClasse, classeImposee]);
 
   useEffect(() => {
     loadHoraire();
@@ -73,6 +76,9 @@ export default function EnseignantHorairePage() {
   const index = useMemo(() => Object.fromEntries(horaires.map((h) => [`${h.jour_semaine}|${h.creneau_id}`, h])), [horaires]);
   const total = creneaux.length * JOURS.length;
   const legende = [...new Set(horaires.map((h) => h.matiere_libelle))].filter(Boolean);
+  // Ligne principale d'une case : la classe (vue personnelle) ou
+  // l'enseignant (vue de la classe du titulaire).
+  const titreCase = (h) => (vueClasse ? h.enseignant_nom || 'Enseignant' : h.classe_label || 'Classe');
   const anneeLibelle = annees.find((a) => String(a.id) === String(annee))?.libelle || '—';
 
   const exportCsv = () => {
@@ -80,16 +86,16 @@ export default function EnseignantHorairePage() {
       `${c.libelle} (${heureCourte(c.heure_debut)}-${heureCourte(c.heure_fin)})`,
       ...JOURS.map((j) => {
         const h = index[`${j}|${c.id}`];
-        return h ? `${h.classe_label} — ${h.matiere_libelle}${h.salle ? ` — ${h.salle}` : ''}` : '';
+        return h ? `${titreCase(h)} — ${h.matiere_libelle}${h.salle ? ` — ${h.salle}` : ''}` : '';
       }),
     ])];
-    downloadCsv(`emploi_du_temps_${(nomEnseignant || 'enseignant').replace(/\s+/g, '_')}.csv`, rows);
+    downloadCsv(`emploi_du_temps_${((vueClasse ? classeLabel : nomEnseignant) || 'enseignant').replace(/\s+/g, '_')}.csv`, rows);
     toast('Le fichier CSV a été téléchargé (compatible Excel).');
   };
 
   return (
     <>
-      <EspaceTitre titre="Mon emploi du temps" sousTitre="Vos cours de la semaine, toutes classes confondues" icon="bx-calendar">
+      <EspaceTitre titre={vueClasse ? 'Emploi du temps de ma classe' : 'Mon emploi du temps'} sousTitre={vueClasse ? `Tous les cours de la semaine${classeLabel ? ` — ${classeLabel}` : ''}` : 'Vos cours de la semaine, toutes classes confondues'} icon="bx-calendar">
         <button type="button" className="btn btn-icon btn-outline-secondary" title="Recharger la grille" aria-label="Actualiser" onClick={async () => { await loadHoraire(); toast('Grille actualisée.'); }}><i className="bx bx-refresh" /></button>
         <button type="button" className="btn btn-icon btn-outline-secondary" title="Imprimer mon emploi du temps" aria-label="Imprimer" onClick={() => setImprimer(true)}><i className="bx bx-printer" /></button>
         <button type="button" className="btn btn-icon btn-outline-secondary d-none d-sm-inline-flex" title="Exporter la grille en Excel/CSV" aria-label="Exporter" onClick={exportCsv}><i className="bx bx-spreadsheet" /></button>
@@ -124,7 +130,7 @@ export default function EnseignantHorairePage() {
       </div>
 
       <TableCard
-        title={<>Ma charge horaire — {nomEnseignant || 'Moi'}</>}
+        title={vueClasse ? <>Emploi du temps — {classeLabel || 'ma classe'}</> : <>Ma charge horaire — {nomEnseignant || 'Moi'}</>}
         icon="bx-user-voice"
         actions={<span className="badge bg-label-secondary">{horaires.length} cours / semaine</span>}
         footer={<small className="text-muted"><i className="bx bx-info-circle me-1" />Cette grille reflète les cours qui vous ont été attribués par l'administration de votre établissement. Pour toute correction, contactez le censeur ou l'administration.</small>}
@@ -140,7 +146,7 @@ export default function EnseignantHorairePage() {
               horaires={horaires}
               carte={(h) => (
                 <div className={`cours-chip edt-jour-cours readonly ${colorClassFor(h.matiere_libelle)}`}>
-                  <span className="chip-matiere">{h.classe_label || 'Classe'}</span>
+                  <span className="chip-matiere">{titreCase(h)}</span>
                   <span className="chip-meta"><i className="bx bx-book" /> {h.matiere_libelle || 'Matière'}</span>
                   {h.salle && <span className="chip-meta"><i className="bx bx-door-open" /> {h.salle}</span>}
                 </div>
@@ -165,7 +171,7 @@ export default function EnseignantHorairePage() {
                       <td key={jour}>
                         {h ? (
                           <div className={`cours-chip readonly ${colorClassFor(h.matiere_libelle)}`}>
-                            <span className="chip-matiere">{h.classe_label || 'Classe'}</span>
+                            <span className="chip-matiere">{titreCase(h)}</span>
                             <span className="chip-meta"><i className="bx bx-book" /> {h.matiere_libelle || 'Matière'}</span>
                             {h.salle && <span className="chip-meta"><i className="bx bx-door-open" /> {h.salle}</span>}
                           </div>
@@ -185,8 +191,12 @@ export default function EnseignantHorairePage() {
           <FeuilleEmploiDuTemps
             etablissement={etablissement}
             anneeLibelle={anneeLibelle}
-            sousTitre="EMPLOI DU TEMPS INDIVIDUEL"
-            champs={[
+            sousTitre={vueClasse ? 'EMPLOI DU TEMPS DE LA CLASSE' : 'EMPLOI DU TEMPS INDIVIDUEL'}
+            champs={vueClasse ? [
+              { label: 'Classe', valeur: classeLabel || '—' },
+              { label: 'Professeur principal', valeur: nomEnseignant || '—' },
+              { label: 'Volume horaire', valeur: `${horaires.length} h / semaine` },
+            ] : [
               { label: 'Enseignant', valeur: nomEnseignant || '—' },
               { label: 'Matières enseignées', valeur: [...new Set(horaires.map((h) => h.matiere_libelle).filter(Boolean))].join(', ') || '—' },
               { label: 'Quota horaire', valeur: `${horaires.length} h / semaine` },
@@ -195,7 +205,7 @@ export default function EnseignantHorairePage() {
             signatures={["L'Enseignant", 'Le Censeur']}
             cellule={(jour, c) => {
               const h = index[`${jour}|${c.id}`];
-              return h ? [h.classe_label, h.matiere_libelle] : null;
+              return h ? [titreCase(h), h.matiere_libelle] : null;
             }}
           />
         </div>

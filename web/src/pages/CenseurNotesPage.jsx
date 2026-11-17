@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, avecEtablissement } from '../lib/api';
-import { cleDiscipline, cleNote, enregistrer, SYNCHRO_EVENT, useOperationsEnAttente } from '../lib/offline';
+import { cleDiscipline, enregistrer, SYNCHRO_EVENT, useOperationsEnAttente } from '../lib/offline';
 import { useAuth } from '../context/AuthContext';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import { AvecChoixClasse, Avancement, Pastilles } from '../components/Espace';
 import { useToast } from '../components/ui';
 import ImportModal from '../components/importConfigs';
-import { focusSuivant, NoteLigne, useEnregistrementNotes } from '../components/SaisieNote';
+import { GrilleNotes, optionsEvaluations, texteSaisie, useEnregistrementNotes } from '../components/SaisieNote';
 import {
-  appreciationInfo, calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
-  noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
+  appreciationInfo, calculerStatistiques, compterSaisies, EleveIdentite, filtrerRoster, indexerNotes, KpiRow,
+  lignesStatistiques, noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
 } from '../components/NotesCommun';
 import { SkelSaisie } from '../components/Skeleton';
 
@@ -45,13 +45,19 @@ function NotesClasse({ classeId }) {
   const navigate = useNavigate();
   const { user, isSuperAdmin } = useAuth();
   const etablissement = useEtablissementCourant();
-  const roleLabel = isSuperAdmin ? 'SuperAdmin' : user?.role?.libelle === 'Surveillant' ? 'Surveillant' : 'Censeur';
+  const roleActif = isSuperAdmin ? 'SuperAdmin' : user?.role?.libelle;
+  const roleLabel = { SuperAdmin: 'SuperAdmin', Admin: 'Administration', Surveillant: 'Surveillant', Enseignant: 'Professeur principal' }[roleActif] || 'Censeur';
   const ctx = useNotesContexte({ base: '/censeur', toast, classesDepuis: classesDepuisEspace, classeImposee: classeId });
-  const { espace, annee, trimestreId, sequenceId, mcActive, roster, notes, setNotes, notesIndex, sequenceLibelle, sequencesTree } = ctx;
-  // Saisie des notes : SuperAdmin seulement (le serveur refuse les autres).
-  const saisie = isSuperAdmin;
-  const { envoyer, saveStates } = useEnregistrementNotes({ notes, setNotes, roster, mcActive, classeId, sequencesTree, toast });
+  const { espace, annee, trimestreId, sequenceId, mcActive, roster, notes, setNotes, sequenceLibelle, sequencesTree, composantes } = ctx;
+  // Saisie des notes : Admin et SuperAdmin (le serveur refuse les autres).
+  const saisie = roleActif === 'SuperAdmin' || roleActif === 'Admin';
+  const { envoyer, saveStates } = useEnregistrementNotes({ notes, setNotes, roster, mcActive, classeId, sequencesTree, composantes, toast });
   const notesAttente = useOperationsEnAttente('notes');
+  // Mode Collège/Institut : évaluation remplie par le SuperAdmin (CC, DS,
+  // Ev. Tr. ou toutes) ; en consultation, la note de séquence et son détail.
+  const evaluations = optionsEvaluations(composantes);
+  const [choixEvaluation, setChoixEvaluation] = useState('');
+  const vueEvaluation = evaluations.some((o) => o.value === choixEvaluation) ? choixEvaluation : composantes[0].code;
   const [importOuvert, setImportOuvert] = useState(false);
 
   const [onglet, setOnglet] = useState('notes');
@@ -81,16 +87,11 @@ function NotesClasse({ classeId }) {
   const pret = Boolean(ctx.mcId && sequenceId);
   const eleves = useMemo(() => filtrerRoster(roster, recherche), [roster, recherche]);
   // Notes affichées, y compris celles saisies hors connexion et pas encore
-  // envoyées (statistiques et relevé imprimé à jour).
-  const notesAffichees = useMemo(() => {
-    const idx = { ...notesIndex };
-    Object.values(notesAttente).forEach(({ body: b }) => {
-      if (String(b.matiere_classe_id) === String(ctx.mcId) && String(b.sequence_id) === String(sequenceId)) {
-        idx[b.inscription_id] = { ...idx[b.inscription_id], ...b };
-      }
-    });
-    return idx;
-  }, [notesIndex, notesAttente, ctx.mcId, sequenceId]);
+  // envoyées (statistiques et relevé imprimé à jour) ; note de la séquence
+  // calculée en mode Collège/Institut.
+  const index = useMemo(() => indexerNotes(notes, { mcId: ctx.mcId, sequenceId, composantes, attente: notesAttente }),
+    [notes, ctx.mcId, sequenceId, composantes, notesAttente]);
+  const notesAffichees = index.sequence;
   const stats = useMemo(() => calculerStatistiques(roster, notesAffichees), [roster, notesAffichees]);
   const lignes = useMemo(() => lignesStatistiques(stats), [stats]);
 
@@ -157,7 +158,7 @@ function NotesClasse({ classeId }) {
           {pret && (
             <div className="saisie-entete">
               <div className="flex-grow-1 min-w-0">
-                <Avancement saisies={stats.classe.notesSaisies} attendues={roster.length} libelle={`${mcActive?.matiere_libelle || '—'}${mcActive?.enseignant_nom ? ` · ${mcActive.enseignant_nom}` : ''}`} />
+                <Avancement saisies={compterSaisies(index, saisie ? vueEvaluation : 'tout', roster)} attendues={roster.length} libelle={`${mcActive?.matiere_libelle || '—'}${mcActive?.enseignant_nom ? ` · ${mcActive.enseignant_nom}` : ''}`} />
               </div>
               <div className="saisie-entete-actions">
                 <button type="button" className="btn btn-icon btn-outline-primary" title="Imprimer / PDF" aria-label="Imprimer le relevé" onClick={() => setImprimer(true)}><i className="bx bx-printer" /></button>
@@ -168,6 +169,13 @@ function NotesClasse({ classeId }) {
             </div>
           )}
 
+          {saisie && evaluations.length > 0 && (
+            <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
+              <span className="notes-filtre-label mb-0">Remplir</span>
+              <Pastilles ariaLabel="Évaluation à remplir" value={vueEvaluation} onChange={setChoixEvaluation} options={evaluations} />
+            </div>
+          )}
+
           <div className="saisie-liste mb-3">
             {!pret ? (
               espace.loading ? <SkelSaisie avecNote={saisie} /> : <div className="saisie-vide"><i className="bx bx-info-circle me-1" />{ctx.matieres.length ? 'Choisissez une séquence pour afficher les notes.' : 'Aucune matière affectée à cette classe.'}</div>
@@ -175,37 +183,41 @@ function NotesClasse({ classeId }) {
               <SkelSaisie avecNote={saisie} />
             ) : !eleves.length ? (
               <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond à la recherche.' : 'Aucun élève inscrit dans cette classe.'}</div>
-            ) : saisie ? eleves.map((eleve, idx) => {
-              const cle = cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: ctx.mcId, sequence_id: sequenceId });
-              return (
-                <NoteLigne
-                  key={`${eleve.inscription_id}-${ctx.mcId}-${sequenceId}`}
-                  index={idx}
-                  eleve={eleve}
-                  note={notesIndex[eleve.inscription_id]}
-                  attente={notesAttente[cle]}
-                  saveState={saveStates[cle]}
-                  onSave={({ valeur, absent }) => envoyer({
-                    inscription_id: Number(eleve.inscription_id),
-                    matiere_classe_id: Number(ctx.mcId),
-                    sequence_id: Number(sequenceId),
-                    valeur: absent ? null : valeur,
-                    absent: Boolean(absent),
-                  })}
-                  onInvalid={() => toast('La note doit être un nombre entre 0 et 20 (ex : 12,5).', 'error')}
-                  onSuivant={() => focusSuivant(idx)}
-                />
-              );
-            }) : eleves.map((eleve, idx) => {
-              const n = notesIndex[eleve.inscription_id];
+            ) : saisie ? (
+              <GrilleNotes
+                eleves={eleves}
+                composantes={composantes}
+                vue={vueEvaluation}
+                index={index}
+                attente={notesAttente}
+                saveStates={saveStates}
+                mcId={ctx.mcId}
+                sequenceId={sequenceId}
+                onSave={(inscriptionId, composante, { valeur, absent }) => envoyer({
+                  inscription_id: Number(inscriptionId),
+                  matiere_classe_id: Number(ctx.mcId),
+                  sequence_id: Number(sequenceId),
+                  ...(composantes.length > 1 ? { composante } : {}),
+                  valeur: absent ? null : valeur,
+                  absent: Boolean(absent),
+                })}
+                onInvalid={() => toast('Saisissez une note entre 0 et 20 (ex : 12,5), ou « abs » pour absent.', 'error')}
+              />
+            ) : eleves.map((eleve, idx) => {
+              const n = notesAffichees[eleve.inscription_id];
               const v = noteValeur(n);
               const appr = appreciationInfo(n);
+              // Mode Collège/Institut : détail « CC 11 · DS 9 » sous le nom.
+              const detail = composantes.length > 1
+                ? composantes.map((c) => `${c.libelle} ${texteSaisie(index.parCode[c.code][eleve.inscription_id]) || '—'}`).join(' · ')
+                : null;
               return (
                 <div key={eleve.inscription_id} className="saisie-ligne">
                   <span className="saisie-num">{idx + 1}</span>
                   <div className="saisie-eleve">
                     <EleveIdentite eleve={eleve} />
                     <span className={`appreciation-badge ${appr.classe} saisie-appr`}>{appr.label}</span>
+                    {detail && <small className="text-muted">{detail}</small>}
                   </div>
                   <span className={`note-lecture ${v === null ? 'note-vide' : v < 10 ? 'note-faible' : v >= 14 ? 'note-forte' : ''}`}>{n?.absent ? 'Abs.' : v === null ? '—' : v.toFixed(2).replace('.', ',')}</span>
                 </div>
@@ -273,7 +285,11 @@ function NotesClasse({ classeId }) {
       {importOuvert && (
         <ImportModal
           module="notes"
-          optionsInitiales={{ matiere_classe_id: String(ctx.mcId), sequence_id: sequenceId ? String(sequenceId) : '' }}
+          optionsInitiales={{
+            matiere_classe_id: String(ctx.mcId),
+            sequence_id: sequenceId ? String(sequenceId) : '',
+            ...(composantes.length > 1 && vueEvaluation !== 'tout' ? { composante: vueEvaluation } : {}),
+          }}
           onClose={() => setImportOuvert(false)}
           onImported={() => ctx.actualiser()}
         />

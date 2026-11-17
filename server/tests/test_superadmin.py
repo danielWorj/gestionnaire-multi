@@ -148,10 +148,10 @@ def test_superadmin_saisit_et_corrige_une_note(monde, superadmin):
     assert autre.status_code == 400  # matière/élève hors de l'établissement indiqué
 
 
-def test_saisie_des_notes_toujours_refusee_a_l_admin_et_au_censeur(monde, connecter):
-    for compte in (monde.admin_compte, monde.censeur_compte):
-        client = connecter(compte)
-        assert client.post('/api/notes/', json=_corps_note(monde, 10)).status_code == 403
+def test_saisie_des_notes_refusee_au_censeur_ouverte_a_l_admin(monde, connecter):
+    # Règle du 17/11/2026 : l'Admin saisit les notes ; le Censeur reste en lecture.
+    assert connecter(monde.censeur_compte).post('/api/notes/', json=_corps_note(monde, 10)).status_code == 403
+    assert connecter(monde.admin_compte).post('/api/notes/', json=_corps_note(monde, 10)).status_code == 201
 
 
 def test_superadmin_discipline_et_emploi_du_temps(monde, superadmin):

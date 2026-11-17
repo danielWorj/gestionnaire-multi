@@ -2,7 +2,7 @@
     Gabarit unique pour l'aperçu HTML (page Bulletins) et le PDF
     (WeasyPrint), cf. api/bulletin_api.py. Données : bulletin_services.construire_bulletins. -#}
 {%- macro note(v) -%}
-  {%- if v is none -%}---{%- elif v == 'ABS' -%}Abs{%- else -%}{{ '%05.2f' | format(v) }}{%- endif -%}
+  {%- if v is none -%}---{%- elif v == 'ABS' -%}Abs{%- elif v == 'DISP' -%}Disp.{%- else -%}{{ '%05.2f' | format(v) }}{%- endif -%}
 {%- endmacro -%}
 {%- macro rang(r, sexe) -%}
   {%- if r is none -%}---{%- elif r == 1 -%}{{ '1ère' if sexe == 'F' else '1er' }}{%- else -%}{{ r }}ème{%- endif -%}
@@ -11,6 +11,14 @@
 {%- set bp = etab.bp_numero -%}
 {%- set seqs = data.sequences -%}
 {%- set multi = seqs | length > 1 -%}
+{#- Grille des notes : une colonne par séquence, ou par évaluation (CC, DS,
+    Ev. Tr.) en mode Collège/Institut ; colonne moyenne si plusieurs colonnes. -#}
+{%- set cols = data.colonnes_notes -%}
+{%- set moy_col = data.colonne_moyenne -%}
+{%- set span_notes = (cols | length) + (2 if moy_col else 1) -%}
+{#- Modèle « Original + rang et extrêmes » : colonne note min – note max de la classe. -#}
+{%- set extremes = data.modele_bulletin and data.modele_bulletin.extremes -%}
+{%- set span_fin = 3 if extremes else 2 -%}
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -119,9 +127,9 @@
     <thead>
       <tr>
         <th style="text-align:left">Matières / Enseignants</th>
-        {%- for s in seqs %}<th>{{ s.court }}</th>{% endfor %}
-        {%- if multi %}<th>{{ 'Moy. An' if data.periode.type == 'annuel' else 'Moy. Trim' }}</th>{% endif %}
-        <th>Coef.</th><th>Moy×Coef</th><th>Rang</th><th>Appréciation / Signature</th>
+        {%- for c in cols %}<th>{{ c.libelle }}</th>{% endfor %}
+        {%- if moy_col %}<th>{{ 'Moy. An' if data.periode.type == 'annuel' else ('Moy. Trim' if data.periode.type == 'trimestre' else 'Moy.') }}</th>{% endif %}
+        <th>Coef.</th><th>Moy×Coef</th><th>Rang</th>{% if extremes %}<th>Extrêmes<br>min – max</th>{% endif %}<th>Appréciation / Signature</th>
       </tr>
     </thead>
     <tbody>
@@ -129,32 +137,33 @@
       {%- for l in g.lignes %}
       <tr>
         <td class="mat">{{ l.matiere }}{% if l.enseignant %} : <span class="ens">{{ l.enseignant }}</span>{% endif %}</td>
-        {%- for v in l.notes %}<td>{{ note(v) }}</td>{% endfor %}
+        {%- for v in l.cellules %}<td>{{ note(v) }}</td>{% endfor %}
         {%- if l.classe %}
-          {%- if multi %}<td><strong>{{ note(l.moyenne) }}</strong></td>{% endif %}
+          {%- if moy_col %}<td><strong>{{ note(l.moyenne) }}</strong></td>{% endif %}
           <td>{{ l.coefficient }}</td>
           <td><strong>{{ '%05.2f' | format(l.points) }}</strong></td>
           <td>{{ rang(l.rang, e.sexe) }}</td>
+          {%- if extremes %}<td>{{ note(l.note_min) }} – {{ note(l.note_max) }}</td>{% endif %}
           <td>{{ l.appreciation }}</td>
         {%- else %}
-          {%- if multi %}<td>---</td>{% endif %}
+          {%- if moy_col %}<td>---</td>{% endif %}
           <td>---</td><td>---</td>
-          <td class="nc" colspan="2">Non classé(e)</td>
+          <td class="nc" colspan="{{ span_fin }}">{{ "Dispensé(e)" if l.dispense else "Non classé(e)" }}</td>
         {%- endif %}
       </tr>
       {%- endfor %}
       <tr class="sous-total">
-        <td class="groupe" colspan="{{ (seqs | length) + (2 if multi else 1) }}">{{ g.libelle }}</td>
+        <td class="groupe" colspan="{{ span_notes }}">{{ g.libelle }}</td>
         <td>{{ g.total_coef }}</td>
         <td>{{ '%.2f' | format(g.total_points) }}</td>
-        <td colspan="2">Moy/20 : {{ note(g.moyenne) }}</td>
+        <td colspan="{{ span_fin }}">Moy/20 : {{ note(g.moyenne) }}</td>
       </tr>
     {%- endfor %}
       <tr class="total">
-        <td class="groupe" colspan="{{ (seqs | length) + (2 if multi else 1) }}" style="text-align:left">TOTAL</td>
+        <td class="groupe" colspan="{{ span_notes }}" style="text-align:left">TOTAL</td>
         <td>{{ b.total_coef }}</td>
         <td>{{ '%.2f' | format(b.total_points) }}</td>
-        <td colspan="2"></td>
+        <td colspan="{{ span_fin }}"></td>
       </tr>
     </tbody>
   </table>

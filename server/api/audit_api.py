@@ -14,14 +14,19 @@ from models.audit_models import JournalAudit
 # - Admin      : tout le journal de SON établissement
 # - Censeur    : le volet pédagogique de son établissement (notes,
 #                discipline, emploi du temps)
+# - Comptable  : le volet financier de son établissement (échéanciers,
+#                paiements, trésorerie)
 #
 # GET /api/audit/?table=note&ligne_id=12   historique d'une donnée
 #     &auteur_id= &action= &depuis=AAAA-MM-JJ &jusqua=AAAA-MM-JJ
 #     &page=1 &limite=50 (200 max)
 # ---------------------------------------------------------------------------
 
-ROLES_AUDIT = ("SuperAdmin", "Admin", "Censeur")
-TABLES_CENSEUR = ("note", "discipline", "horaire")
+ROLES_AUDIT = ("SuperAdmin", "Admin", "Censeur", "Comptable")
+TABLES_CENSEUR = ("note", "discipline", "horaire", "dispense")
+TABLES_COMPTABLE = ("tranche_classe", "paiement", "ligne_paiement", "categorie_tresorerie",
+                    "compte_tresorerie", "mouvement_tresorerie", "ventilation_depense")
+TABLES_PAR_ROLE = {"Censeur": TABLES_CENSEUR, "Comptable": TABLES_COMPTABLE}
 LIMITE_MAX = 200
 
 audit_bp = Blueprint('audit_api', __name__, url_prefix='/api/audit')
@@ -67,8 +72,8 @@ def audit_liste():
         if not etab_id:
             return jsonify({"erreur": "etablissement_id requis"}), 400
         query = query.filter(JournalAudit.etablissement_id == etab_id)
-        if role == "Censeur":
-            query = query.filter(JournalAudit.table_nom.in_(TABLES_CENSEUR))
+        if role in TABLES_PAR_ROLE:
+            query = query.filter(JournalAudit.table_nom.in_(TABLES_PAR_ROLE[role]))
 
     table = request.args.get("table")
     if table:

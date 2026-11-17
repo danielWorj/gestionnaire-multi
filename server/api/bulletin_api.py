@@ -31,7 +31,9 @@ from services.structure_services import LOGOS_DIR
 # resolve_classe_ids_restriction).
 # ---------------------------------------------------------------------------
 
-ROLES_BULLETIN = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
+# Enseignant : uniquement s'il est titulaire, pour ses classes (cf.
+# pedagogie_services.classe_ids_titulaire).
+ROLES_BULLETIN = ("Admin", "SuperAdmin", "Censeur", "Surveillant", "Enseignant")
 
 bulletin_bp = Blueprint('bulletin_api', __name__, url_prefix='/api/bulletins')
 
@@ -54,7 +56,7 @@ def _etablissement():
 
 def _classe_restriction():
     role = get_jwt().get("role")
-    if role not in ("Censeur", "Surveillant"):
+    if role in ("Admin", "SuperAdmin"):
         return None
     return resolve_classe_ids_restriction(role, int(get_jwt_identity()))
 
@@ -87,7 +89,9 @@ def _donnees():
 
 
 def rendu_bulletins(data, logo_src, photos=None):
-    return render_template("bulletins/bulletin.html", data=data, logo_src=logo_src, photos=photos or {},
+    # Modèle choisi par l'établissement (cf. structure_models.MODELES_BULLETIN).
+    gabarit = data.get("modele_bulletin", {}).get("gabarit", "bulletin.html")
+    return render_template(f"bulletins/{gabarit}", data=data, logo_src=logo_src, photos=photos or {},
                            date_edition=date.today().strftime('%d/%m/%Y'))
 
 

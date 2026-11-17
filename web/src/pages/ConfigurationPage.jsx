@@ -3,13 +3,16 @@ import { api } from '../lib/api';
 import Modal from '../components/Modal';
 import { useAuth } from '../context/AuthContext';
 import {
-  Field, formatDate, FormFooter, IconBtn, IdentifiantsModal, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useSave,
+  Field, formatDate, FormFooter, IconBtn, IdentifiantsModal, PageHeader, RowActions, StatCard, TableCard, Tabs, TBody, useConfirm, useSave,
   useToast,
 } from '../components/ui';
+import VerrouSequence from '../components/VerrouSequence';
 import Select from '../components/Select';
 import ImportModal from '../components/importConfigs';
 import SuppressionClasseModal from '../components/SuppressionClasseModal';
 import { roleDe } from '../components/Layout';
+import { useEtablissementCourant } from '../components/EnteteEtablissement';
+import { BadgeModeEvaluation, ChampModeEvaluation } from '../components/ModeEvaluation';
 
 // Portage de server/static/templates/configuration.html : années scolaires,
 // trimestres, séquences, cycles, classes (structure_api.py) et
@@ -23,7 +26,7 @@ export default function ConfigurationPage() {
   const [importOuvert, setImportOuvert] = useState(false);
 
   const [tab, setTab] = useState('annees');
-  const [data, setData] = useState({ annees: [], trimestres: [], sequences: [], cycles: [], classes: [], censeurs: [], surveillants: [], censeursClasses: [], surveillantsClasses: [], roles: [] });
+  const [data, setData] = useState({ annees: [], trimestres: [], sequences: [], cycles: [], classes: [], niveaux: [], censeurs: [], surveillants: [], censeursClasses: [], surveillantsClasses: [], roles: [] });
   const [loading, setLoading] = useState(true);
   const [anneeSel, setAnneeSel] = useState(null); // { id, libelle } — trimestres affichés
   const [trimestreSel, setTrimestreSel] = useState(null); // { id, libelle } — séquences affichées
@@ -36,12 +39,13 @@ export default function ConfigurationPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     const safe = (p, onError) => api.get(p).catch((e) => { onError?.(e); return []; });
-    const [annees, trimestres, sequences, cycles, classes, roles, censeurs, surveillants, censeursClasses, surveillantsClasses] = await Promise.all([
+    const [annees, trimestres, sequences, cycles, classes, roles, censeurs, surveillants, censeursClasses, surveillantsClasses, niveaux] = await Promise.all([
       safe('/annees-scolaires/'), safe('/trimestres/'), safe('/sequences/'), safe('/cycles/'), safe('/classes/'), safe('/auth/roles'),
       safe('/censeurs/', (e) => toast(e.message, 'error')), safe('/surveillants/', (e) => toast(e.message, 'error')),
-      safe('/censeurs-classes/'), safe('/surveillants-classes/'),
+      safe('/censeurs-classes/'), safe('/surveillants-classes/'), safe('/niveaux/'),
     ]);
-    setData({ annees, trimestres, sequences, cycles, classes, roles, censeurs, surveillants, censeursClasses, surveillantsClasses });
+    niveaux.sort((a, b) => (a.ordre - b.ordre) || a.libelle.localeCompare(b.libelle, 'fr'));
+    setData({ annees, trimestres, sequences, cycles, classes, roles, censeurs, surveillants, censeursClasses, surveillantsClasses, niveaux });
     setLoading(false);
   }, [toast]);
 
@@ -49,7 +53,19 @@ export default function ConfigurationPage() {
     loadAll();
   }, [loadAll, activeEtablissementId]);
 
-  const { annees, trimestres, sequences, cycles, classes, censeurs, surveillants, censeursClasses, surveillantsClasses, roles } = data;
+  const { annees, trimestres, sequences, cycles, classes, niveaux, censeurs, surveillants, censeursClasses, surveillantsClasses, roles } = data;
+  const niveauLibelle = (id) => niveaux.find((n) => n.id === id)?.libelle;
+
+  // Niveaux créés à partir du nom des classes (« 6e A », « 6e B » -> « 6E »).
+  const genererNiveaux = async () => {
+    try {
+      const r = await api.post('/niveaux/generer', {});
+      toast(r.classes_rangees ? `${r.classes_rangees} classe(s) rangée(s), ${r.crees} niveau(x) créé(s).` : 'Toutes les classes ont déjà un niveau.');
+      await loadAll();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  };
   const cycleLibelle = (id) => cycles.find((c) => c.id === id)?.libelle || `Cycle #${id}`;
   const classeLabelCourt = (id) => {
     const c = classes.find((x) => x.id === id);
@@ -182,7 +198,9 @@ export default function ConfigurationPage() {
   };
 
   const trimestresAnnee = anneeSel ? trimestres.filter((t) => t.annee_scolaire_id === anneeSel.id) : [];
-  const sequencesTrimestre = trimestreSel ? sequences.filter((s) => s.trimestre_id === trimestreSel.id) : [];
+  // Ordre chronologique (date de début, puis ordre de création).
+  const sequencesTrimestre = trimestreSel ? sequences.filter((s) => s.trimestre_id === trimestreSel.id)
+    .sort((a, b) => (a.date_debut || '9999').localeCompare(b.date_debut || '9999') || a.id - b.id) : [];
   // Recherche insensible à la casse et aux accents, sur le libellé affiché
   // (cycle + option) : « 6e a » ou « sixieme » retrouvent « 6ème A ».
   const normaliser = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -225,18 +243,21 @@ export default function ConfigurationPage() {
           <div className="mb-3">
             <TableCard title="Années scolaires" icon="bx-calendar" count={annees.length} actions={addBtn('Nouvelle année', () => setModal({ kind: 'annee', data: null }))}>
               <table className="table table-hover mb-0">
-                <thead><tr><th>Année scolaire</th><th>Statut</th><th>Trimestres</th><th className="text-end">Actions</th></tr></thead>
-                <TBody colSpan={4} loading={loading} rows={annees.length} empty="Aucune année scolaire. Créez-en une pour commencer.">
+                <thead><tr><th>Année scolaire</th><th>Statut</th><th>Évaluation</th><th>Trimestres</th><th className="text-end">Actions</th></tr></thead>
+                <TBody colSpan={5} loading={loading} rows={annees.length} empty="Aucune année scolaire. Créez-en une pour commencer.">
                   {annees.map((a) => (
                     <tr key={a.id}>
                       <td><strong>{a.libelle}</strong></td>
                       <td>{a.active ? <span className="badge bg-label-success">Active</span> : <span className="badge bg-label-secondary">Inactive</span>}</td>
+                      <td><BadgeModeEvaluation code={a.mode_evaluation} verrouille={a.mode_verrouille} /></td>
                       <td>{trimestres.filter((t) => t.annee_scolaire_id === a.id).length} trimestre(s)</td>
                       <td className="text-end text-nowrap">
-                        <IconBtn icon="bx-calendar-week" title="Voir les trimestres" onClick={() => { setAnneeSel({ id: a.id, libelle: a.libelle }); setTrimestreSel(null); }} />
-                        {!a.active && <IconBtn icon="bx-check-circle" title="Activer" onClick={() => activerAnnee(a)} />}
-                        <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'annee', data: a })} />
-                        <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/annees-scolaires/${a.id}`, a.libelle)} />
+                        <RowActions actions={[
+                          { icon: 'bx-calendar-week', label: 'Voir les trimestres', onClick: () => { setAnneeSel({ id: a.id, libelle: a.libelle }); setTrimestreSel(null); } },
+                          { icon: 'bx-check-circle', label: 'Activer', onClick: () => activerAnnee(a), hidden: a.active },
+                          { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setModal({ kind: 'annee', data: a }) },
+                          { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimer(`/annees-scolaires/${a.id}`, a.libelle) },
+                        ]} />
                       </td>
                     </tr>
                   ))}
@@ -263,9 +284,11 @@ export default function ConfigurationPage() {
                         <td>{formatDate(t.date_fin)}</td>
                         <td>{sequences.filter((s) => s.trimestre_id === t.id).length} séquence(s)</td>
                         <td className="text-end text-nowrap">
-                          <IconBtn icon="bx-list-check" title="Voir les séquences" onClick={() => setTrimestreSel({ id: t.id, libelle: t.libelle })} />
-                          <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'trimestre', data: t })} />
-                          <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/trimestres/${t.id}`, t.libelle)} />
+                          <RowActions actions={[
+                            { icon: 'bx-list-check', label: 'Voir les séquences', onClick: () => setTrimestreSel({ id: t.id, libelle: t.libelle }) },
+                            { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setModal({ kind: 'trimestre', data: t }) },
+                            { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimer(`/trimestres/${t.id}`, t.libelle) },
+                          ]} />
                         </td>
                       </tr>
                     ))}
@@ -283,13 +306,14 @@ export default function ConfigurationPage() {
               actions={addBtn('Nouvelle séquence', () => setModal({ kind: 'sequence', data: null }))}
             >
               <table className="table table-hover mb-0">
-                <thead><tr><th>Séquence</th><th>Date de début</th><th>Date de fin</th><th className="text-end">Actions</th></tr></thead>
-                <TBody colSpan={4} rows={sequencesTrimestre.length} empty="Aucune séquence pour ce trimestre.">
+                <thead><tr><th>Séquence</th><th>Date de début</th><th>Date de fin</th><th>Saisie des notes</th><th className="text-end">Actions</th></tr></thead>
+                <TBody colSpan={5} rows={sequencesTrimestre.length} empty="Aucune séquence pour ce trimestre.">
                   {sequencesTrimestre.map((s) => (
                     <tr key={s.id}>
                       <td><strong>{s.libelle}</strong></td>
                       <td>{formatDate(s.date_debut)}</td>
                       <td>{formatDate(s.date_fin)}</td>
+                      <td><VerrouSequence sequence={s} onChange={loadAll} /></td>
                       <td className="text-end text-nowrap">
                         <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'sequence', data: s })} />
                         <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/sequences/${s.id}`, s.libelle)} />
@@ -324,6 +348,38 @@ export default function ConfigurationPage() {
               </table>
             </TableCard>
           </div>
+          <div className="mb-3">
+            <TableCard
+              title="Niveaux"
+              icon="bx-sort-up"
+              count={niveaux.length}
+              actions={(
+                <>
+                  <button type="button" className="btn btn-sm btn-outline-primary" onClick={genererNiveaux} title="Créer les niveaux à partir du nom des classes qui n'en ont pas">
+                    <i className="bx bx-magic-wand me-1" />Déduire des noms de classes
+                  </button>
+                  {addBtn('Nouveau niveau', () => setModal({ kind: 'niveau', data: null }))}
+                </>
+              )}
+              footer={<small className="text-muted"><i className="bx bx-info-circle me-1" />Classes parallèles d'un même niveau (6e A, 6e B…) : un élève qui change de classe dans son niveau garde ses notes et ses paiements.</small>}
+            >
+              <table className="table table-hover mb-0">
+                <thead><tr><th>Niveau</th><th>Classes</th><th className="text-end">Actions</th></tr></thead>
+                <TBody colSpan={3} loading={loading} rows={niveaux.length} empty="Aucun niveau : utilisez « Déduire des noms de classes » ou créez-les.">
+                  {niveaux.map((n) => (
+                    <tr key={n.id}>
+                      <td><strong>{n.libelle}</strong></td>
+                      <td>{classes.filter((cl) => cl.niveau_id === n.id).map((cl) => classeLabelCourt(cl.id)).join(', ') || <span className="text-muted">—</span>}</td>
+                      <td className="text-end text-nowrap">
+                        <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'niveau', data: n })} />
+                        <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(`/niveaux/${n.id}`, n.libelle)} />
+                      </td>
+                    </tr>
+                  ))}
+                </TBody>
+              </table>
+            </TableCard>
+          </div>
           <TableCard
             title="Classes"
             icon="bx-chalkboard"
@@ -350,12 +406,13 @@ export default function ConfigurationPage() {
             )}
           >
             <table className="table table-hover mb-0">
-              <thead><tr><th>Cycle</th><th>Option</th><th>Effectif</th><th className="text-end">Actions</th></tr></thead>
-              <TBody colSpan={4} loading={loading} rows={classesFiltrees.length} empty={(filterCycle || termesRecherche.length) ? 'Aucune classe ne correspond à la recherche.' : 'Aucune classe.'}>
+              <thead><tr><th>Cycle</th><th>Option</th><th>Niveau</th><th>Effectif</th><th className="text-end">Actions</th></tr></thead>
+              <TBody colSpan={5} loading={loading} rows={classesFiltrees.length} empty={(filterCycle || termesRecherche.length) ? 'Aucune classe ne correspond à la recherche.' : 'Aucune classe.'}>
                 {classesFiltrees.map((c) => (
                   <tr key={c.id}>
                     <td><strong>{cycleLibelle(c.cycle_id)}</strong></td>
                     <td>{c.option || '—'}</td>
+                    <td>{niveauLibelle(c.niveau_id) || <span className="text-muted small" title="Déduit du nom de la classe">auto</span>}</td>
                     <td><span className="badge bg-label-primary">{c.effectif || 0}</span></td>
                     <td className="text-end text-nowrap">
                       <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setModal({ kind: 'classe', data: c })} />
@@ -380,8 +437,8 @@ export default function ConfigurationPage() {
           </div>
           <TableCard title="Responsables" icon="bx-shield-quarter" count={responsables.length} actions={addBtn('Nouveau responsable', openCreationResponsable)}>
             <table className="table table-hover mb-0">
-              <thead><tr><th>Nom</th><th>Profil</th><th>Code / email</th><th>Compte de connexion</th><th>Classes assignées</th><th className="text-end">Actions</th></tr></thead>
-              <TBody colSpan={6} loading={loading} rows={responsables.length} empty="Aucun responsable (Censeur ou Surveillant) pour cet établissement.">
+              <thead><tr><th>Nom</th><th>Profil</th><th>Compte de connexion</th><th>Classes assignées</th><th className="text-end">Actions</th></tr></thead>
+              <TBody colSpan={5} loading={loading} rows={responsables.length} empty="Aucun responsable (Censeur ou Surveillant) pour cet établissement.">
                 {responsables.map((r) => {
                   const liaisons = liaisonsDe(r);
                   return (
@@ -390,13 +447,8 @@ export default function ConfigurationPage() {
                       <td>{r._type === 'censeur'
                         ? <span className="badge bg-label-primary"><i className="bx bx-shield-quarter me-1" />Censeur</span>
                         : <span className="badge bg-label-secondary"><i className="bx bx-show me-1" />Surveillant</span>}</td>
-                      <td>
-                        {r.code_connexion && <div className="font-monospace fw-semibold">{r.code_connexion}</div>}
-                        {r.email && <small className="text-muted">{r.email}</small>}
-                        {!r.code_connexion && !r.email && '—'}
-                      </td>
                       <td>{r.utilisateur_id
-                        ? <span className="badge bg-label-success"><i className="bx bx-link" /> Relié</span>
+                        ? <>{r.code_connexion ? <span className="font-monospace">{r.code_connexion}</span> : <span className="badge bg-label-success"><i className="bx bx-link" /> Relié</span>}</>
                         : <span className="badge bg-label-warning" title="Ce profil n'est relié à aucun compte de connexion : les classes assignées ci-dessous ne seront pas encore effectives pour cette personne."><i className="bx bx-error" /> Non relié</span>}</td>
                       <td className="text-wrap">
                         {liaisons.length
@@ -404,9 +456,11 @@ export default function ConfigurationPage() {
                           : <small className="text-muted">Aucune classe assignée</small>}
                       </td>
                       <td className="text-end text-nowrap">
-                        <IconBtn icon="bx-chalkboard" title="Gérer les classes" onClick={() => openAssignation(r)} />
-                        {r.utilisateur_id && <IconBtn icon="bx-key" title="Réinitialiser le PIN (PIN oublié ou compte bloqué)" onClick={() => reinitialiserPin(r)} />}
-                        {!r.utilisateur_id && <IconBtn icon="bx-lock-alt" title="Créer le compte de connexion" onClick={() => creerCompteResponsable(r)} />}
+                        <RowActions actions={[
+                          { icon: 'bx-chalkboard', label: 'Gérer les classes', onClick: () => openAssignation(r) },
+                          { icon: 'bx-key', label: 'Réinitialiser le PIN', title: 'PIN oublié ou compte bloqué', onClick: () => reinitialiserPin(r), hidden: !r.utilisateur_id },
+                          { icon: 'bx-lock-alt', label: 'Créer le compte de connexion', onClick: () => creerCompteResponsable(r), hidden: Boolean(r.utilisateur_id) },
+                        ]} />
                       </td>
                     </tr>
                   );
@@ -449,7 +503,8 @@ export default function ConfigurationPage() {
         />
       )}
       {modal?.kind === 'cycle' && <CycleModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} />}
-      {modal?.kind === 'classe' && <ClasseModal data={modal.data} cycles={cycles} onClose={() => setModal(null)} onSaved={onSaved} />}
+      {modal?.kind === 'classe' && <ClasseModal data={modal.data} cycles={cycles} niveaux={niveaux} onClose={() => setModal(null)} onSaved={onSaved} />}
+      {modal?.kind === 'niveau' && <NiveauModal data={modal.data} onClose={() => setModal(null)} onSaved={onSaved} />}
       {modal?.kind === 'assignation' && (
         <AssignationModal
           responsable={modal.data}
@@ -491,8 +546,12 @@ function LibelleInput({ value, onChange, validated, placeholder, message = 'Le l
 }
 
 function AnneeModal({ data, onClose, onSaved }) {
+  const etablissement = useEtablissementCourant();
   const [libelle, setLibelle] = useState(data?.libelle || '');
   const [active, setActive] = useState(Boolean(data?.active));
+  // Nouvelle année : mode de l'établissement par défaut.
+  const [mode, setMode] = useState(data?.mode_evaluation || '');
+  const modeAffiche = mode || etablissement?.mode_evaluation || 'lycee';
   const [validated, setValidated] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
@@ -502,6 +561,7 @@ function AnneeModal({ data, onClose, onSaved }) {
     setSaving(true);
     try {
       const payload = { libelle: libelle.trim(), active };
+      if (!data?.mode_verrouille) payload.mode_evaluation = modeAffiche;
       if (data) await api.put(`/annees-scolaires/${data.id}`, payload);
       else await api.post('/annees-scolaires/', payload);
       await onSaved(data ? 'Année scolaire mise à jour.' : 'Année scolaire créée.');
@@ -515,6 +575,13 @@ function AnneeModal({ data, onClose, onSaved }) {
   return (
     <Modal size="" title={<><i className="bx bx-calendar me-2 text-primary" />{data ? "Modifier l'année scolaire" : 'Nouvelle année scolaire'}</>} onClose={onClose} onSubmit={submit} footer={<FormFooter onCancel={onClose} saving={saving} />}>
       <LibelleInput value={libelle} onChange={setLibelle} validated={validated} placeholder="Ex : 2025-2026" message="Le libellé est requis (ex : 2025-2026)." />
+      <ChampModeEvaluation
+        id="anneeModeEvaluation"
+        value={modeAffiche}
+        onChange={setMode}
+        verrouille={Boolean(data?.mode_verrouille)}
+        aide="Modifiable tant qu'aucune note n'a été saisie dans l'année ; définitif ensuite."
+      />
       <div className="form-check">
         <input className="form-check-input" type="checkbox" id="anneeActive" checked={active} onChange={(e) => setActive(e.target.checked)} />
         <label className="form-check-label" htmlFor="anneeActive">Définir comme année active</label>
@@ -564,13 +631,32 @@ function CycleModal({ data, onClose, onSaved }) {
   );
 }
 
-function ClasseModal({ data, cycles, onClose, onSaved }) {
+function NiveauModal({ data, onClose, onSaved }) {
+  const [libelle, setLibelle] = useState(data?.libelle || '');
+  const [ordre, setOrdre] = useState(data?.ordre ?? '');
+  const [validated, setValidated] = useState(false);
+  const [save, saving] = useSave(onSaved);
+  const submit = () => (libelle.trim()
+    ? save('/niveaux/', data?.id, { libelle: libelle.trim(), ordre: ordre === '' ? 0 : parseInt(ordre, 10) || 0 }, ['Niveau créé.', 'Niveau mis à jour.'])
+    : setValidated(true));
+  return (
+    <Modal size="" title={<><i className="bx bx-sort-up me-2 text-primary" />{data ? 'Modifier le niveau' : 'Nouveau niveau'}</>} onClose={onClose} onSubmit={submit} footer={<FormFooter onCancel={onClose} saving={saving} />}>
+      <LibelleInput value={libelle} onChange={setLibelle} validated={validated} placeholder="Ex : 6e, Tle, MACO 2" />
+      <Field label="Ordre d'affichage" className="mb-1">
+        <input type="number" min="0" className="form-control" value={ordre} onChange={(e) => setOrdre(e.target.value)} placeholder="Ex : 1 pour la 6e" />
+      </Field>
+    </Modal>
+  );
+}
+
+function ClasseModal({ data, cycles, niveaux = [], onClose, onSaved }) {
   const [cycleId, setCycleId] = useState(data ? String(data.cycle_id) : '');
   const [option, setOption] = useState(data?.option || '');
+  const [niveauId, setNiveauId] = useState(data?.niveau_id ? String(data.niveau_id) : '');
   const [validated, setValidated] = useState(false);
   const [save, saving] = useSave(onSaved);
   const submit = () => (cycleId
-    ? save('/classes/', data?.id, { cycle_id: parseInt(cycleId, 10), option: option.trim() || null }, ['Classe créée.', 'Classe mise à jour.'])
+    ? save('/classes/', data?.id, { cycle_id: parseInt(cycleId, 10), option: option.trim() || null, niveau_id: niveauId ? parseInt(niveauId, 10) : null }, ['Classe créée.', 'Classe mise à jour.'])
     : setValidated(true));
   return (
     <Modal size="" title={<><i className="bx bx-chalkboard me-2 text-primary" />{data ? 'Modifier la classe' : 'Nouvelle classe'}</>} onClose={onClose} onSubmit={submit} footer={<FormFooter onCancel={onClose} saving={saving} />}>
@@ -582,6 +668,12 @@ function ClasseModal({ data, cycles, onClose, onSaved }) {
       </Field>
       <Field label="Option" className="mb-1">
         <input type="text" className="form-control" placeholder="Ex : 6ème A, Terminale C…" value={option} onChange={(e) => setOption(e.target.value)} />
+      </Field>
+      <Field label="Niveau" className="mb-1 mt-3">
+        <Select className="form-select" value={niveauId} onChange={(e) => setNiveauId(e.target.value)}>
+          <option value="">Automatique (déduit du nom de la classe)</option>
+          {niveaux.map((n) => <option key={n.id} value={n.id}>{n.libelle}</option>)}
+        </Select>
       </Field>
       <p className="text-muted mb-0 mt-2 small">L'effectif est calculé automatiquement à partir des inscriptions actives ; il n'est pas modifiable ici.</p>
     </Modal>

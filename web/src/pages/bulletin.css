@@ -1,5 +1,21 @@
 /* Styles de la page Bulletins (liste des élèves + aperçu). */
 
+/* Colonne « Élèves » : actions d'impression puis tri + recherche, serrés
+   pour que la liste commence juste sous la recherche. */
+.bulletin-actions { display: grid; gap: 6px; padding: 8px 14px; border-bottom: 1px solid #eceef1; }
+.bulletin-actions .btn-group { display: flex; }
+.bulletin-actions .btn { flex: 1 1 auto; min-height: 0; padding: 4px 10px; font-size: 12.5px; line-height: 1.35; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; }
+.bulletin-actions .btn.bulletin-pdf { flex: 0 0 auto; }
+.bulletin-actions .btn .bx { font-size: 15px; }
+.bulletin-outils { display: grid; gap: 6px; padding: 8px 14px; border-bottom: 1px solid #eceef1; }
+/* Libellé + liste de tri : la liste prend la place restante sans déborder
+   sur l'aperçu ; sur une colonne étroite, elle passe sous le libellé. */
+.bulletin-tri { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.bulletin-tri > .sel { flex: 1 1 150px; min-width: 0; }
+.bulletin-tri .sel-trigger { width: 100%; }
+.bulletin-actions, .bulletin-outils { grid-template-columns: minmax(0, 1fr); }
+.bulletin-actions .btn-group, .bulletin-outils .input-group { min-width: 0; }
+.bulletin-actions .btn:not(.bulletin-pdf) { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .eleves-liste { max-height: 640px; overflow-y: auto; }
 .eleve-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid #eceef1; cursor: pointer; transition: background .12s ease; }
 .eleve-item:hover { background: #f5f5f9; }

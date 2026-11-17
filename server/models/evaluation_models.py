@@ -35,8 +35,9 @@ from models.audit_models import Versionne
 class Note(db.Model, Versionne):
     """Une note attribuée à un élève inscrit (Inscription), pour une
     MatiereClasse (couple classe/matière/enseignant) donnée, sur une
-    Sequence donnée. uq_note garantit qu'un élève n'a qu'une seule note par
-    matière-classe et par séquence : une correction se fait via PUT sur la
+    Sequence donnée. uq_note_composante garantit qu'un élève n'a qu'une seule
+    note par matière-classe, par séquence et par composante (CC, DS…) : une
+    correction se fait via PUT sur la
     ligne existante, jamais par une nouvelle insertion.
 
     valeur est nullable : un élève marqué absent (absent=True) n'a en
@@ -50,12 +51,18 @@ class Note(db.Model, Versionne):
     inscription_id = db.Column(db.Integer, db.ForeignKey('inscription.id'), nullable=False)
     matiere_classe_id = db.Column(db.Integer, db.ForeignKey('matiere_classe.id'), nullable=False)
     sequence_id = db.Column(db.Integer, db.ForeignKey('sequence.id'), nullable=False)
+    # Évaluation notée, selon le mode de l'année scolaire (cf.
+    # structure_models.MODES_EVALUATION) : 'note' (mode Lycée, une note par
+    # séquence), 'cc' / 'ds' (mode Collège) ou 'cc' / 'ds' / 'evtr' (mode
+    # Institut). La note de la séquence est alors calculée à la lecture
+    # (mode_evaluation_services.notes_par_sequence), jamais stockée.
+    composante = db.Column(db.String(5), nullable=False, default='note', server_default='note')
     valeur = db.Column(db.Numeric(5, 2), nullable=True)
     absent = db.Column(db.Boolean, nullable=False, default=False)
     saisie_le = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
-        db.UniqueConstraint('inscription_id', 'matiere_classe_id', 'sequence_id', name='uq_note'),
+        db.UniqueConstraint('inscription_id', 'matiere_classe_id', 'sequence_id', 'composante', name='uq_note_composante'),
         db.CheckConstraint('valeur IS NULL OR (valeur >= 0 AND valeur <= 20)', name='ck_note_valeur'),
     )
 
@@ -65,7 +72,7 @@ class Note(db.Model, Versionne):
 
     def to_dict(self):
         d = {k: getattr(self, k) for k in
-             ['id', 'inscription_id', 'matiere_classe_id', 'sequence_id', 'absent', 'version']}
+             ['id', 'inscription_id', 'matiere_classe_id', 'sequence_id', 'composante', 'absent', 'version']}
         d['valeur'] = float(self.valeur) if self.valeur is not None else None
         d['saisie_le'] = self.saisie_le.isoformat() if self.saisie_le else None
         return d
@@ -107,3 +114,33 @@ class Discipline(db.Model, Versionne):
         return {k: getattr(self, k) for k in
                 ['id', 'inscription_id', 'sequence_id', 'absences_justifiees',
                  'absences_non_justifiees', 'retards', 'exclusions', 'observation', 'version']}
+
+class Dispense(db.Model):
+    """Matière « dispensée » (coefficient annulé) pour UN élève sur UNE
+    séquence : posée depuis la fenêtre des notes manquantes, avant la
+    génération d'un bulletin ou d'un procès-verbal (élève exempté, arrivé en
+    cours d'année…). La matière ne compte alors ni dans ses points ni dans
+    ses coefficients pour cette séquence (cf. trous_services).
+
+    Pas de etablissement_id direct : déduit de matiere_classe_id ->
+    MatiereClasse.classe_id -> Classe.etablissement_id. Supprimée avec
+    l'inscription, la matière-classe ou la séquence (cascade ORM)."""
+    __tablename__ = 'dispense'
+
+    id = db.Column(db.Integer, primary_key=True)
+    inscription_id = db.Column(db.Integer, db.ForeignKey('inscription.id'), nullable=False)
+    matiere_classe_id = db.Column(db.Integer, db.ForeignKey('matiere_classe.id'), nullable=False)
+    sequence_id = db.Column(db.Integer, db.ForeignKey('sequence.id'), nullable=False)
+    motif = db.Column(db.String(255))
+    cree_le = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        db.UniqueConstraint('inscription_id', 'matiere_classe_id', 'sequence_id', name='uq_dispense'),
+    )
+
+    inscription = db.relationship('Inscription', backref=db.backref('dispenses', cascade='all, delete-orphan'), lazy=True)
+    matiere_classe = db.relationship('MatiereClasse', backref=db.backref('dispenses', cascade='all, delete-orphan'), lazy=True)
+    sequence = db.relationship('Sequence', backref=db.backref('dispenses', cascade='all, delete-orphan'), lazy=True)
+
+    def to_dict(self):
+        return {k: getattr(self, k) for k in ['id', 'inscription_id', 'matiere_classe_id', 'sequence_id', 'motif']}

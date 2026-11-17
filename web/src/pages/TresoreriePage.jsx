@@ -10,7 +10,8 @@ import ImportModal from '../components/importConfigs';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import { useAuth } from '../context/AuthContext';
 import {
-  downloadCsv, formatMontant, FormFooter, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useToast,
+  downloadCsv, formatMontant, FormFooter, IconBtn, PageHeader, Pager, RowActions, StatCard, TableCard, Tabs, TBody,
+  useConfirm, usePagination, useToast,
 } from '../components/ui';
 import { aujourdhuiIso, formatDateCourt, ouvrirImpression } from '../lib/paiementsImpression';
 import { construireHtmlBon, construireHtmlEtat, construireHtmlJournal } from '../lib/tresorerieImpression';
@@ -95,6 +96,7 @@ export default function TresoreriePage() {
     }
     return true;
   }), [journal, filtres]);
+  const pageJournal = usePagination(lignesJournal, 25);
 
   const fondsDe = (l) => (l.sens === 'SORTIE' || (l.origine === 'paiement' && l.ventilation.length > 1)
     ? l.ventilation.map((v) => (l.ventilation.length > 1 ? `${nomCategorie(v.categorie_id)} (${formatMontant(v.montant)})` : nomCategorie(v.categorie_id))).join(', ')
@@ -270,9 +272,9 @@ export default function TresoreriePage() {
           )}
         >
           <table className="table table-hover">
-            <thead><tr><th>Date</th><th>Opération</th><th>Catégorie / fonds</th><th>Compte</th><th className="text-end">Entrée</th><th className="text-end">Sortie</th><th /></tr></thead>
-            <TBody colSpan={7} loading={loading} rows={lignesJournal.length} empty="Aucune opération sur la période">
-              {lignesJournal.map((l) => {
+            <thead><tr><th>Date</th><th>Opération</th><th>Catégorie / compte</th><th className="text-end">Montant</th><th className="text-end">Actions</th></tr></thead>
+            <TBody colSpan={5} loading={loading} rows={lignesJournal.length} empty="Aucune opération sur la période">
+              {pageJournal.slice.map((l) => {
                 const annule = l.statut === 'ANNULE';
                 const sens = SENS[l.sens];
                 return (
@@ -285,21 +287,27 @@ export default function TresoreriePage() {
                       {(l.tiers || l.reference) && <small className="d-block text-muted">{[l.tiers, l.reference].filter(Boolean).join(' · ')}</small>}
                     </td>
                     <td className="text-wrap">
-                      {l.sens === 'TRANSFERT' ? <span className="text-muted">—</span> : nomCategorie(l.categorie_id)}
+                      {l.sens === 'TRANSFERT' ? 'Transfert' : nomCategorie(l.categorie_id)}
                       {fondsDe(l) && <small className="d-block text-muted">{l.sens === 'SORTIE' ? 'Pris sur : ' : ''}{fondsDe(l)}</small>}
+                      <small className="d-block text-muted"><i className="bx bx-wallet me-1" />{l.sens === 'TRANSFERT' ? `${nomCompte(l.compte_id)} → ${nomCompte(l.compte_destination_id)}` : nomCompte(l.compte_id)}</small>
                     </td>
-                    <td>{l.sens === 'TRANSFERT' ? `${nomCompte(l.compte_id)} → ${nomCompte(l.compte_destination_id)}` : nomCompte(l.compte_id)}</td>
-                    <td className="text-end text-success">{l.sens === 'ENTREE' ? formatMontant(l.montant) : ''}</td>
-                    <td className="text-end text-danger">{l.sens === 'SORTIE' ? formatMontant(l.montant) : l.sens === 'TRANSFERT' ? <span className="text-info">{formatMontant(l.montant)}</span> : ''}</td>
+                    <td className={`text-end fw-semibold text-${l.sens === 'ENTREE' ? 'success' : l.sens === 'SORTIE' ? 'danger' : 'info'}`}>
+                      {l.sens === 'ENTREE' ? '+ ' : l.sens === 'SORTIE' ? '− ' : ''}{formatMontant(l.montant)}
+                    </td>
                     <td className="text-end text-nowrap">
-                      {l.origine === 'mouvement' && <IconBtn icon="bx-printer" title="Imprimer le bon" onClick={() => imprimerBon(l)} />}
-                      {l.origine === 'mouvement' && !annule && <IconBtn icon="bx-block" title="Annuler l'opération" danger onClick={() => setModal({ kind: 'annuler', data: l })} />}
+                      {l.origine === 'mouvement' && (
+                        <RowActions actions={[
+                          { icon: 'bx-printer', label: 'Imprimer le bon', onClick: () => imprimerBon(l) },
+                          { icon: 'bx-block', label: "Annuler l'opération", danger: true, onClick: () => setModal({ kind: 'annuler', data: l }), hidden: annule },
+                        ]} />
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </TBody>
           </table>
+          <Pager pagination={pageJournal} unit="opérations" />
         </TableCard>
       )}
 
@@ -418,14 +426,12 @@ function ListeReferentiel({ titre, icon, url, extra = {}, comptes = false, eleme
                     {comptes && <small className="text-muted d-block">{TYPES_COMPTE[el.type]}</small>}
                   </div>
                   {el.par_defaut && <span className="badge bg-label-primary">par défaut</span>}
-                  {comptes && !el.par_defaut && el.actif && (
-                    <IconBtn icon="bx-star" title="Compte par défaut de ce type (reçoit les paiements de scolarité)" disabled={bloque} onClick={() => agir(() => api.put(`${url}/${el.id}`, { par_defaut: true }), 'Compte par défaut modifié.')} />
-                  )}
-                  <IconBtn icon="bx-edit-alt" title="Renommer" disabled={bloque} onClick={() => setEdition({ id: el.id, libelle: el.libelle })} />
-                  {!el.par_defaut && (
-                    <IconBtn icon={el.actif ? 'bx-hide' : 'bx-show'} title={el.actif ? 'Désactiver' : 'Réactiver'} disabled={bloque} onClick={() => agir(() => api.put(`${url}/${el.id}`, { actif: !el.actif }), el.actif ? 'Désactivé.' : 'Réactivé.')} />
-                  )}
-                  {!el.par_defaut && <IconBtn icon="bx-trash" title="Supprimer" danger disabled={bloque} onClick={() => supprimer(el)} />}
+                  <RowActions actions={[
+                    { icon: 'bx-edit-alt', label: 'Renommer', disabled: bloque, onClick: () => setEdition({ id: el.id, libelle: el.libelle }) },
+                    { icon: 'bx-star', label: 'Définir par défaut', title: 'Compte par défaut de ce type (reçoit les paiements de scolarité)', disabled: bloque, hidden: !(comptes && !el.par_defaut && el.actif), onClick: () => agir(() => api.put(`${url}/${el.id}`, { par_defaut: true }), 'Compte par défaut modifié.') },
+                    { icon: el.actif ? 'bx-hide' : 'bx-show', label: el.actif ? 'Désactiver' : 'Réactiver', disabled: bloque, hidden: el.par_defaut, onClick: () => agir(() => api.put(`${url}/${el.id}`, { actif: !el.actif }), el.actif ? 'Désactivé.' : 'Réactivé.') },
+                    { icon: 'bx-trash', label: 'Supprimer', danger: true, disabled: bloque, hidden: el.par_defaut, onClick: () => supprimer(el) },
+                  ]} />
                 </>
               )}
             </li>

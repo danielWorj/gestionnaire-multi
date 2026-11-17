@@ -231,7 +231,7 @@ export default function ImportAssistant({ config, optionsInitiales, onClose, onI
       return true;
     });
   }, [rep, filtre, recherche]);
-  const pagination = usePagination(lignesFiltrees, 50);
+  const pagination = usePagination(lignesFiltrees, 25);
 
   const validerEdition = () => {
     const { id, valeurs } = edition;

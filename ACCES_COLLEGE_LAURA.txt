@@ -1,0 +1,50 @@
+COLLEGE LAURA — ACCÈS À L'APPLICATION (année 2026-2027)
+Code établissement : 9TGC    Généré le 17/11/2026 à 13:02
+Connexion : CODE + PIN. Chacun peut changer son PIN depuis son espace (« Changer mon code PIN »).
+PIN oublié : l'Admin en régénère un depuis l'application.
+
+======================================================================================================================
+ENSEIGNANTS
+======================================================================================================================
+CODE  PIN     NOM                           TÉLÉPHONE  GRADE     H/SEM COURS
+----------------------------------------------------------------------------------------------------------------------
+6HCU  6422    MAHOP Esther                  654082387  PLEG      14    EPS 6e A, EPS 6e B, EPS 5e A, EPS 5e B, EPS 4e A, EPS 4e B, EPS 3e A
+NW7P  0292    OWONA Kevin                   684250170  PLEG      14    EPS 3e B, EPS 2nde A4, EPS 2nde C, EPS 1ère A4, EPS 1ère D, EPS Tle A4, EPS Tle D
+F87W  2522    DIBONGUE Yannick              687778403  PCEG      16    Histoire-Géographie/ECM 3e A, Histoire-Géographie/ECM 3e B, Histoire-Géographie/ECM 2nde A4, Histoire-Géographie/ECM 2nde C
+7URZ  5637    EPEE Kevin                    653575480  PLEG      15    Histoire-Géographie/ECM/LCN 6e A, Histoire-Géographie/ECM/LCN 6e B, Histoire-Géographie/ECM/LCN 5e A
+9CDP  7437    NDJOCK Mireille               677971783  Vacataire 13    Histoire-Géographie/ECM/LCN 5e B, Histoire-Géographie/ECM 4e A, Histoire-Géographie/ECM 4e B
+D39G  8187    NLEND Stéphanie               652002475  Vacataire 14    Histoire-Géographie/ECM 1ère A4, Histoire-Géographie/ECM 1ère D, Histoire-Géographie/ECM Tle A4, Histoire-Géographie/ECM Tle D
+9QZQ  8154    ALIOU Patience                678108615  Vacataire 14    Informatique 6e A, Informatique 6e B, Informatique 5e A, Informatique 5e B, Informatique 4e A, Informatique 4e B, Informatique 3e A
+T97Z  3998    WAFO Noëlle                   693481049  PCEG      14    Informatique 3e B, Informatique 2nde A4, Informatique 2nde C, Informatique 1ère A4, Informatique 1ère D, Informatique Tle A4, Informatique Tle D
+N9F8  7415    BAYIHA Joseph                 682476126  PLEG      16    Anglais 6e A, Anglais 6e B, Anglais 5e A, Anglais 5e B  [Titulaire 5e A]
+8QHR  7045    FOTSO Aurélien                677679314  PCEG      12    Espagnol 2nde A4, Espagnol 2nde C, Espagnol 1ère A4, Espagnol Tle A4
+7K3X  8590    MAHOP Gwladys                 656536567  PLEG      16    Anglais 4e A, Anglais 4e B, Anglais 3e A, Anglais 3e B  [Titulaire 4e B]
+788V  1870    NOUBISSI Yannick              679829184  PLEG      19    Anglais 2nde A4, Anglais 2nde C, Anglais 1ère A4, Anglais 1ère D, Anglais Tle A4, Anglais Tle D  [Titulaire 2nde A4]
+X423  7612    OUMAROU Ivan                  653447134  PLEG      12    Espagnol 4e A, Espagnol 4e B, Espagnol 3e A, Espagnol 3e B
+XND4  7610    NGOUE Aurélien                679938121  Vacataire 19    Français 3e A, Français 3e B, Français 2nde A4, Français 2nde C  [Titulaire 3e A]
+AHUV  7799    HAMADOU Sylvie                697224898  PCEG      16    Français 5e B, Français 4e A, Français 4e B  [Titulaire 5e B]
+GNEC  6011    MANDENG Paul                  684357005  PLEG      18    Français 6e A, Français 6e B, Français 5e A  [Titulaire 6e A]
+4ARE  0165    MOUANGUE Daniel               671948245  PLEG      15    Français 1ère A4, Français 1ère D, Français Tle A4, Français Tle D  [Titulaire 1ère A4]
+GVTH  3352    MFOUAPON Enzo                 655924249  PLEG      15    Mathématiques 5e B, Mathématiques 4e A, Mathématiques 4e B  [Titulaire 4e A]
+CHBC  9522    MOUAFO Blaise                 696769760  PLEG      15    Mathématiques 6e A, Mathématiques 6e B, Mathématiques 5e A  [Titulaire 6e B]
+MVYN  7685    NDOUMBE Serge                 696187192  PLEG      14    Mathématiques 3e A, Mathématiques 3e B, Mathématiques 2nde A4  [Titulaire 3e B]
+K6U4  7255    NJIKAM Edwige                 675409512  Vacataire 21    Mathématiques 2nde C, Mathématiques 1ère A4, Mathématiques 1ère D, Mathématiques Tle A4, Mathématiques Tle D  [Titulaire 2nde C]
+4FP8  8953    HAMADOU Wilfried              650366760  PLEG      14    Philosophie 1ère A4, Philosophie 1ère D, Philosophie Tle A4, Philosophie Tle D  [Titulaire Tle A4]
+BPQU  7064    ESSAKA Jordan                 680673113  PLEG      15    PCT 2nde C, PCT 1ère D, PCT Tle D  [Titulaire 1ère D]
+2BV9  3140    FOTSO Edwige                  684750675  PLEG      11    PCT 4e B, PCT 3e A, PCT 3e B, PCT 2nde A4
+HRU7  4568    KENFACK Edwige                684495875  PLEG      11    PCT 6e A, PCT 6e B, PCT 5e A, PCT 5e B, PCT 4e A
+DQQU  9151    PRISO Christelle              656936337  Vacataire 16    SVTEEHB 2nde C, SVTEEHB 1ère A4, SVTEEHB 1ère D, SVTEEHB Tle A4, SVTEEHB Tle D  [Titulaire Tle D]
+8UWF  8137    TAGNE Sylvie                  678998311  PCEG      18    SVTEEHB 6e A, SVTEEHB 6e B, SVTEEHB 5e A, SVTEEHB 5e B, SVTEEHB 4e A, SVTEEHB 4e B, SVTEEHB 3e A, SVTEEHB 3e B, SVTEEHB 2nde A4
+
+======================================================================================================================
+PERSONNEL ADMINISTRATIF
+======================================================================================================================
+CODE  PIN     RÔLE         NOM                           DÉTAIL
+----------------------------------------------------------------------------------------------------------------------
+V4MH  —       Admin        MR NYAKE                      Compte existant, PIN non modifié
+E4Z2  2202    Comptable    KOTTO Linda                   Économat
+VPRK  5740    Secretaire   DOUALA MANGA Gwladys          Secrétariat
+PF89  8595    Censeur      OUMAROU Serge                 Censeur du premier cycle (6e A, 6e B, 5e A, 5e B, 4e A, 4e B, 3e A, 3e B)
+Y63N  3718    Surveillant  KOTTO Aurélien                Surveillant général du premier cycle
+6TNG  1217    Censeur      DOUALA MANGA Murielle         Censeur du second cycle (2nde A4, 2nde C, 1ère A4, 1ère D, Tle A4, Tle D)
+FV3R  4662    Surveillant  BELLO Ivan                    Surveillant général du second cycle

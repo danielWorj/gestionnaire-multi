@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Avancement, RubriqueCard, useMonEspace } from '../components/Espace';
-import { roleInfo, RUBRIQUES } from '../lib/espaces';
+import { roleInfo, RUBRIQUES, RUBRIQUES_TITULAIRE } from '../lib/espaces';
 
 // Accueil des espaces Enseignant / Censeur / Surveillant : cartes des
 // rubriques, puis ce qui reste à faire sur la séquence en cours.
@@ -42,7 +42,8 @@ export default function EspaceAccueilPage({ role }) {
   }
 
   const badgeNotes = !espace.loading && sequence && aFaire.length ? `${aFaire.length} à compléter` : null;
-  const rubriques = RUBRIQUES[role].map((r, i) => ({ ...r, badge: i === 0 ? badgeNotes : null }));
+  const rubriques = [...RUBRIQUES[role], ...(enseignant && user?.est_titulaire ? RUBRIQUES_TITULAIRE : [])]
+    .map((r, i) => ({ ...r, badge: i === 0 ? badgeNotes : null }));
 
   return (
     <>

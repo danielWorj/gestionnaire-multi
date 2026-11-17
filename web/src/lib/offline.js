@@ -135,7 +135,11 @@ export const ATTENTE_EVENT = 'horsLigne:attente';
 //   conflits:  [op]                 nouveaux conflits à trancher }
 export const SYNCHRO_EVENT = 'horsLigne:synchronisee';
 
-export const cleNote = (body) => `note|${body.inscription_id}|${body.matiere_classe_id}|${body.sequence_id}`;
+// Mode Collège/Institut : une note par évaluation (CC, DS, Ev. Tr.) de la
+// séquence. Mode Lycée (composante 'note' ou absente) : clé historique,
+// pour que les saisies déjà gardées sur l'appareil restent reconnues.
+export const cleNote = (body) => `note|${body.inscription_id}|${body.matiere_classe_id}|${body.sequence_id}`
+  + (body.composante && body.composante !== 'note' ? `|${body.composante}` : '');
 export const cleDiscipline = (body) => `discipline|${body.inscription_id}|${body.sequence_id}`;
 
 let utilisateurCourant = null;

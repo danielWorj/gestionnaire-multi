@@ -6,10 +6,12 @@ import { Avancement, BarreClasse, ClassesGrille, EspaceTitre, nomClasse, Pastill
 import { useToast } from '../components/ui';
 import ImportModal from '../components/importConfigs';
 import { cleNote, useOperationsEnAttente } from '../lib/offline';
-import { focusSuivant, NoteLigne, parseNote, useEnregistrementNotes } from '../components/SaisieNote';
 import {
-  calculerStatistiques, EleveIdentite, filtrerRoster, KpiRow, lignesStatistiques,
-  noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
+  GrilleNotes, optionsEvaluations, parseSaisie, texteSaisie, useEnregistrementNotes,
+} from '../components/SaisieNote';
+import {
+  calculerStatistiques, compterSaisies, EleveIdentite, filtrerRoster, indexerNotes, KpiRow, lignesStatistiques,
+  noteSequence, noteValeur, NotesFiltres, ReleveImprime, SaveState, StatsTable, useNotesContexte,
 } from '../components/NotesCommun';
 import { SkelListe, SkelSaisie } from '../components/Skeleton';
 
@@ -18,7 +20,8 @@ import { SkelListe, SkelSaisie } from '../components/Skeleton';
 // 2. liste des élèves, une note par ligne (clavier numérique, Entrée = élève
 //    suivant, enregistrement automatique, notes gardées sur l'appareil sans
 //    connexion et envoyées à son retour — cf. lib/offline.js), puis
-//    statistiques et relevé imprimable ;
+//    statistiques et relevé imprimable. En mode Collège/Institut, l'enseignant
+//    choisit l'évaluation à remplir (CC, DS, Ev. Tr.) ou toutes à la fois ;
 // 3. « Relevé de l'année » : toutes les notes de la matière-classe, séquence
 //    par séquence, pour revoir et corriger après coup (même enregistrement,
 //    y compris hors connexion).
@@ -65,8 +68,13 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
     return [...map.values()];
   }, []);
   const ctx = useNotesContexte({ base: '/enseignant', toast, classesDepuis, mcImpose: mcParam });
-  const { espace, classeId, mcId, sequenceId, mcActive, roster, notes, setNotes, notesIndex, sequenceLibelle, sequencesTree } = ctx;
-  const { envoyer, saveStates } = useEnregistrementNotes({ notes, setNotes, roster, mcActive, classeId, sequencesTree, toast });
+  const { espace, classeId, mcId, sequenceId, mcActive, roster, notes, setNotes, sequenceLibelle, sequencesTree, composantes } = ctx;
+  const { envoyer, saveStates } = useEnregistrementNotes({ notes, setNotes, roster, mcActive, classeId, sequencesTree, composantes, toast });
+  // Évaluation remplie (mode Collège/Institut) : CC, DS, Ev. Tr. ou 'tout'.
+  const evaluations = optionsEvaluations(composantes);
+  const [choixEvaluation, setChoixEvaluation] = useState('');
+  const vueEvaluation = evaluations.some((o) => o.value === choixEvaluation) ? choixEvaluation : composantes[0].code;
+  const libelleEvaluation = evaluations.find((o) => o.value === vueEvaluation)?.label;
 
   const [recherche, setRecherche] = useState('');
   const [statsOuvertes, setStatsOuvertes] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 992);
@@ -78,18 +86,16 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
   const classe = espace.classes.find((c) => String(c.id) === String(classeId)) || null;
   const introuvable = !espace.loading && espace.matieresClasse.length > 0 && !espace.matieresClasse.some((m) => String(m.id) === String(mcParam));
   const pret = Boolean(classeId && mcId && sequenceId);
+  // Séquence clôturée (date de fin passée ou clôture par l'administration) :
+  // la grille passe en lecture seule (le serveur refuse de toute façon).
+  const sequenceActive = ctx.sequencesTree.flatMap((t) => t.sequences || []).find((s) => String(s.id) === String(sequenceId));
+  const verrouillee = Boolean(sequenceActive?.verrouillee);
   const eleves = useMemo(() => filtrerRoster(roster, recherche), [roster, recherche]);
   // Notes de la séquence affichée, y compris celles saisies hors connexion
-  // et pas encore envoyées (statistiques et relevé imprimé à jour).
-  const notesAffichees = useMemo(() => {
-    const idx = { ...notesIndex };
-    Object.values(attente).forEach(({ body: b }) => {
-      if (String(b.matiere_classe_id) === String(mcId) && String(b.sequence_id) === String(sequenceId)) {
-        idx[b.inscription_id] = { ...idx[b.inscription_id], ...b };
-      }
-    });
-    return idx;
-  }, [notesIndex, attente, mcId, sequenceId]);
+  // et pas encore envoyées (statistiques et relevé imprimé à jour) ; la note
+  // de la séquence est calculée en mode Collège/Institut.
+  const index = useMemo(() => indexerNotes(notes, { mcId, sequenceId, composantes, attente }), [notes, mcId, sequenceId, composantes, attente]);
+  const notesAffichees = index.sequence;
   const stats = useMemo(() => calculerStatistiques(roster, notesAffichees), [roster, notesAffichees]);
   const lignes = useMemo(() => lignesStatistiques(stats), [stats]);
 
@@ -98,9 +104,11 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
     const ids = new Set(roster.map((e) => String(e.inscription_id)));
     const donnees = [];
     sequencesTree.forEach((tri) => (tri.sequences || []).forEach((seq) => {
-      const vals = notes
-        .filter((n) => String(n.matiere_classe_id) === String(mcId) && String(n.sequence_id) === String(seq.id) && ids.has(String(n.inscription_id)) && !n.absent && n.valeur !== null && n.valeur !== undefined)
-        .map((n) => Number(n.valeur));
+      const parEleve = indexerNotes(notes, { mcId, sequenceId: seq.id, composantes }).sequence;
+      const vals = Object.entries(parEleve)
+        .filter(([id]) => ids.has(String(id)))
+        .map(([, n]) => noteValeur(n))
+        .filter((v) => v !== null);
       donnees.push({ libelle: seq.libelle, active: String(seq.id) === String(sequenceId), moyenne: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null });
     }));
     if (donnees.filter((d) => d.moyenne !== null).length < 2) return null;
@@ -126,7 +134,7 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
         scales: { y: { min: 0, max: 20, ticks: { stepSize: 4 } } },
       },
     };
-  }, [roster, notes, mcId, sequenceId, sequencesTree]);
+  }, [roster, notes, mcId, sequenceId, sequencesTree, composantes]);
 
   useEffect(() => {
     if (!imprimer) return undefined;
@@ -136,15 +144,17 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', after); };
   }, [imprimer]);
 
-  const sauvegarderNote = (inscriptionId, { valeur, absent }, seqId = sequenceId) => envoyer({
+  const sauvegarderNote = (inscriptionId, composante, { valeur, absent }, seqId = sequenceId) => envoyer({
     inscription_id: Number(inscriptionId),
     matiere_classe_id: Number(mcId),
     sequence_id: Number(seqId),
+    // Mode Lycée : pas de composante (le serveur prend « note »).
+    ...(composantes.length > 1 ? { composante } : {}),
     valeur: absent ? null : valeur,
     absent: Boolean(absent),
   });
 
-  const saisies = stats.classe.notesSaisies;
+  const saisies = compterSaisies(index, vueEvaluation, roster);
 
   if (introuvable) {
     return (
@@ -189,10 +199,11 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
             sequencesTree={sequencesTree}
             notes={notes}
             mcId={mcId}
+            composantes={composantes}
             attente={attente}
             saveStates={saveStates}
             chargement={ctx.chargement && !roster.length}
-            onSave={(inscriptionId, payload, seqId) => sauvegarderNote(inscriptionId, payload, seqId)}
+            onSave={(inscriptionId, composante, payload, seqId) => sauvegarderNote(inscriptionId, composante, payload, seqId)}
             onInvalid={() => toast('Saisissez une note entre 0 et 20 (ex : 12,5), ou « abs » pour absent.', 'error')}
           />
         </>
@@ -200,22 +211,36 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
       <>
       <NotesFiltres ctx={ctx} recherche={recherche} setRecherche={setRecherche} masquerClasse masquerMatiere />
 
+      {evaluations.length > 0 && (
+        <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <span className="notes-filtre-label mb-0">Remplir</span>
+          <Pastilles ariaLabel="Évaluation à remplir" value={vueEvaluation} onChange={setChoixEvaluation} options={evaluations} />
+        </div>
+      )}
+
       {pret && (
         <div className="saisie-entete">
           <div className="flex-grow-1 min-w-0">
-            <Avancement saisies={saisies} attendues={roster.length} libelle={sequenceLibelle} />
+            <Avancement saisies={saisies} attendues={roster.length} libelle={libelleEvaluation ? `${sequenceLibelle} · ${libelleEvaluation}` : sequenceLibelle} />
           </div>
           <div className="saisie-entete-actions">
             <button type="button" className="btn btn-icon btn-outline-secondary" title="Actualiser" aria-label="Actualiser" onClick={() => { ctx.actualiser(); toast('Grille actualisée.'); }}><i className="bx bx-refresh" /></button>
             <button type="button" className="btn btn-icon btn-outline-primary" title="Imprimer / PDF" aria-label="Imprimer le relevé" onClick={() => setImprimer(true)}><i className="bx bx-printer" /></button>
-            <button type="button" className="btn btn-icon btn-outline-primary" title="Importer des notes (Excel, CSV, Word)" aria-label="Importer des notes" onClick={() => setImportOuvert(true)}><i className="bx bx-import" /></button>
+            <button type="button" className="btn btn-icon btn-outline-primary" title="Importer des notes (Excel, CSV, Word)" aria-label="Importer des notes" onClick={() => setImportOuvert(true)} disabled={verrouillee}><i className="bx bx-import" /></button>
           </div>
+        </div>
+      )}
+
+      {pret && verrouillee && (
+        <div className="alert alert-warning d-flex gap-2 align-items-start">
+          <i className="bx bx-lock-alt fs-5" />
+          <div>La saisie de <strong>{sequenceLibelle}</strong> est clôturée : vos notes sont en lecture seule. Pour corriger une note, adressez-vous à l'administration de l'établissement.</div>
         </div>
       )}
 
       <div className="saisie-liste mb-4">
         <div className="saisie-ligne saisie-tete d-none d-md-grid">
-          <span>#</span><span>Élève</span><span className="text-center">Note / 20</span>
+          <span>#</span><span>Élève</span><span className="text-center">{vueEvaluation === 'tout' ? 'Évaluations / 20' : `${composantes.length > 1 ? libelleEvaluation : 'Note'} / 20`}</span>
         </div>
         {!pret ? (
           espace.loading ? <SkelSaisie /> : <div className="saisie-vide"><i className="bx bx-info-circle me-1" />Choisissez une séquence pour afficher la grille de saisie.</div>
@@ -223,19 +248,21 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
           <SkelSaisie />
         ) : !eleves.length ? (
           <div className="saisie-vide"><i className="bx bx-user-x me-1" />{roster.length ? 'Aucun élève ne correspond à la recherche.' : 'Aucun élève inscrit dans cette classe.'}</div>
-        ) : eleves.map((eleve, idx) => (
-          <NoteLigne
-            key={`${eleve.inscription_id}-${mcId}-${sequenceId}`}
-            index={idx}
-            eleve={eleve}
-            note={notesIndex[eleve.inscription_id]}
-            attente={attente[cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: sequenceId })]}
-            saveState={saveStates[cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: sequenceId })]}
-            onSave={(payload) => sauvegarderNote(eleve.inscription_id, payload)}
-            onInvalid={() => toast('La note doit être un nombre entre 0 et 20 (ex : 12,5).', 'error')}
-            onSuivant={() => focusSuivant(idx)}
+        ) : (
+          <GrilleNotes
+            eleves={eleves}
+            composantes={composantes}
+            vue={vueEvaluation}
+            index={index}
+            attente={attente}
+            saveStates={saveStates}
+            mcId={mcId}
+            sequenceId={sequenceId}
+            onSave={(inscriptionId, composante, payload) => sauvegarderNote(inscriptionId, composante, payload)}
+            onInvalid={() => toast('Saisissez une note entre 0 et 20 (ex : 12,5), ou « abs » pour absent.', 'error')}
+            verrouille={verrouillee}
           />
-        ))}
+        )}
       </div>
 
       {pret && (
@@ -263,7 +290,11 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
       {importOuvert && (
         <ImportModal
           module="notes"
-          optionsInitiales={{ matiere_classe_id: String(mcId), sequence_id: sequenceId ? String(sequenceId) : '' }}
+          optionsInitiales={{
+            matiere_classe_id: String(mcId),
+            sequence_id: sequenceId ? String(sequenceId) : '',
+            ...(composantes.length > 1 && vueEvaluation !== 'tout' ? { composante: vueEvaluation } : {}),
+          }}
           onClose={() => setImportOuvert(false)}
           onImported={() => ctx.actualiser()}
         />
@@ -288,25 +319,14 @@ function SaisieNotes({ mcId: mcParam, onRetour }) {
 }
 
 // ── Relevé de l'année : élèves × séquences, chaque note modifiable ─────────
+// (en mode Collège/Institut : une colonne par évaluation de chaque séquence).
 // Toucher une note l'ouvre en saisie (Entrée ou sortie du champ : enregistrée ;
 // Échap : annulée). « abs » (ou « a ») marque l'élève absent.
-function parseCellule(texte) {
-  const t = String(texte).trim().toLowerCase();
-  if (t === 'a' || t === 'abs' || t === 'absent') return { ok: true, valeur: null, absent: true };
-  const p = parseNote(t);
-  return p.ok ? { ok: true, valeur: p.valeur, absent: false } : { ok: false };
-}
-
-const texteNote = (n) => {
-  if (!n) return '';
-  if (n.absent) return 'abs';
-  return n.valeur === null || n.valeur === undefined ? '' : String(Number(n.valeur)).replace('.', ',');
-};
 
 function CelluleNote({ note, operation, etat, onSave, onInvalid, libelle }) {
   const source = operation?.body || note;
   const [edition, setEdition] = useState(null);
-  const texte = texteNote(source);
+  const texte = texteSaisie(source);
   const v = noteValeur(source);
   const cls = source?.absent ? 'releve-absent' : v === null ? 'releve-vide' : v < 10 ? 'note-faible' : v >= 14 ? 'note-forte' : '';
   const marque = operation?.conflit ? 'conflit' : operation ? 'pending' : etat === 'saving' || etat === 'error' ? etat : null;
@@ -314,7 +334,7 @@ function CelluleNote({ note, operation, etat, onSave, onInvalid, libelle }) {
   const valider = (valeur) => {
     setEdition(null);
     if (valeur.trim() === texte) return;
-    const p = parseCellule(valeur);
+    const p = parseSaisie(valeur);
     if (!p.ok) {
       onInvalid();
       return;
@@ -354,11 +374,15 @@ function CelluleNote({ note, operation, etat, onSave, onInvalid, libelle }) {
   );
 }
 
-function ReleveAnnee({ eleves, sequencesTree, notes, mcId, attente, saveStates, chargement, onSave, onInvalid }) {
+function ReleveAnnee({ eleves, sequencesTree, notes, mcId, composantes, attente, saveStates, chargement, onSave, onInvalid }) {
   const sequences = useMemo(() => sequencesTree.flatMap((t) => (t.sequences || []).map((s) => ({ ...s, trimestre_libelle: t.trimestre_libelle }))), [sequencesTree]);
+  const compose = composantes.length > 1;
+  const colonnes = useMemo(() => sequences.flatMap((s) => composantes.map((c) => ({
+    cle: `${s.id}|${c.code}`, sequence: s, composante: c, libelle: compose ? `${s.libelle} · ${c.libelle}` : s.libelle,
+  }))), [sequences, composantes, compose]);
   const index = useMemo(() => {
     const idx = {};
-    notes.filter((n) => String(n.matiere_classe_id) === String(mcId)).forEach((n) => { idx[`${n.inscription_id}|${n.sequence_id}`] = n; });
+    notes.filter((n) => String(n.matiere_classe_id) === String(mcId)).forEach((n) => { idx[`${n.inscription_id}|${n.sequence_id}|${n.composante || 'note'}`] = n; });
     return idx;
   }, [notes, mcId]);
 
@@ -379,31 +403,34 @@ function ReleveAnnee({ eleves, sequencesTree, notes, mcId, attente, saveStates, 
           <thead>
             <tr>
               <th className="releve-eleve">Élève</th>
-              {sequences.map((s) => <th key={s.id} className="text-center" title={`${s.trimestre_libelle} — ${s.libelle}`}>{s.libelle}</th>)}
+              {colonnes.map((col) => <th key={col.cle} className="text-center" title={`${col.sequence.trimestre_libelle} — ${col.libelle}`}>{col.libelle}</th>)}
               <th className="text-center">Moy.</th>
             </tr>
           </thead>
           <tbody>
             {eleves.map((eleve) => {
-              const valeurs = [];
-              const cellules = sequences.map((s) => {
-                const cle = cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: s.id });
+              const detail = {};
+              const cellules = colonnes.map(({ cle: col, sequence: s, composante: c, libelle }) => {
+                const cle = cleNote({ inscription_id: eleve.inscription_id, matiere_classe_id: mcId, sequence_id: s.id, composante: c.code });
                 const operation = attente[cle];
-                const note = index[`${eleve.inscription_id}|${s.id}`];
-                const val = noteValeur(operation?.body || note);
-                if (val !== null) valeurs.push(val);
+                const note = index[`${eleve.inscription_id}|${s.id}|${c.code}`];
+                (detail[s.id] = detail[s.id] || {})[c.code] = operation?.body || note;
                 return (
                   <CelluleNote
-                    key={s.id}
+                    key={col}
                     note={note}
                     operation={operation}
                     etat={saveStates[cle]}
-                    libelle={`${eleve.nom} ${eleve.prenom} — ${s.libelle}`}
-                    onSave={(payload) => onSave(eleve.inscription_id, payload, s.id)}
+                    libelle={`${eleve.nom} ${eleve.prenom} — ${libelle}`}
+                    onSave={(payload) => onSave(eleve.inscription_id, c.code, payload, s.id)}
                     onInvalid={onInvalid}
                   />
                 );
               });
+              // Moyenne des notes de séquence (calculées en Collège/Institut).
+              const valeurs = sequences
+                .map((s) => noteValeur(noteSequence(detail[s.id] || {}, composantes)))
+                .filter((v) => v !== null);
               const moy = valeurs.length ? valeurs.reduce((a, b) => a + b, 0) / valeurs.length : null;
               return (
                 <tr key={eleve.inscription_id}>
@@ -417,7 +444,7 @@ function ReleveAnnee({ eleves, sequencesTree, notes, mcId, attente, saveStates, 
         </table>
       </div>
       <div className="card-footer small text-muted py-2">
-        <i className="bx bx-info-circle me-1" />Touchez une note pour la modifier ; « abs » pour absent. Moyenne simple des séquences notées (indicative).
+        <i className="bx bx-info-circle me-1" />Touchez une note pour la modifier ; « abs » pour absent. Moyenne simple des séquences notées (indicative){compose ? ' ; note de séquence calculée selon le mode d\'évaluation de l\'année' : ''}.
       </div>
     </div>
   );

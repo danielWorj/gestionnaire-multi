@@ -323,6 +323,23 @@ def resolve_enseignant_profil(user_id):
     return Enseignant.query.filter_by(utilisateur_id=user_id).first()
 
 
+def classe_ids_titulaire(user_id):
+    """set() des classe_id dont l'enseignant relié à ce compte est
+    TITULAIRE (professeur principal) pour l'année active de son
+    établissement — résolu EN DIRECT, vide s'il n'est titulaire d'aucune
+    classe. Ouvre à l'enseignant titulaire, pour ces classes seulement :
+    bulletins, procès-verbaux, discipline, emploi du temps et consultation
+    de toutes les notes (cf. resolve_classe_ids_restriction)."""
+    profil = resolve_enseignant_profil(user_id)
+    if profil is None:
+        return set()
+    annee = annee_active(profil.etablissement_id)
+    if annee is None:
+        return set()
+    return {t.classe_id for t in TitulaireClasse.query.filter_by(enseignant_id=profil.id,
+                                                                 annee_scolaire_id=annee.id).all()}
+
+
 # Borne haute du coefficient : même valeur que l'import des matières
 # (import_matieres_services.COEF_MAX). Évite une saisie aberrante qui
 # écraserait toute la moyenne d'une classe.
@@ -518,6 +535,10 @@ def resolve_classe_ids_restriction(role, user_id):
     if role == "Surveillant":
         profil = resolve_surveillant_profil(user_id)
         return get_classe_ids_assignees_surveillant(profil.id) if profil else set()
+    if role == "Enseignant":
+        # Classes dont il est titulaire (seuls les modules qui l'admettent
+        # explicitement dans leurs rôles s'en servent).
+        return classe_ids_titulaire(user_id)
     return set()
 
 

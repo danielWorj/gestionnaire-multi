@@ -4,11 +4,14 @@ from datetime import date
 from pathlib import Path
 
 from flask import Blueprint, Response, jsonify, render_template, request
-from flask_jwt_extended import jwt_required, get_jwt
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 
 from extensions import db
 from models.structure_models import Etablissement
+from models.structure_models import AnneeScolaire
 from services.pv_services import PvErreur, construire_pv, sequences_de_l_annee
+from services.trous_services import periodes_pv
+from services.pedagogie_services import resolve_classe_ids_restriction
 from services.structure_services import LOGOS_DIR
 
 
@@ -17,16 +20,20 @@ from services.structure_services import LOGOS_DIR
 # côté serveur (services/pv_services.py) et rendu par un gabarit unique
 # (static/templates/pv/pv_evaluation.html) pour l'aperçu, l'impression et le PDF :
 #   GET /api/pv/sequences?annee_scolaire_id=                          -> JSON
+#   GET /api/pv/periodes?annee_scolaire_id=                           -> JSON
+#   &periode=seq:<id> | seq:<id>:<cc|ds|evtr> | tri:<id> (remplace sequence_id)
 #   GET /api/pv/?classe_id=&annee_scolaire_id=&sequence_id=&ordre=     -> JSON
 #   GET /api/pv/html?...&valeurs=points|notes                          -> aperçu / impression
 #   GET /api/pv/pdf?...                                                -> PDF A4 paysage (WeasyPrint)
 # ordre : alphabetique (défaut) | rang.  valeurs : points (défaut) | notes.
 #
-# Admin et SuperAdmin uniquement (toutes les classes de l'établissement).
+# Admin et SuperAdmin : toutes les classes de l'établissement ; Censeur et
+# Surveillant : leurs classes assignées ; Enseignant : les classes dont il
+# est titulaire.
 # Module indépendant du bulletin : rien n'est importé de bulletin_api.
 # ---------------------------------------------------------------------------
 
-ROLES_PV = ("Admin", "SuperAdmin")
+ROLES_PV = ("Admin", "SuperAdmin", "Censeur", "Surveillant", "Enseignant")
 
 pv_bp = Blueprint('pv_api', __name__, url_prefix='/api/pv')
 
@@ -52,17 +59,29 @@ def _etablissement():
     return db.session.get(Etablissement, etab_id) if etab_id else None
 
 
+def _classe_restriction():
+    role = get_jwt().get("role")
+    if role in ("Admin", "SuperAdmin"):
+        return None
+    return resolve_classe_ids_restriction(role, int(get_jwt_identity()))
+
+
 def _donnees():
     etablissement = _etablissement()
     if etablissement is None:
         raise PvErreur("etablissement_id requis")
     ordre = 'rang' if request.args.get("ordre") == 'rang' else 'alphabetique'
+    classe_id = request.args.get("classe_id", type=int)
+    restriction = _classe_restriction()
+    if restriction is not None and classe_id not in restriction:
+        raise PvErreur("Cette classe ne vous est pas assignée", 403)
     data = construire_pv(
         etablissement,
-        request.args.get("classe_id", type=int),
+        classe_id,
         request.args.get("annee_scolaire_id", type=int),
         request.args.get("sequence_id", type=int),
         ordre,
+        request.args.get("periode") or None,
     )
     return etablissement, data
 
@@ -96,6 +115,19 @@ def pv_sequences():
     if etablissement is None:
         return jsonify({"erreur": "etablissement_id requis"}), 400
     return jsonify(sequences_de_l_annee(etablissement, request.args.get("annee_scolaire_id", type=int))), 200
+
+
+@pv_bp.route('/periodes', methods=['GET'])
+def pv_periodes():
+    """Périodes du PV : séquences, évaluations (Collège/Institut), trimestres."""
+    etablissement = _etablissement()
+    if etablissement is None:
+        return jsonify({"erreur": "etablissement_id requis"}), 400
+    annee = AnneeScolaire.query.filter_by(id=request.args.get("annee_scolaire_id", type=int),
+                                          etablissement_id=etablissement.id).first()
+    if not annee:
+        return jsonify({"erreur": "Année scolaire introuvable"}), 404
+    return jsonify(periodes_pv(annee)), 200
 
 
 @pv_bp.route('/', methods=['GET'])

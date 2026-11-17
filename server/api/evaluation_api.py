@@ -17,6 +17,7 @@ from services.evaluation_services import (
 # ouvrir que SES PROPRES MatiereClasse sur ce module (cf. note_bp ci-dessous).
 from services.pedagogie_services import (
     resolve_classe_ids_restriction, resolve_enseignant_profil, modifier_coefficient_enseignant,
+    classe_ids_titulaire,
 )
 # Modèles nécessaires aux blueprints ENSEIGNANT et CENSEUR en fin de fichier
 # (« mon espace » : classes/matières-classe, années/trimestres/séquences,
@@ -25,6 +26,7 @@ from services.pedagogie_services import (
 from models.structure_models import (
     Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes,
     annee_active as annee_active_etablissement, sequence_courante as _sequence_courante,
+    cle_trimestre, trier_sequences,
 )
 from models.pedagogie_models import Matiere, MatiereClasse, Enseignant
 from models.inscription_models import Inscription, Eleve, STATUTS_INSCRIPTION_EN_COURS
@@ -38,6 +40,7 @@ from models.emploi_du_temps_models import CreneauHoraire, Horaire
 # Épreuves déposées par l'enseignant (liste paginée, dépôt, suppression) : toute
 # la logique (formats, taille, stockage, périmètre) est dans le service, ces
 # routes ne font que résoudre l'enseignant connecté — cf. plus bas.
+from services.mode_evaluation_services import composantes as composantes_du_mode, mode_de_annee
 from services.epreuve_services import (
     lister_epreuves, deposer_epreuve, supprimer_epreuve, get_epreuve_scoped,
 )
@@ -56,11 +59,12 @@ from services.epreuve_services import (
 # Accès en ÉCRITURE (POST/PUT/DELETE) :
 # - Enseignant : uniquement sur les MatiereClasse qui LUI ont été attribuées
 #   par l'Admin (cf. resolve_enseignant_matiere_classe_ids) ;
+# - Admin : toutes les matières-classe de SON établissement ;
 # - SuperAdmin : toutes les matières-classe de l'établissement qu'il a
 #   choisi (?etablissement_id=), pour saisir à la place d'un établissement
-#   qui le demande (zone sans réseau mobile, par exemple). Chaque saisie est
-#   tracée à son nom dans le journal d'audit.
-# Ni l'Admin, ni le Censeur, ni le Surveillant ne peuvent saisir une note.
+#   qui le demande (zone sans réseau mobile, par exemple).
+# Chaque saisie est tracée à son auteur dans le journal d'audit. Ni le
+# Censeur ni le Surveillant ne peuvent saisir une note.
 #
 # Censeur/Surveillant sont en outre restreints en LECTURE aux classes qui
 # leur ont été assignées (classe_ids_restriction), comme pour
@@ -76,7 +80,7 @@ from services.epreuve_services import (
 # ---------------------------------------------------------------------------
 
 ROLES_LECTURE_NOTE = ("Admin", "SuperAdmin", "Censeur", "Surveillant", "Enseignant")
-ROLES_ECRITURE_NOTE = ("Enseignant", "SuperAdmin")
+ROLES_ECRITURE_NOTE = ("Enseignant", "Admin", "SuperAdmin")
 
 note_bp = Blueprint('note_api', __name__, url_prefix='/api/notes')
 
@@ -87,8 +91,8 @@ def _require_role_note():
     role = get_jwt().get("role")
     if role not in ROLES_LECTURE_NOTE:
         return jsonify({"erreur": "Accès non autorisé"}), 403
-    # Écriture : Enseignant (ses matières) et SuperAdmin (tout l'établissement
-    # choisi) ; Admin/Censeur/Surveillant restent en lecture seule.
+    # Écriture : Enseignant (ses matières), Admin et SuperAdmin (tout
+    # l'établissement) ; Censeur/Surveillant restent en lecture seule.
     if request.method != "GET" and role not in ROLES_ECRITURE_NOTE:
         return jsonify({"erreur": "Seul l'enseignant titulaire peut saisir ou modifier une note"}), 403
 
@@ -130,7 +134,13 @@ def _current_matiere_classe_restriction():
     if claims.get("role") != "Enseignant":
         return None
     profil = resolve_enseignant_profil(int(get_jwt_identity()))
-    return resolve_enseignant_matiere_classe_ids(profil.id if profil else None)
+    mes_mc = resolve_enseignant_matiere_classe_ids(profil.id if profil else None)
+    if request.method == "GET":
+        # Titulaire : consultation de toutes les matières de ses classes.
+        titulaire = classe_ids_titulaire(int(get_jwt_identity()))
+        if titulaire:
+            mes_mc |= {mc.id for mc in MatiereClasse.query.filter(MatiereClasse.classe_id.in_(titulaire)).all()}
+    return mes_mc
 
 
 @note_bp.route('/', methods=['GET'])
@@ -206,7 +216,8 @@ def note_delete(id):
 # (lecture + écriture) à leur périmètre, pas seulement en consultation.
 # ---------------------------------------------------------------------------
 
-ROLES_DISCIPLINE = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
+# Enseignant : uniquement les classes dont il est titulaire.
+ROLES_DISCIPLINE = ("Admin", "SuperAdmin", "Censeur", "Surveillant", "Enseignant")
 
 discipline_bp = Blueprint('discipline_api', __name__, url_prefix='/api/disciplines')
 
@@ -231,7 +242,7 @@ def _current_classe_restriction_discipline():
     résolu EN DIRECT depuis son user_id courant."""
     claims = get_jwt()
     role = claims.get("role")
-    if role not in ("Censeur", "Surveillant"):
+    if role in ("Admin", "SuperAdmin"):
         return None
     return resolve_classe_ids_restriction(role, int(get_jwt_identity()))
 
@@ -377,6 +388,19 @@ def _est_active(annee):
                               "is_active", defaut=False))
 
 
+def _annee_json(annee):
+    """Année des espaces enseignant/censeur, avec son mode d'évaluation et
+    les évaluations à saisir par séquence (une seule « note » en Lycée)."""
+    mode = mode_de_annee(annee)
+    return {
+        "id": annee.id,
+        "libelle": _libelle(annee, f"Année #{annee.id}"),
+        "active": _est_active(annee),
+        "mode_evaluation": mode,
+        "composantes": [{"code": c, "libelle": l, "poids": p} for c, l, p in composantes_du_mode(mode)],
+    }
+
+
 def _sequence_json(sequence):
     if sequence is None:
         return None
@@ -491,14 +515,7 @@ def enseignant_mon_espace():
 
     return jsonify({
         "matieres_classe": matieres_classe,
-        "annees_scolaires": [
-            {
-                "id": annee.id,
-                "libelle": _libelle(annee, f"Année #{annee.id}"),
-                "active": _est_active(annee),
-            }
-            for annee in annees
-        ],
+        "annees_scolaires": [_annee_json(annee) for annee in annees],
         "sequence_courante": _sequence_json(sequence),
     }), 200
 
@@ -568,6 +585,14 @@ def enseignant_horaire():
     if profil is None:
         return jsonify(ERREUR_PROFIL_NON_RELIE), 404
 
+    # ?classe_id= : emploi du temps COMPLET d'une classe dont l'enseignant
+    # est titulaire (toutes matières, avec le nom de chaque enseignant).
+    classe_id = request.args.get("classe_id", type=int)
+    if classe_id is not None:
+        if classe_id not in classe_ids_titulaire(int(get_jwt_identity())):
+            return jsonify({"erreur": "Vous n'êtes pas titulaire de cette classe"}), 403
+        liens = MatiereClasse.query.filter_by(classe_id=classe_id).all()
+
     mc_par_id = {lien.id: lien for lien in liens}
 
     creneaux = (
@@ -608,6 +633,8 @@ def enseignant_horaire():
             "classe_id": lien.classe_id if lien else None,
             "classe_label": _classe_label(classe),
             "matiere_libelle": _libelle(matieres.get(lien.matiere_id) if lien else None, "Matière"),
+            "enseignant_nom": (f"{lien.enseignant.prenom or ''} {lien.enseignant.nom or ''}".strip()
+                               if lien and lien.enseignant else None),
         })
 
     return jsonify({
@@ -638,23 +665,21 @@ def enseignant_sequences():
     if not annee:
         return jsonify({"erreur": "Année scolaire non trouvée"}), 404
 
-    trimestres = (
-        Trimestre.query
-        .filter_by(annee_scolaire_id=annee_id)
-        .order_by(Trimestre.id)
-        .all()
-    )
+    trimestres = sorted(Trimestre.query.filter_by(annee_scolaire_id=annee_id).all(), key=cle_trimestre)
     if not trimestres:
         return jsonify([]), 200
 
     sequences_par_trimestre = {}
-    for sequence in (Sequence.query
-                     .filter(Sequence.trimestre_id.in_([t.id for t in trimestres]))
-                     .order_by(Sequence.id)
-                     .all()):
+    for sequence in trier_sequences(Sequence.query
+                                    .filter(Sequence.trimestre_id.in_([t.id for t in trimestres]))
+                                    .all()):
         sequences_par_trimestre.setdefault(sequence.trimestre_id, []).append({
             "id": sequence.id,
             "libelle": _libelle(sequence, f"Séquence #{sequence.id}"),
+            # Saisie verrouillée (date passée ou clôture) : grille en lecture
+            # seule pour l'enseignant (cf. evaluation_services.refus_verrou).
+            "verrouillee": sequence.est_verrouillee(),
+            "etat_saisie": sequence.etat_saisie,
         })
 
     return jsonify([
@@ -820,7 +845,9 @@ censeur_espace_bp = Blueprint('censeur_espace_api', __name__, url_prefix='/api/c
 
 # Admin et SuperAdmin y accèdent aussi (toutes les classes de
 # l'établissement) : c'est ce qui alimente leur page Bulletins.
-ROLES_ESPACE_CENSEUR = ("Censeur", "Surveillant", "Admin", "SuperAdmin")
+# Enseignant : classes dont il est titulaire (Notes & discipline, bulletins,
+# PV et emploi du temps de sa classe), cf. _mes_classe_ids_censeur.
+ROLES_ESPACE_CENSEUR = ("Censeur", "Surveillant", "Admin", "SuperAdmin", "Enseignant")
 
 
 @censeur_espace_bp.before_request
@@ -878,10 +905,7 @@ def censeur_mon_espace():
         .all()
     )
     annee_active = annee_active_etablissement(etab_id)
-    annees_json = [
-        {"id": annee.id, "libelle": _libelle(annee, f"Année #{annee.id}"), "active": _est_active(annee)}
-        for annee in annees
-    ]
+    annees_json = [_annee_json(annee) for annee in annees]
 
     # Aucune classe assignée : on renvoie des listes vides plutôt que
     # d'ouvrir tout l'établissement par défaut (même philosophie prudente
@@ -984,23 +1008,21 @@ def censeur_sequences():
     if not annee:
         return jsonify({"erreur": "Année scolaire non trouvée"}), 404
 
-    trimestres = (
-        Trimestre.query
-        .filter_by(annee_scolaire_id=annee_id)
-        .order_by(Trimestre.id)
-        .all()
-    )
+    trimestres = sorted(Trimestre.query.filter_by(annee_scolaire_id=annee_id).all(), key=cle_trimestre)
     if not trimestres:
         return jsonify([]), 200
 
     sequences_par_trimestre = {}
-    for sequence in (Sequence.query
-                     .filter(Sequence.trimestre_id.in_([t.id for t in trimestres]))
-                     .order_by(Sequence.id)
-                     .all()):
+    for sequence in trier_sequences(Sequence.query
+                                    .filter(Sequence.trimestre_id.in_([t.id for t in trimestres]))
+                                    .all()):
         sequences_par_trimestre.setdefault(sequence.trimestre_id, []).append({
             "id": sequence.id,
             "libelle": _libelle(sequence, f"Séquence #{sequence.id}"),
+            # Saisie verrouillée (date passée ou clôture) : grille en lecture
+            # seule pour l'enseignant (cf. evaluation_services.refus_verrou).
+            "verrouillee": sequence.est_verrouillee(),
+            "etat_saisie": sequence.etat_saisie,
         })
 
     return jsonify([

@@ -18,6 +18,63 @@ export function noteValeur(n) {
   return Number(n.valeur);
 }
 
+// ── Modes d'évaluation ────────────────────────────────────────────────────
+// Lycée : une note par séquence. Collège (CC 30 % + DS 70 %) et Institut
+// (CC + DS + Ev. Tr. à parts égales) : plusieurs évaluations par séquence,
+// décrites par l'année scolaire (mon-espace -> annees_scolaires[].composantes).
+// Même règle que le serveur (mode_evaluation_services) : une évaluation
+// absente ou non saisie compte 0 ; aucune saisie -> pas de note.
+export const COMPOSANTES_LYCEE = [{ code: 'note', libelle: 'Note', poids: 1 }];
+export const codeComposante = (n) => n?.composante || 'note';
+const estSaisie = (n) => Boolean(n && (n.absent || (n.valeur !== null && n.valeur !== undefined)));
+
+export function noteSequence(parCode, composantes) {
+  if (composantes.length === 1) return parCode[composantes[0].code];
+  if (!composantes.some((c) => estSaisie(parCode[c.code]))) return undefined;
+  let points = 0;
+  let poids = 0;
+  composantes.forEach((c) => {
+    const v = noteValeur(parCode[c.code]);
+    if (v !== null) points += v * c.poids;
+    poids += c.poids;
+  });
+  return { valeur: points / poids, absent: false, calculee: true };
+}
+
+// Notes d'une matière-classe et d'une séquence, saisies hors connexion
+// comprises : { parCode: { cc: { inscription_id: note } … }, sequence:
+// { inscription_id: note de la séquence }, complets: Set des élèves dont
+// toutes les évaluations sont saisies }.
+export function indexerNotes(notes, { mcId, sequenceId, composantes, attente = {} }) {
+  const parCode = Object.fromEntries(composantes.map((c) => [c.code, {}]));
+  const concerne = (n) => String(n.matiere_classe_id) === String(mcId) && String(n.sequence_id) === String(sequenceId);
+  notes.filter(concerne).forEach((n) => {
+    const code = codeComposante(n);
+    if (parCode[code]) parCode[code][n.inscription_id] = n;
+  });
+  Object.values(attente).forEach(({ body: b }) => {
+    const code = codeComposante(b);
+    if (concerne(b) && parCode[code]) parCode[code][b.inscription_id] = { ...parCode[code][b.inscription_id], ...b };
+  });
+  const ids = new Set(Object.values(parCode).flatMap((idx) => Object.keys(idx)));
+  const sequence = {};
+  const complets = new Set();
+  ids.forEach((id) => {
+    const detail = Object.fromEntries(composantes.map((c) => [c.code, parCode[c.code][id]]));
+    const n = noteSequence(detail, composantes);
+    if (n) sequence[id] = n;
+    if (composantes.every((c) => estSaisie(detail[c.code]))) complets.add(String(id));
+  });
+  return { parCode, sequence, complets };
+}
+
+// Avancement de la saisie : élèves notés pour l'évaluation affichée, ou
+// (vue « toutes ») élèves dont toutes les évaluations sont saisies.
+export function compterSaisies(index, vue, roster) {
+  if (index.parCode[vue]) return roster.filter((e) => estSaisie(index.parCode[vue][e.inscription_id])).length;
+  return roster.filter((e) => index.complets.has(String(e.inscription_id))).length;
+}
+
 export function appreciationInfo(n) {
   if (!n) return { classe: 'vide', label: '—' };
   if (n.absent) return { classe: 'absent', label: 'Absent' };
@@ -326,11 +383,12 @@ export function useNotesContexte({ base, toast, classesDepuis, classeImposee = n
     return () => { cancelled = true; };
   }, [classeId, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const notesIndex = useMemo(() => {
-    const idx = {};
-    notes.filter((n) => String(n.matiere_classe_id) === String(mcId) && String(n.sequence_id) === String(sequenceId)).forEach((n) => { idx[n.inscription_id] = n; });
-    return idx;
-  }, [notes, mcId, sequenceId]);
+  // Évaluations de l'année choisie (une seule « note » en mode Lycée).
+  const anneeChoisie = espace.annees.find((a) => String(a.id) === String(annee));
+  const composantes = useMemo(() => (anneeChoisie?.composantes?.length ? anneeChoisie.composantes : COMPOSANTES_LYCEE), [anneeChoisie]);
+
+  // Note de la séquence par élève (calculée en mode Collège/Institut).
+  const notesIndex = useMemo(() => indexerNotes(notes, { mcId, sequenceId, composantes }).sequence, [notes, mcId, sequenceId, composantes]);
 
   const sequenceLibelle = useMemo(() => {
     for (const tri of sequencesTree) {
@@ -342,7 +400,7 @@ export function useNotesContexte({ base, toast, classesDepuis, classeImposee = n
 
   return {
     espace, annee, setAnnee, classeId, setClasseId, mcId, setMcId, trimestreId, setTrimestreId, sequenceId, setSequenceId,
-    choisirSequence, sequencesTree, sequences, matieres, roster, notes, setNotes, notesIndex, chargement, sequenceLibelle,
+    choisirSequence, sequencesTree, sequences, matieres, roster, notes, setNotes, notesIndex, chargement, sequenceLibelle, composantes,
     mcActive: matieres.find((mc) => String(mc.id) === String(mcId)) || null,
     actualiser: () => {
       setVersion((v) => v + 1);

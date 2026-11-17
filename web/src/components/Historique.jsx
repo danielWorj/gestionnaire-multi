@@ -15,7 +15,8 @@ export const TABLES_AUDIT = {
   groupe_matiere: 'Groupe de matières', matiere: 'Matière', matiere_classe: 'Matière-classe', departement: 'Département',
   grade: 'Grade', enseignant: 'Enseignant', censeur: 'Censeur', surveillant: 'Surveillant',
   titulaire_classe: 'Titulaire de classe', censeur_classe: 'Classe du censeur', surveillant_classe: 'Classe du surveillant',
-  creneau_horaire: 'Créneau horaire',
+  creneau_horaire: 'Créneau horaire', categorie_tresorerie: 'Catégorie de trésorerie', compte_tresorerie: 'Compte de trésorerie',
+  mouvement_tresorerie: 'Mouvement de trésorerie', ventilation_depense: 'Ventilation de dépense', dispense: 'Dispense de matière',
 };
 
 const ACTIONS = {

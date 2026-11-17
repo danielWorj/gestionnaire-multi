@@ -8,6 +8,8 @@ from models.inscription_models import Inscription
 from models.structure_models import Classe, Sequence
 from extensions import db
 from services.conflits_services import extraire_controle, memes_valeurs, verifier
+from services.mode_evaluation_services import codes_composantes, mode_de_annee, mode_de_sequence
+from models.structure_models import MODES_EVALUATION
 
 # Les opérations CRUD "brutes" (create_entity, get_all_entities,
 # get_entity_by_id, update_entity, delete_entity) sont 100% génériques : on
@@ -66,24 +68,33 @@ def resolve_enseignant_matiere_classe_ids(enseignant_id):
 
 
 def notes_saisies_par_mc(mc_ids, sequence, annee):
-    """{matiere_classe_id: nombre de notes saisies} pour la séquence et
-    l'année données, en une seule requête agrégée. Une note compte comme
-    saisie dès qu'elle porte une valeur ou que l'élève est marqué absent.
-    Règle unique : espaces enseignant/censeur et vue réseau du SuperAdmin."""
+    """{matiere_classe_id: nombre d'élèves notés} pour la séquence et
+    l'année données. Une note compte comme saisie dès qu'elle porte une
+    valeur ou que l'élève est marqué absent ; en mode Collège/Institut, un
+    élève n'est noté que lorsque TOUTES les composantes du mode (CC, DS…)
+    sont saisies. Règle unique : espaces enseignant/censeur, notifications
+    et vue réseau du SuperAdmin."""
     if not mc_ids or sequence is None or annee is None:
         return {}
-    return dict(
-        db.session.query(Note.matiere_classe_id, func.count(Note.id))
+    codes = codes_composantes(mode_de_annee(annee))
+    par_eleve = (
+        db.session.query(Note.matiere_classe_id, func.count(func.distinct(Note.composante)))
         .join(Inscription, Inscription.id == Note.inscription_id)
         .filter(
             Note.matiere_classe_id.in_(list(mc_ids)),
             Note.sequence_id == sequence.id,
+            Note.composante.in_(codes),
             Inscription.annee_scolaire_id == annee.id,
             or_(Note.valeur.isnot(None), Note.absent.is_(True)),
         )
-        .group_by(Note.matiere_classe_id)
+        .group_by(Note.matiere_classe_id, Note.inscription_id)
         .all()
     )
+    comptes = {}
+    for mc_id, nb_composantes in par_eleve:
+        if nb_composantes >= len(codes):
+            comptes[mc_id] = comptes.get(mc_id, 0) + 1
+    return comptes
 
 
 def _note_query(etablissement_id, classe_ids_restriction=None, matiere_classe_ids_restriction=None):
@@ -143,6 +154,23 @@ def _validate_note_coherence(data, etablissement_id):
         if inscription and sequence.trimestre.annee_scolaire_id != inscription.annee_scolaire_id:
             return "La séquence n'appartient pas à l'année scolaire de l'inscription"
 
+    return None
+
+
+def _resoudre_composante(data, sequence_id):
+    """Composante de la note selon le mode d'évaluation de l'année de la
+    séquence : 'note' implicite en mode Lycée ; CC/DS(/Ev. Tr.) obligatoire
+    et limitée au mode en Collège/Institut. Retourne un message d'erreur ou
+    None (data['composante'] alors renseignée)."""
+    sequence = db.session.get(Sequence, int(sequence_id))
+    mode = mode_de_sequence(sequence)
+    codes = codes_composantes(mode)
+    composante = data.get('composante') or (codes[0] if len(codes) == 1 else None)
+    if composante not in codes:
+        attendues = ', '.join(l for _c, l, _p in MODES_EVALUATION[mode]['composantes'])
+        return (f"Évaluation invalide pour le mode {MODES_EVALUATION[mode]['libelle']} "
+                f"de cette année scolaire (attendu : {attendues})")
+    data['composante'] = composante
     return None
 
 
@@ -217,6 +245,24 @@ def _hors_perimetre(matiere_classe_id, matiere_classe_ids_restriction):
     return matiere_classe_ids_restriction is not None and int(matiere_classe_id) not in matiere_classe_ids_restriction
 
 
+MESSAGE_VERROU = ("La saisie de cette séquence est clôturée : la note ne peut plus être modifiée. "
+                  "Adressez-vous à l'administration de l'établissement.")
+
+
+def refus_verrou(sequence, matiere_classe_ids_restriction):
+    """403 si la séquence est verrouillée (cf. Sequence.est_verrouillee) pour
+    ce compte, sinon None. L'Admin et le SuperAdmin (restriction None) ne
+    sont jamais bloqués : c'est à eux qu'on s'adresse pour corriger une note
+    après la clôture. Une saisie faite hors connexion AVANT le verrouillage
+    reste acceptée à la synchronisation (heure réelle de la saisie)."""
+    if matiere_classe_ids_restriction is None or sequence is None:
+        return None
+    from services.audit_services import heure_saisie_hors_ligne
+    if sequence.est_verrouillee(heure_saisie_hors_ligne()):
+        return {"erreur": MESSAGE_VERROU, "code": "sequence_verrouillee"}, 403
+    return None
+
+
 def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
     """Réservé à l'Enseignant (ses matières-classe) et au SuperAdmin (tout
     l'établissement choisi), cf. evaluation_api.py et _hors_perimetre.
@@ -238,12 +284,20 @@ def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
     if _hors_perimetre(data['matiere_classe_id'], matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
+    error = _resoudre_composante(data, data['sequence_id'])
+    if error:
+        return {"erreur": error}, 400
+
+    refus = refus_verrou(db.session.get(Sequence, int(data['sequence_id'])), matiere_classe_ids_restriction)
+    if refus:
+        return refus
+
     _normaliser_absence(data)
     error = _validate_valeur(data)
     if error:
         return {"erreur": error}, 400
 
-    # Idempotent (upsert sur uq_note) : la saisie hors connexion renvoie les
+    # Idempotent (upsert sur uq_note_composante) : la saisie hors connexion renvoie les
     # notes en attente sans connaître leur id, et un même envoi peut être
     # rejoué (réseau coupé après l'écriture). La note existante est alors
     # mise à jour au lieu d'un 409.
@@ -251,12 +305,13 @@ def create_note_scoped(data, etablissement_id, matiere_classe_ids_restriction):
         inscription_id=int(data['inscription_id']),
         matiere_classe_id=int(data['matiere_classe_id']),
         sequence_id=int(data['sequence_id']),
+        composante=data['composante'],
     ).first()
     if existante:
         maj = {k: data[k] for k in ('valeur', 'absent') if k in data}
         conflit = verifier(
             existante, controle, maj, creation=True,
-            message_doublon="Une note a déjà été saisie pour cet élève, cette matière et cette séquence.",
+            message_doublon="Une note a déjà été saisie pour cet élève, cette matière, cette séquence et cette évaluation.",
             message_conflit="Cette note a été modifiée par quelqu'un d'autre depuis votre saisie.",
         )
         if conflit:
@@ -277,8 +332,24 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
     if _hors_perimetre(entity.matiere_classe_id, matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
 
+    refus = refus_verrou(entity.sequence, matiere_classe_ids_restriction)
+    if refus:
+        return refus
+
     data = dict(data or {})
     controle = extraire_controle(data)
+    # La composante (CC, DS…) d'une note existante ne change jamais : une
+    # autre évaluation est une autre note.
+    if data.get('composante') not in (None, entity.composante):
+        return {"erreur": "L'évaluation (CC, DS…) d'une note ne peut pas être modifiée"}, 400
+    data.pop('composante', None)
+    if 'sequence_id' in data and str(data['sequence_id']) != str(entity.sequence_id):
+        error = _resoudre_composante({'composante': entity.composante}, data['sequence_id'])
+        if error:
+            return {"erreur": error}, 400
+        refus = refus_verrou(db.session.get(Sequence, int(data['sequence_id'])), matiere_classe_ids_restriction)
+        if refus:
+            return refus
 
     # PUT potentiellement partiel : on fusionne avec les valeurs actuelles de
     # l'entité pour revalider l'état final, pas seulement les champs fournis
@@ -317,7 +388,7 @@ def update_note_scoped(entity, data, etablissement_id, matiere_classe_ids_restri
     if valeurs and memes_valeurs(entity, {k: v for k, v in data.items() if k in champs}):
         return entity.to_dict(), 200
 
-    # Une correction se fait sur la ligne existante (uq_note) : on rafraîchit
+    # Une correction se fait sur la ligne existante (uq_note_composante) : on rafraîchit
     # saisie_le à chaque modification pour tracer la dernière écriture.
     data['saisie_le'] = datetime.utcnow()
 
@@ -329,6 +400,9 @@ def delete_note_scoped(entity, etablissement_id, matiere_classe_ids_restriction)
         return {"erreur": "Accès non autorisé à cette ressource"}, 403
     if _hors_perimetre(entity.matiere_classe_id, matiere_classe_ids_restriction):
         return {"erreur": "Matière non attribuée : vous n'avez pas la charge de cette matière-classe"}, 403
+    refus = refus_verrou(entity.sequence, matiere_classe_ids_restriction)
+    if refus:
+        return refus
     return delete_entity(entity)
 
 

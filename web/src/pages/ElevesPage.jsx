@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import {
-  age, classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, IconBtn, PageHeader, Pager,
+  age, classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, PageHeader, Pager, RowActions,
   SortTh, StatCard, TableCard, TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
@@ -171,7 +171,7 @@ export default function ElevesPage() {
     });
   }, [eleves, filters, sort, annee, inscriptionDe]);
 
-  const pagination = usePagination(filtered, 50);
+  const pagination = usePagination(filtered, 25);
   const setFilter = (name) => (ev) => { setFilters((f) => ({ ...f, [name]: ev.target.value })); pagination.reset(); };
 
   const chips = [
@@ -636,34 +636,33 @@ export default function ElevesPage() {
               <SortTh sortKey="nom" sort={sort} setSort={setSort}>Élève</SortTh>
               <SortTh sortKey="matricule" sort={sort} setSort={setSort}>Matricule</SortTh>
               <th>Sexe</th>
-              <SortTh sortKey="age" sort={sort} setSort={setSort}>Âge</SortTh>
               <th>Classe</th>
-              <th>Statut</th>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={7} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
+          <TBody colSpan={5} loading={loading} error={error && `Les élèves n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucun élève ne correspond à ces filtres. Élargissez la recherche ou ajoutez un élève." emptyIcon="bx-group">
             {pagination.slice.map((e) => {
               const insc = inscriptionDe(e.id, annee);
               const cls = insc ? classeById[insc.classe_id] : null;
-              const a = age(e.date_naissance);
+              const statut = e.statut || 'Actif';
               return (
                 <tr key={e.id}>
                   <td>
                     <div className="d-flex align-items-center gap-2">
                       <AvatarEleve e={e} taille="avatar-sm" />
-                      <div><div className="fw-semibold">{fullName(e)}</div><small className="text-muted">{e.lieu_naissance || '—'}</small></div>
+                      <span className="fw-semibold">{fullName(e)}</span>
+                      {statut !== 'Actif' && <span className="badge bg-label-secondary">{statut}</span>}
                     </div>
                   </td>
                   <td><code className="small">{e.matricule || '—'}</code></td>
                   <td>{e.sexe === 'M' ? 'Garçon' : e.sexe === 'F' ? 'Fille' : '—'}</td>
-                  <td>{a == null ? <span className="text-muted">—</span> : `${a} ans`}</td>
                   <td>{cls ? <span className="badge bg-label-primary">{classeLabel(cls)}</span> : <span className="badge bg-label-secondary">Non inscrit</span>}</td>
-                  <td><span className={`badge ${(e.statut || 'Actif') === 'Actif' ? 'bg-label-success' : 'bg-label-secondary'}`}>{e.statut || 'Actif'}</span></td>
                   <td className="text-end text-nowrap">
-                    <IconBtn icon="bx-show" title="Voir la fiche" onClick={() => setDetail(e)} />
-                    {peutGererFiches && <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />}
-                    {peutGererFiches && <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(e)} />}
+                    <RowActions actions={[
+                      { icon: 'bx-show', label: 'Voir la fiche', onClick: () => setDetail(e) },
+                      { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormModal({ data: e }), hidden: !peutGererFiches },
+                      { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimer(e), hidden: !peutGererFiches },
+                    ]} />
                   </td>
                 </tr>
               );
@@ -781,6 +780,7 @@ function ChangerClasse({ inscription, anneeNom, classes, classeLabel, onChanger 
           {inscription ? 'Changer de classe' : 'Inscrire dans cette classe'}
         </button>
       </div>
+      {inscription && <small className="text-muted d-block mt-2"><i className="bx bx-info-circle me-1" />Dans le même niveau (ex. 6e A → 6e B), ses notes et ses paiements le suivent. Vers un autre niveau, le changement est refusé s'il a déjà des notes ou des paiements.</small>}
       {error && <div className="alert alert-danger py-2 mt-2 mb-0">{error}</div>}
     </div>
   );

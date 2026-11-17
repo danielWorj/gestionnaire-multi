@@ -8,7 +8,7 @@ import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import {
-  classeLabel as baseClasseLabel, downloadCsv, FilterChips, IconBtn, PageHeader, Pager, SortTh, StatCard, TableCard,
+  classeLabel as baseClasseLabel, downloadCsv, FilterChips, PageHeader, Pager, RowActions, SortTh, StatCard, TableCard,
   TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
@@ -26,7 +26,6 @@ const ENFANTS_LABELS = { 0: 'Aucun enfant rattaché', 1: '1 enfant', 2: '2 enfan
 const CONTACT_LABELS = { 'tel-ok': 'Téléphone renseigné', 'tel-ko': 'Téléphone manquant', 'mail-ko': 'E-mail manquant' };
 
 const nomComplet = (p) => `${p.nom || ''} ${p.prenom || ''}`.trim();
-const initialesParent = (p) => (`${(p.nom || '').charAt(0)}${(p.prenom || '').charAt(0)}` || '?').toUpperCase();
 const barOptions = (rotate) => ({
   plugins: { legend: { display: false } },
   scales: { x: { grid: { display: false }, ticks: rotate ? { maxRotation: 60 } : {} }, y: { beginAtZero: true, grid: GRID, ticks: { precision: 0 } } },
@@ -87,7 +86,8 @@ export default function ParentsPage() {
   const { parents, eleves, inscriptions, classes, cycles, annees } = data;
   const classeById = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes]);
   const eleveById = useMemo(() => Object.fromEntries(eleves.map((e) => [e.id, e])), [eleves]);
-  const classeLabel = useCallback((c) => (c ? baseClasseLabel(c, cycles, ' · ') : '—'), [cycles]);
+  // Option seule (« 4e B ») : le cycle n'apporte rien et allonge les badges.
+  const classeLabel = useCallback((c) => (c ? (c.option || baseClasseLabel(c, cycles)) : '—'), [cycles]);
   const anneeLabel = useCallback((id) => annees.find((a) => a.id === Number(id))?.libelle || (id ? `Année #${id}` : '—'), [annees]);
   const enfantsDe = useMemo(() => {
     const map = {};
@@ -143,7 +143,7 @@ export default function ParentsPage() {
     });
   }, [parents, filters, sort, enfantsDe, classesDuParent, annee]);
 
-  const pagination = usePagination(filtered, 50);
+  const pagination = usePagination(filtered, 25);
   const setFilter = (name) => (ev) => { setFilters((f) => ({ ...f, [name]: ev.target.value })); pagination.reset(); };
   const chips = [
     filters.q && ['q', `« ${filters.q.trim().toLowerCase()} »`],
@@ -283,7 +283,7 @@ export default function ParentsPage() {
     filtered.forEach((p) => {
       const enfants = enfantsDe[p.id] || [];
       rows.push([p.nom, p.prenom, p.telephone, p.email, enfants.length,
-        enfants.map((e) => `${e.prenom || ''} ${e.nom || ''}`).join(' | '),
+        enfants.map((e) => nomComplet(e)).join(' | '),
         classesDuParent(p.id, anneeId).map((id) => classeLabel(classeById[id])).join(' | ')]);
     });
     downloadCsv(`parents-${String(anneeLabel(anneeId)).replace(/[^\w-]/g, '_')}.csv`, rows);
@@ -398,39 +398,34 @@ export default function ParentsPage() {
             <tr>
               <SortTh sortKey="nom" sort={sort} setSort={setSort}>Parent</SortTh>
               <th>Téléphone</th>
-              <th>E-mail</th>
               <SortTh sortKey="enfants" sort={sort} setSort={setSort}>Enfants</SortTh>
-              <th>Classes concernées</th>
+              <th>Classes</th>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={6} loading={loading} error={error && `Les parents n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucune famille ne correspond à ces filtres. Élargissez la recherche ou ajoutez un parent." emptyIcon="bx-book-content">
+          <TBody colSpan={5} loading={loading} error={error && `Les parents n'ont pas pu être chargés : ${error}`} rows={filtered.length} empty="Aucune famille ne correspond à ces filtres. Élargissez la recherche ou ajoutez un parent." emptyIcon="bx-book-content">
             {pagination.slice.map((p) => {
               const enfants = enfantsDe[p.id] || [];
               const cls = classesDuParent(p.id, Number(annee) || null);
               return (
                 <tr key={p.id}>
                   <td>
-                    <div className="d-flex align-items-center gap-2">
-                      <div>
-                        <div className="fw-semibold">{nomComplet(p)}</div>
-                        <small className="text-muted">Fiche #{p.id}</small>
-                        {p.utilisateur_id && <small className="text-success ms-2" title="Un compte d'accès à l'espace parent a été créé pour cette famille"><i className="bx bx-mobile-alt" /> Espace parent</small>}
-                      </div>
-                    </div>
+                    <span className="fw-semibold">{nomComplet(p)}</span>
+                    {p.utilisateur_id && <i className="bx bx-mobile-alt text-success ms-2" title="Un compte d'accès à l'espace parent a été créé pour cette famille" aria-label="Espace parent ouvert" />}
                   </td>
                   <td>{p.telephone ? <a href={`tel:${p.telephone}`}>{p.telephone}</a> : <span className="text-warning">Manquant</span>}</td>
-                  <td>{p.email ? <a href={`mailto:${p.email}`}>{p.email}</a> : <span className="text-warning">Manquant</span>}</td>
                   <td>
                     {enfants.length
-                      ? <><span className="badge bg-label-primary">{enfants.length}</span> <small className="text-muted">{enfants.slice(0, 2).map((e) => e.prenom).join(', ')}{enfants.length > 2 ? '…' : ''}</small></>
+                      ? <><span className="badge bg-label-primary">{enfants.length}</span> <small className="text-muted">{enfants.slice(0, 2).map((e) => [e.nom, e.prenom].filter(Boolean).join(' ')).join(', ')}{enfants.length > 2 ? '…' : ''}</small></>
                       : <span className="badge bg-label-secondary">0</span>}
                   </td>
                   <td>{cls.length ? cls.map((id) => <span key={id} className="badge bg-label-info me-1">{classeLabel(classeById[id])}</span>) : <small className="text-muted">—</small>}</td>
                   <td className="text-end text-nowrap">
-                    <IconBtn icon="bx-show" title="Voir la famille" onClick={() => setDetail(p)} />
-                    <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: p })} />
-                    <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimer(p)} />
+                    <RowActions actions={[
+                      { icon: 'bx-show', label: 'Voir la famille', onClick: () => setDetail(p) },
+                      { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormModal({ data: p }) },
+                      { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimer(p) },
+                    ]} />
                   </td>
                 </tr>
               );
@@ -460,7 +455,6 @@ export default function ParentsPage() {
           )}
         >
           <div className="d-flex align-items-center gap-3 mb-3">
-            <div className="avatar avatar-lg"><span className="avatar-initial rounded-circle bg-label-primary">{initialesParent(detail)}</span></div>
             <div>
               <div className="fw-bold fs-6">{nomComplet(detail)}</div>
               <div className="text-muted">{detail.telephone || 'Téléphone manquant'} · {detail.email || 'E-mail manquant'}</div>

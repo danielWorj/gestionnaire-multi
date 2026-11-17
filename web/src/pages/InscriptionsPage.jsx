@@ -6,7 +6,7 @@ import Modal from '../components/Modal';
 import ChartCanvas, { ChartEmpty, ChartPanel } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import {
-  classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, IconBtn, PageHeader, Pager, SortTh, StatCard,
+  classeLabel as baseClasseLabel, downloadCsv, FilterChips, formatDate, PageHeader, Pager, RowActions, SortTh, StatCard,
   TableCard, TBody, useConfirm, usePagination, useToast,
 } from '../components/ui';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
@@ -144,7 +144,7 @@ export default function InscriptionsPage() {
     });
   }, [inscriptions, filters, sort, annee, classeById, eleveById, classeLabel]);
 
-  const pagination = usePagination(filtered, 50);
+  const pagination = usePagination(filtered, 25);
   const setFilter = (name) => (ev) => { setFilters((f) => ({ ...f, [name]: ev.target.value })); pagination.reset(); };
 
   const applyRaccourci = (v) => {
@@ -572,27 +572,24 @@ export default function InscriptionsPage() {
               <SortTh sortKey="nom" sort={sort} setSort={setSort}>Élève</SortTh>
               <th>Matricule</th>
               <SortTh sortKey="classe" sort={sort} setSort={setSort}>Classe</SortTh>
-              <th>Année</th>
               <th>Statut</th>
               <th className="text-end">Actions</th>
             </tr>
           </thead>
-          <TBody colSpan={6} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
+          <TBody colSpan={5} loading={loading} error={error && `Les inscriptions n'ont pas pu être chargées : ${error}`} rows={filtered.length} empty="Aucune inscription ne correspond à ces filtres. Changez d'année scolaire, élargissez la période, ou inscrivez un élève." emptyIcon="bx-clipboard">
             {pagination.slice.map((i) => {
               const e = eleveById[i.eleve_id];
               return (
                 <tr key={i.id}>
-                  <td>
-                    <div className="fw-semibold">{e ? `${e.prenom || ''} ${e.nom || ''}` : `Élève #${i.eleve_id}`}</div>
-                    <small className="text-muted">{e?.sexe === 'M' ? 'Garçon' : e?.sexe === 'F' ? 'Fille' : '—'}</small>
-                  </td>
+                  <td className="fw-semibold">{e ? `${e.prenom || ''} ${e.nom || ''}` : `Élève #${i.eleve_id}`}</td>
                   <td><code className="small">{e ? e.matricule : '—'}</code></td>
                   <td><span className="badge bg-label-primary">{classeLabel(classeById[i.classe_id])}</span></td>
-                  <td>{anneeLabel(i.annee_scolaire_id)}</td>
                   <td><StatutBadge statut={i.statut} /></td>
                   <td className="text-end text-nowrap">
-                    <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: i })} />
-                    <IconBtn icon="bx-trash" title="Retirer" danger onClick={() => supprimer(i)} />
+                    <RowActions actions={[
+                      { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormModal({ data: i }) },
+                      { icon: 'bx-trash', label: 'Retirer', danger: true, onClick: () => supprimer(i) },
+                    ]} />
                   </td>
                 </tr>
               );

@@ -602,6 +602,16 @@ function OptionsNotes({ rep, options, setOpt, champsMappes }) {
             </Select>
           </div>
         </div>
+        {rep.composantes?.length > 0 && (
+          // Mode Collège/Institut : un import remplit UNE évaluation de la séquence.
+          <div className="mt-2">
+            <label className="form-label small mb-1">Évaluation importée</label>
+            <Select className="form-select form-select-sm" value={String(options.composante || rep.composante || '')} onChange={setOpt('composante')}>
+              <option value="">— Choisir —</option>
+              {rep.composantes.map((c) => <option key={c.id} value={c.id}>{c.libelle}</option>)}
+            </Select>
+          </div>
+        )}
         <div className="form-text">Les colonnes « Séq 1 », « Séq 2 »… vont directement dans leur séquence. Les notes sur 10, 40 ou 100 sont ramenées sur 20 ; « 12/40 » dans une case aussi. « abs » = absent.</div>
       </div>
 
@@ -636,7 +646,7 @@ const NOTES = {
   titreIgnore: "Ce tableau ne ressemble pas à un relevé de notes (colonne d'élèves et colonne de notes). Cochez-le pour l'importer quand même.",
   aideFichiers: "Votre relevé de notes Excel, Word ou CSV : une colonne d'élèves (nom ou matricule) et une colonne « Note », ou une colonne par séquence (« Séq 1 », « Séq 2 »…).",
   exempleCollage: 'Matricule\tNoms et prénoms\tSéq 1\n250237775\tABALA MBOUNDA Joseph\t12,5',
-  optionsDefaut: { matiere_classe_id: '', sequence_id: '', note_sur: '20', doublons: 'ignorer' },
+  optionsDefaut: { matiere_classe_id: '', sequence_id: '', composante: '', note_sur: '20', doublons: 'ignorer' },
   optionsMemorisees: ['note_sur'],
   manquants: (champs, options) => {
     const m = [];

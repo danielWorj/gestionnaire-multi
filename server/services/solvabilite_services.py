@@ -31,7 +31,7 @@ from models.audit_models import JournalAudit
 from models.authentification_models import Utilisateur
 from models.inscription_models import Eleve, Inscription, Parent, STATUTS_INSCRIPTION_EN_COURS
 from models.paiements_models import LignePaiement, Paiement, TrancheClasse
-from models.structure_models import AnneeScolaire, Classe, Etablissement
+from models.structure_models import AnneeScolaire, Classe, Etablissement, annee_active
 from services.paiements_services import tranche_exigible
 
 # (jours de retard min, max inclus, code, libellé)
@@ -129,9 +129,10 @@ def get_rapport_solvabilite(etablissement_id, annee_scolaire_id=None, date_arret
         if not annee or annee.etablissement_id != etablissement_id:
             return {"erreur": "Année scolaire non trouvée"}, 404
     else:
-        annee = AnneeScolaire.query.filter_by(etablissement_id=etablissement_id, active=True).first()
+        # Année active, à défaut la plus récente (règle commune annee_active).
+        annee = annee_active(etablissement_id)
         if not annee:
-            return {"erreur": "Aucune année scolaire active : précisez annee_scolaire_id"}, 400
+            return {"erreur": "Aucune année scolaire définie pour cet établissement"}, 400
 
     classes_q = Classe.query.filter(Classe.etablissement_id == etablissement_id)
     if classe_id:

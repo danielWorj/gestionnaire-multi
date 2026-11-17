@@ -98,7 +98,8 @@ def historique_affectation(mc):
     for note, eleve, sequence, annee in lignes:
         notes.append({
             'id': note.id, 'eleve': f'{eleve.nom} {eleve.prenom}'.strip(), 'matricule': eleve.matricule,
-            'sequence': sequence, 'annee': annee, 'valeur': _num(note.valeur), 'absent': bool(note.absent),
+            'sequence': sequence, 'annee': annee, 'composante': note.composante,
+            'valeur': _num(note.valeur), 'absent': bool(note.absent),
             'date': _iso(note.saisie_le),
         })
 

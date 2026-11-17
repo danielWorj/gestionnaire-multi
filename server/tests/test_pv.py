@@ -327,11 +327,20 @@ def test_roles(monde, connecter, connecter_superadmin):
     sup = connecter_superadmin()
     assert sup.get(_url(monde, etablissement_id=monde.etab_id)).status_code == 200
     assert sup.get(_url(monde)).status_code == 400                     # etablissement_id requis
-    interdits = [monde.censeur_compte, monde.enseignant_compte, _compte(monde, 'Surv', 'Surveillant')]
+    # Censeur : ses classes assignées (la classe du monde lui est assignée).
+    assert connecter(monde.censeur_compte).get(_url(monde)).status_code == 200
+    # Enseignant non titulaire, Surveillant sans classe : refusés.
+    interdits = [monde.enseignant_compte, _compte(monde, 'Surv', 'Surveillant')]
     for compte in interdits:
         api = connecter(compte)
-        for route in ('', 'html', 'pdf', 'sequences'):
+        for route in ('', 'html', 'pdf'):
             assert api.get(_url(monde, route)).status_code == 403, route
+    # Enseignant titulaire de la classe pour l'année active : autorisé.
+    from models.pedagogie_models import TitulaireClasse
+    db.session.add(TitulaireClasse(classe_id=monde.classe_id, enseignant_id=monde.enseignant_id,
+                                   annee_scolaire_id=monde.annee_id))
+    db.session.commit()
+    assert connecter(monde.enseignant_compte).get(_url(monde)).status_code == 200
     anonyme = admin.client.application.test_client()
     assert anonyme.get(_url(monde)).status_code == 401
 

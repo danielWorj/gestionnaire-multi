@@ -14,7 +14,7 @@ from services.epreuve_services import (
 # l'URL, jamais dans le formulaire) ; l'Admin est toujours cantonné à celui de
 # son compte (claim JWT).
 #
-# GET    /api/epreuves/?page&per_page=10&classe_id&matiere_id&enseignant_id
+# GET    /api/epreuves/?page&per_page=25&classe_id&matiere_id&enseignant_id
 #                      &annee_scolaire_id
 #        -> {items, total, page, pages, per_page}
 # POST   /api/epreuves/   (multipart : titre, fichier, et matiere_classe_id OU
@@ -29,7 +29,7 @@ from services.epreuve_services import (
 # ---------------------------------------------------------------------------
 
 ROLES_EPREUVES = ("Admin", "SuperAdmin")
-EPREUVES_PAR_PAGE_ADMIN = 10
+EPREUVES_PAR_PAGE_ADMIN = 25
 
 epreuve_bp = Blueprint('epreuve_api', __name__, url_prefix='/api/epreuves')
 

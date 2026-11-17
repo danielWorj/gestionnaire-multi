@@ -9,16 +9,20 @@ import Select from '../components/Select';
 import { SkelListe } from '../components/Skeleton';
 
 // Journal des modifications (Admin : son établissement ; Censeur : le volet
-// pédagogique — notes, discipline, emploi du temps — filtrage fait par le
-// serveur ; SuperAdmin : tout le réseau ou un établissement au choix,
+// pédagogique — notes, discipline, emploi du temps ; Comptable : le volet
+// financier — filtrage fait par le serveur ; SuperAdmin : tout le réseau ou un établissement au choix,
 // ?etablissement=<id> dans l'URL pour arriver déjà filtré).
 
-const TABLES_CENSEUR = ['note', 'discipline', 'horaire'];
+// Tables visibles par rôle (mêmes listes que server/api/audit_api.py).
+const TABLES_PAR_ROLE = {
+  Censeur: ['note', 'discipline', 'horaire', 'dispense'],
+  Comptable: ['tranche_classe', 'paiement', 'ligne_paiement', 'categorie_tresorerie', 'compte_tresorerie', 'mouvement_tresorerie', 'ventilation_depense'],
+};
 const LIMITE = 50;
 
 export default function JournalPage() {
   const { user, isSuperAdmin, etablissements } = useAuth();
-  const censeur = roleDe(user) === 'Censeur';
+  const restreintes = TABLES_PAR_ROLE[roleDe(user)];
   const [urlParams] = useSearchParams();
   const [filtres, setFiltres] = useState(() => ({ table: '', action: '', depuis: '', jusqua: '', etablissement: urlParams.get('etablissement') || '' }));
   const [page, setPage] = useState(1);
@@ -42,7 +46,7 @@ export default function JournalPage() {
   const maj = (cle) => (e) => { setPage(1); setFiltres((f) => ({ ...f, [cle]: e.target.value })); };
   const pages = Math.max(1, Math.ceil(etat.total / LIMITE));
   const nomEtablissement = (id) => etablissements.find((e) => e.id === id)?.nom || `Établissement n°${id}`;
-  const tables = Object.entries(TABLES_AUDIT).filter(([k]) => !censeur || TABLES_CENSEUR.includes(k))
+  const tables = Object.entries(TABLES_AUDIT).filter(([k]) => !restreintes || restreintes.includes(k))
     .sort((a, b) => a[1].localeCompare(b[1], 'fr'));
 
   return (

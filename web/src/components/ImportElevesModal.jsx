@@ -278,7 +278,7 @@ export default function ImportElevesModal({ parents = [], onClose, onImported })
       return true;
     });
   }, [rep, filtre, recherche]);
-  const pagination = usePagination(lignesFiltrees, 50);
+  const pagination = usePagination(lignesFiltrees, 25);
 
   const classeLibelle = useCallback((id) => rep?.classes.find((c) => c.id === Number(id))?.libelle || '', [rep]);
 

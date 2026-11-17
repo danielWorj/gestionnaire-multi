@@ -33,11 +33,6 @@ function statutAdmin(a) {
   return { label: 'Actif', cls: 'bg-label-success' };
 }
 
-function initiales(nom) {
-  const parts = (nom || '?').trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] || '?') + (parts[1]?.[0] || '')).toUpperCase();
-}
-
 export default function AdministrateursModal({ etab, onClose }) {
   const toast = useToast();
   const [confirm, confirmNode] = useConfirm();
@@ -141,7 +136,7 @@ export default function AdministrateursModal({ etab, onClose }) {
         )}
 
         {admins === null ? (
-          <SkelListe lignes={2} avatar label="Chargement des administrateurs…" />
+          <SkelListe lignes={2} label="Chargement des administrateurs…" />
         ) : admins.length === 0 ? (
           <div className="text-center text-muted py-4">
             <i className="bx bx-user-plus bx-md d-block mb-2" />
@@ -155,9 +150,6 @@ export default function AdministrateursModal({ etab, onClose }) {
               const connexion = formatDateHeure(a.dernier_login);
               return (
                 <div key={a.id} className={`list-group-item admin-ligne ${a.actif ? '' : 'admin-inactif'}`}>
-                  <div className="avatar flex-shrink-0">
-                    <span className={`avatar-initial rounded-circle ${a.actif ? 'bg-label-primary' : 'bg-label-secondary'}`}>{initiales(a.nom)}</span>
-                  </div>
                   <div className="admin-infos">
                     <div className="d-flex flex-wrap align-items-center gap-2">
                       <span className="fw-semibold">{a.nom}</span>

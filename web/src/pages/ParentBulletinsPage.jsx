@@ -7,17 +7,27 @@ import { prenomNom, useEnfantChoisi, useEspaceParent } from '../lib/espaceParent
 import { formatMontant, useToast } from '../components/ui';
 import { api } from '../lib/api';
 
-// Bulletins d'un enfant, pour les périodes terminées. Grisé (non
-// consultable) tant que des frais échus restent impayés, sauf levée du
-// blocage par l'administration — règle appliquée par le serveur.
+// Bulletins d'un enfant, pour les périodes terminées — année en cours et
+// années précédentes. Grisé (non consultable) tant que des frais échus de
+// l'année concernée restent impayés, sauf levée du blocage par
+// l'administration — règle appliquée par le serveur.
 
 export default function ParentBulletinsPage() {
   const toast = useToast();
   const espace = useEspaceParent();
   const enfants = espace.data?.enfants || [];
   const [enfant, choisir] = useEnfantChoisi(enfants);
-  const bulletin = enfant?.bulletin;
+  // Années consultables : l'année en cours (si l'enfant y est inscrit), puis
+  // les années précédentes. anneeId '' = année en cours.
+  const [anneeChoisie, setAnneeChoisie] = useState('');
+  const annees = [
+    ...(enfant?.bulletin ? [{ id: '', annee: espace.data?.annee_scolaire?.libelle || 'Année en cours', classe: enfant.inscription?.classe, ...enfant.bulletin }] : []),
+    ...(enfant?.annees_anterieures || []).map((a) => ({ ...a, id: String(a.annee_scolaire_id) })),
+  ];
+  const bulletin = annees.find((a) => a.id === anneeChoisie) || annees[0] || null;
+  const anneeId = bulletin?.id || '';
   const periodes = bulletin?.periodes || [];
+  const suffixeAnnee = anneeId ? `&annee_scolaire_id=${anneeId}` : '';
   const [periode, setPeriode] = useState('');
   const [apercu, setApercu] = useState({ html: '', chargement: false, erreur: '' });
   const [pdfEnCours, setPdfEnCours] = useState(false);
@@ -28,7 +38,7 @@ export default function ParentBulletinsPage() {
   // l'annuel) ; on garde le choix si la nouvelle liste le contient.
   useEffect(() => {
     setPeriode((prev) => (periodes.some((p) => p.value === prev) ? prev : periodes.at(-1)?.value || ''));
-  }, [eleveId, periodes.map((p) => p.value).join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [eleveId, anneeId, periodes.map((p) => p.value).join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!eleveId || !periode || bulletin?.bloque) {
@@ -37,22 +47,22 @@ export default function ParentBulletinsPage() {
     }
     let annule = false;
     setApercu({ html: '', chargement: true, erreur: '' });
-    api.get(`/parent/enfants/${eleveId}/bulletin?periode=${encodeURIComponent(periode)}`)
+    api.get(`/parent/enfants/${eleveId}/bulletin?periode=${encodeURIComponent(periode)}${suffixeAnnee}`)
       .then((html) => { if (!annule) setApercu({ html, chargement: false, erreur: '' }); })
       .catch((e) => { if (!annule) setApercu({ html: '', chargement: false, erreur: e.message }); });
     return () => { annule = true; };
-  }, [eleveId, periode, bulletin?.bloque]);
+  }, [eleveId, periode, bulletin?.bloque, suffixeAnnee]);
 
   const libellePeriode = periodes.find((p) => p.value === periode)?.libelle || '';
 
   const telecharger = async () => {
     setPdfEnCours(true);
     try {
-      const blob = await api.blob(`/parent/enfants/${eleveId}/bulletin.pdf?periode=${encodeURIComponent(periode)}`);
+      const blob = await api.blob(`/parent/enfants/${eleveId}/bulletin.pdf?periode=${encodeURIComponent(periode)}${suffixeAnnee}`);
       const url = URL.createObjectURL(blob);
       const lien = document.createElement('a');
       lien.href = url;
-      lien.download = `bulletin_${prenomNom(enfant.eleve)}_${libellePeriode}.pdf`.replace(/\s+/g, '_');
+      lien.download = `bulletin_${prenomNom(enfant.eleve)}_${bulletin?.annee || ''}_${libellePeriode}.pdf`.replace(/\s+/g, '_');
       lien.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (e) {
@@ -87,7 +97,7 @@ export default function ParentBulletinsPage() {
     <>
       <EspaceTitre titre="Bulletins" sousTitre="Disponibles à la fin de chaque séquence" icon="bx-file" />
       <EtatEspace espace={espace} />
-      <ChoixEnfant enfants={enfants} enfant={enfant} onChoisir={choisir} />
+      <ChoixEnfant enfants={enfants} enfant={enfant} onChoisir={(e) => { setAnneeChoisie(''); choisir(e); }} />
 
       {espace.loading && !espace.data && <SkelZone label="Chargement des bulletins…"><div style={{ height: 320 }} /></SkelZone>}
 
@@ -97,12 +107,18 @@ export default function ParentBulletinsPage() {
             <PhotoEnfant eleve={enfant.eleve} taille={40} />
             <div className="min-w-0">
               <div className="fw-bold">{prenomNom(enfant.eleve)}</div>
-              <small className="text-muted">{enfant.inscription?.classe || "Pas inscrit cette année"}</small>
+              <small className="text-muted">{bulletin?.classe || enfant.inscription?.classe || "Pas inscrit cette année"}</small>
             </div>
           </div>
 
+          {annees.length > 1 && (
+            <div className="mb-3">
+              <Pastilles ariaLabel="Année scolaire" value={anneeId} onChange={setAnneeChoisie} options={annees.map((a) => ({ value: a.id, label: a.id ? a.annee : `${a.annee} (en cours)` }))} />
+            </div>
+          )}
+
           {!bulletin ? (
-            <div className="esp-vide"><i className="bx bx-file-blank" /><p className="mb-0">{enfant.eleve.prenom} n'est pas inscrit pour l'année en cours.</p></div>
+            <div className="esp-vide"><i className="bx bx-file-blank" /><p className="mb-0">{enfant.eleve.prenom} n'est pas inscrit pour l'année en cours, et aucun bulletin d'une année précédente n'est disponible.</p></div>
           ) : !periodes.length ? (
             <div className="esp-vide">
               <i className="bx bx-time-five" />

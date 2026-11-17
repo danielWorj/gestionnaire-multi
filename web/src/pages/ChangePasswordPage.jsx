@@ -27,12 +27,6 @@ function pinFaible(pin) {
     || pin === '2580' || pin === '0852';
 }
 
-function initials(nom) {
-  if (!nom) return '--';
-  const parts = nom.trim().split(/\s+/);
-  return ((parts[0]?.[0] || '') + (parts[1]?.[0] || '')).toUpperCase() || '--';
-}
-
 function Rule({ ok, children }) {
   return (
     <li className={ok ? 'text-success' : 'text-muted'}>
@@ -147,9 +141,6 @@ export default function ChangePasswordPage() {
       )}
 
       <div className="d-flex align-items-center gap-2 mb-3 p-2 border rounded">
-        <div className="avatar">
-          <span className="avatar-initial rounded-circle bg-label-primary">{initials(user.nom)}</span>
-        </div>
         <div>
           <div className="fw-semibold">{user.nom || '—'}</div>
           <small className="text-muted">

@@ -22,6 +22,18 @@ from services.pedagogie_services import resolve_classe_ids_restriction
 # (pour horaire_bp, restreint aux classes assignées — cf.
 # _current_classe_restriction ci-dessous).
 ROLES_ACCES_EMPLOI_DU_TEMPS = ("Admin", "SuperAdmin", "Censeur", "Surveillant")
+# Enseignant titulaire : CONSULTATION de l'emploi du temps de ses classes
+# (horaires restreints aux classes dont il est titulaire, créneaux lus).
+ROLES_LECTURE_EMPLOI_DU_TEMPS = ROLES_ACCES_EMPLOI_DU_TEMPS + ("Enseignant",)
+
+
+def _refus_role_emploi_du_temps():
+    role = get_jwt().get("role")
+    if role not in ROLES_LECTURE_EMPLOI_DU_TEMPS:
+        return jsonify({"erreur": "Accès non autorisé"}), 403
+    if role not in ROLES_ACCES_EMPLOI_DU_TEMPS and request.method != "GET":
+        return jsonify({"erreur": "Emploi du temps en consultation seule"}), 403
+    return None
 
 
 def _resolve_etablissement_id():
@@ -65,8 +77,7 @@ creneau_horaire_bp = Blueprint('creneau_horaire_api', __name__, url_prefix='/api
 @creneau_horaire_bp.before_request
 @jwt_required()
 def _require_role_creneau():
-    if get_jwt().get("role") not in ROLES_ACCES_EMPLOI_DU_TEMPS:
-        return jsonify({"erreur": "Accès non autorisé"}), 403
+    return _refus_role_emploi_du_temps()
 
 
 @creneau_horaire_bp.route('/', methods=['GET'])
@@ -139,8 +150,7 @@ horaire_bp = Blueprint('horaire_api', __name__, url_prefix='/api/horaires')
 @horaire_bp.before_request
 @jwt_required()
 def _require_role_horaire():
-    if get_jwt().get("role") not in ROLES_ACCES_EMPLOI_DU_TEMPS:
-        return jsonify({"erreur": "Accès non autorisé"}), 403
+    return _refus_role_emploi_du_temps()
 
 
 @horaire_bp.route('/', methods=['GET'])

@@ -7,7 +7,8 @@ import ChartCanvas from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
 import {
-  downloadCsv, formatMontant, IconBtn, PageHeader, StatCard, TableCard, Tabs, TBody, useConfirm, useToast,
+  downloadCsv, formatMontant, IconBtn, PageHeader, Pager, RowActions, StatCard, TableCard, Tabs, TBody, useConfirm,
+  usePagination, useToast,
 } from '../components/ui';
 import {
   aujourdhuiIso, construireHtmlImpression, construireHtmlRapportSolvabilite, ecrireImpression, formatDateCourt,
@@ -339,6 +340,8 @@ export default function PaiementsPage() {
   };
 
   const rosterAffiche = roster.filtre ? roster.lignes.filter((r) => r.solvabilite === roster.filtre) : roster.lignes;
+  const pageRoster = usePagination(rosterAffiche, 25);
+  const pagePaiements = usePagination(paiementsAffiches, 25);
 
   const imprimerRoster = (filtreStatut, titre) => {
     if (!roster.rapport) {
@@ -480,33 +483,36 @@ export default function PaiementsPage() {
           footer={<small className="text-muted"><i className="bx bx-info-circle me-1" />Un paiement mal saisi ne se corrige pas : il s'annule (motif obligatoire), puis se ressaisit.</small>}
         >
           <table className="table table-hover mb-0">
-            <thead><tr><th>Élève</th><th>Classe</th><th>N° Reçu</th><th>Montant total</th><th>Date</th><th>Mode</th><th>Statut</th><th className="text-end">Actions</th></tr></thead>
-            <TBody colSpan={8} loading={loading} rows={paiementsAffiches.length} empty="Aucun paiement enregistré pour ce filtre." emptyIcon="bx-archive">
-              {paiementsAffiches.map((p) => {
+            <thead><tr><th>Élève</th><th>N° Reçu</th><th>Montant</th><th>Date</th><th>Statut</th><th className="text-end">Actions</th></tr></thead>
+            <TBody colSpan={6} loading={loading} rows={paiementsAffiches.length} empty="Aucun paiement enregistré pour ce filtre." emptyIcon="bx-archive">
+              {pagePaiements.slice.map((p) => {
                 const insc = inscriptionsById[p.inscription_id];
                 const nom = insc ? eleveLabel(insc.eleve_id) : `Inscription #${p.inscription_id}`;
                 return (
                   <tr key={p.id}>
                     <td>
-                      <div className="d-flex align-items-center gap-2">
-                        <span>{nom}</span>
-                      </div>
+                      <div className="fw-semibold">{nom}</div>
+                      {insc && <small className="text-muted">{classeLabel(insc.classe_id)}</small>}
                     </td>
-                    <td>{insc ? classeLabel(insc.classe_id) : '—'}</td>
                     <td><code>{p.numero_recu}</code></td>
-                    <td><strong>{formatMontant(p.montant_total)}</strong></td>
+                    <td>
+                      <strong>{formatMontant(p.montant_total)}</strong>
+                      {p.mode_paiement && <small className="text-muted d-block">{MODES_LABELS[p.mode_paiement] || p.mode_paiement}</small>}
+                    </td>
                     <td>{formatDateHeure(p.date_paiement)}</td>
-                    <td>{p.mode_paiement ? <span className="badge bg-label-secondary">{MODES_LABELS[p.mode_paiement] || p.mode_paiement}</span> : <span className="text-muted">—</span>}</td>
                     <td><StatutPaiement statut={p.statut} /></td>
                     <td className="text-end text-nowrap">
-                      <IconBtn icon="bx-show" title="Détail" onClick={() => setModal({ kind: 'detail', data: p })} />
-                      {p.statut === 'VALIDE' && <IconBtn icon="bx-block" title="Annuler" danger onClick={() => setModal({ kind: 'annuler', data: p })} />}
+                      <RowActions actions={[
+                        { icon: 'bx-show', label: 'Détail', onClick: () => setModal({ kind: 'detail', data: p }) },
+                        { icon: 'bx-block', label: 'Annuler le paiement', danger: true, onClick: () => setModal({ kind: 'annuler', data: p }), hidden: p.statut !== 'VALIDE' },
+                      ]} />
                     </td>
                   </tr>
                 );
               })}
             </TBody>
           </table>
+          <Pager pagination={pagePaiements} unit="paiements" />
         </TableCard>
       )}
 
@@ -616,28 +622,29 @@ export default function PaiementsPage() {
             )}
           >
             <table className="table table-hover mb-0">
-              <thead><tr><th>#</th><th>Matricule</th><th>Élève</th><th>Sexe</th><th>Attendu (année)</th><th>Exigible</th><th>Versé</th><th>Impayé exigible</th><th>Retard</th><th>Tranches en retard</th><th>Statut</th></tr></thead>
-              <TBody colSpan={11} loading={roster.loading} rows={rosterAffiche.length} empty={roster.lignes.length ? 'Aucun élève ne correspond à ce filtre.' : roster.message}>
-                {rosterAffiche.map((r, idx) => (
+              <thead><tr><th>#</th><th>Élève</th><th>Exigible</th><th>Versé</th><th>Impayé exigible</th><th>Retard</th><th>Statut</th></tr></thead>
+              <TBody colSpan={7} loading={roster.loading} rows={rosterAffiche.length} empty={roster.lignes.length ? 'Aucun élève ne correspond à ce filtre.' : roster.message}>
+                {pageRoster.slice.map((r, idx) => (
                   <tr key={r.inscription_id}>
-                    <td>{idx + 1}</td>
-                    <td>{r.matricule || '—'}</td>
+                    <td>{pageRoster.start + idx + 1}</td>
                     <td>
-                      {`${r.nom || ''} ${r.prenom || ''}`.trim()}
+                      <span className="fw-semibold">{`${r.nom || ''} ${r.prenom || ''}`.trim()}</span>
                       {r.statut_inscription === 'Suspendu' && <span className="badge bg-label-warning ms-1">Suspendu</span>}
+                      {r.matricule && <small className="text-muted d-block font-monospace">{r.matricule}</small>}
                     </td>
-                    <td>{r.sexe || '—'}</td>
-                    <td>{formatMontant(r.attendu)}</td>
                     <td>{formatMontant(r.exigible)}</td>
                     <td>{formatMontant(r.verse)}</td>
                     <td className={r.impaye_exigible > 0 ? 'text-danger fw-semibold' : 'text-success fw-semibold'}>{formatMontant(r.impaye_exigible)}</td>
-                    <td>{r.jours_retard ? `${r.jours_retard} j` : <span className="text-muted">—</span>}</td>
-                    <td>{r.tranches_en_retard.length ? r.tranches_en_retard.map((t) => t.libelle).join(', ') : <span className="text-muted">Aucune</span>}</td>
+                    <td title={r.tranches_en_retard.length ? `Tranches en retard : ${r.tranches_en_retard.map((t) => t.libelle).join(', ')}` : undefined}>
+                      {r.jours_retard ? `${r.jours_retard} j` : <span className="text-muted">—</span>}
+                      {r.tranches_en_retard.length > 0 && <small className="text-muted d-block">{r.tranches_en_retard.length} tranche{r.tranches_en_retard.length > 1 ? 's' : ''}</small>}
+                    </td>
                     <td><span className={`badge ${SOLVABILITE[r.solvabilite].badge}`}>{SOLVABILITE[r.solvabilite].label}</span></td>
                   </tr>
                 ))}
               </TBody>
             </table>
+            <Pager pagination={pageRoster} unit="élèves" />
           </TableCard>
         </>
       )}

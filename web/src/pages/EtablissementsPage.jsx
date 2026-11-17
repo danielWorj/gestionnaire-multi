@@ -5,7 +5,11 @@ import AdministrateursModal from '../components/AdministrateursModal';
 import { IdentifiantsModal, useConfirm, useToast } from '../components/ui';
 import { useAuth } from '../context/AuthContext';
 import Select from '../components/Select';
+import {
+  BadgeModeEvaluation, MODES_EVALUATION, modeleBulletinPourMode, modelesBulletinDuMode,
+} from '../components/ModeEvaluation';
 import { Skel, SkelListe } from '../components/Skeleton';
+import VerrouSequence from '../components/VerrouSequence';
 
 // Page SuperAdmin « Établissements » : portage React de l'ancienne page Flask
 // (static/templates/admin/etablissements.html + static/js/etablissements.js).
@@ -18,13 +22,6 @@ import { Skel, SkelListe } from '../components/Skeleton';
 //   - /auth/roles + /auth/utilisateurs pour le compte Admin de l'établissement
 
 const REGIONS = ['Centre', 'Littoral', 'Ouest', 'Nord-Ouest', 'Sud-Ouest', 'Est', 'Sud', 'Adamaoua', 'Nord', 'Extrême-Nord'];
-
-function initiales(nom) {
-  if (!nom) return '??';
-  const parts = nom.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
 
 const pluriel = (n, singulier, plurielForm = `${singulier}s`) => (n > 1 ? plurielForm : singulier);
 
@@ -183,7 +180,7 @@ export default function EtablissementsPage() {
           </span>
         </h5>
         {loading ? (
-          <SkelListe lignes={4} avatar label="Chargement des établissements…" className="px-3" />
+          <SkelListe lignes={4} label="Chargement des établissements…" className="px-3" />
         ) : error ? (
           <div className="alert alert-danger m-3">{error}</div>
         ) : (
@@ -303,11 +300,11 @@ function EtablissementRow({ etab, summary, onStructure, onAdmins, onEdit, onDele
     <tr>
       <td>
         <div className="d-flex align-items-center gap-2">
-          <div className="avatar avatar-sm flex-shrink-0">
-            {etab.logo_url
-              ? <img src={etab.logo_url} alt="" className="rounded" style={{ objectFit: 'contain' }} />
-              : <span className="avatar-initial rounded bg-label-primary">{initiales(etab.nom)}</span>}
-          </div>
+          {etab.logo_url && (
+            <div className="avatar avatar-sm flex-shrink-0">
+              <img src={etab.logo_url} alt="" className="rounded" style={{ objectFit: 'contain' }} />
+            </div>
+          )}
           <div>
             <div className="fw-semibold">
               {etab.nom}
@@ -427,6 +424,8 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
     telephone: etab?.telephone || '',
     adresse: etab?.adresse || '',
     bp: etab?.bp || '',
+    mode_evaluation: etab?.mode_evaluation || 'lycee',
+    modele_bulletin: modeleBulletinPourMode(etab?.modele_bulletin, etab?.mode_evaluation || 'lycee'),
     adminNom: '',
   });
   const [logo, setLogo] = useState(null);
@@ -439,6 +438,13 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
   }, [preview]);
 
   const set = (name) => (event) => setForm((f) => ({ ...f, [name]: event.target.value }));
+  // Changer de mode d'évaluation : le modèle de bulletin doit appartenir au nouveau mode.
+  const setMode = (event) => {
+    const mode = event.target.value;
+    setForm((f) => ({ ...f, mode_evaluation: mode, modele_bulletin: modeleBulletinPourMode(f.modele_bulletin, mode) }));
+  };
+  const modelesDuMode = modelesBulletinDuMode(form.mode_evaluation);
+  const modeleChoisi = modelesDuMode.find((m) => m.code === form.modele_bulletin);
 
   const handleLogo = (event) => {
     const file = event.target.files?.[0] || null;
@@ -462,6 +468,8 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
     body.append('telephone', form.telephone.trim());
     body.append('adresse', form.adresse.trim());
     body.append('bp', form.bp.trim());
+    body.append('mode_evaluation', form.mode_evaluation);
+    body.append('modele_bulletin', form.modele_bulletin);
     if (logo) body.append('logo', logo);
 
     setSaving(true);
@@ -534,6 +542,26 @@ function EtablissementFormModal({ etab, onClose, onSaved }) {
             {REGIONS.map((r) => <option key={r}>{r}</option>)}
             {form.region && !REGIONS.includes(form.region) && <option>{form.region}</option>}
           </Select>
+        </div>
+        <div className="col-12">
+          <label className="form-label" htmlFor="etabModeEvaluation">Mode d'évaluation *</label>
+          <Select id="etabModeEvaluation" className="form-select" value={form.mode_evaluation} onChange={setMode}>
+            {MODES_EVALUATION.map((m) => <option key={m.code} value={m.code}>{m.libelle} — {m.detail}</option>)}
+          </Select>
+          <div className="form-text">
+            {isEdit
+              ? "Mode proposé pour les nouvelles années scolaires ; celui d'une année existante se règle dans sa configuration."
+              : "Appliqué aux années scolaires de l'établissement (modifiable par année tant qu'aucune note n'est saisie)."}
+          </div>
+        </div>
+        <div className="col-12">
+          <label className="form-label" htmlFor="etabModeleBulletin">Modèle de bulletin *</label>
+          <Select id="etabModeleBulletin" className="form-select" value={form.modele_bulletin} onChange={set('modele_bulletin')}>
+            {modelesDuMode.map((m) => <option key={m.code} value={m.code}>{m.libelle}</option>)}
+          </Select>
+          <div className="form-text">
+            {modeleChoisi?.detail} — modèles disponibles pour le mode d'évaluation choisi.
+          </div>
         </div>
         <div className="col-md-6">
           <label className="form-label" htmlFor="etabTelephone">Téléphone</label>
@@ -731,8 +759,10 @@ function StructureModal({ etab, toast, onClose }) {
     const libelle = anneeForm.libelle.trim();
     if (!libelle) return setAnneeForm((f) => ({ ...f, error: 'Le libellé est requis.' }));
     const err = anneeForm.id
-      ? await ecrire(scoped(`/annees-scolaires/${anneeForm.id}`), 'PUT', { libelle }, 'Année scolaire modifiée.')
-      : await ecrire('/annees-scolaires/', 'POST', { libelle, active: anneeForm.active, etablissement_id: etabId }, 'Année scolaire ajoutée.');
+      ? await ecrire(scoped(`/annees-scolaires/${anneeForm.id}`), 'PUT',
+        { libelle, ...(anneeForm.verrouille ? {} : { mode_evaluation: anneeForm.mode_evaluation }) }, 'Année scolaire modifiée.')
+      : await ecrire('/annees-scolaires/', 'POST',
+        { libelle, active: anneeForm.active, mode_evaluation: anneeForm.mode_evaluation, etablissement_id: etabId }, 'Année scolaire ajoutée.');
     if (err) setAnneeForm((f) => ({ ...f, error: err }));
     else setAnneeForm(null);
   };
@@ -908,12 +938,19 @@ function StructureModal({ etab, toast, onClose }) {
               {/* TAB : ANNÉES SCOLAIRES */}
               {tab === 'annees' && (
                 <>
-                  <TabHeader text="Configurez les années scolaires et leur état d'activation." button="Nouvelle année" onClick={() => setAnneeForm({ id: '', libelle: '', active: false, error: '' })} />
+                  <TabHeader text="Configurez les années scolaires et leur état d'activation." button="Nouvelle année" onClick={() => setAnneeForm({ id: '', libelle: '', active: false, mode_evaluation: etab.mode_evaluation || 'lycee', verrouille: false, error: '' })} />
                   {anneeForm && (
                     <InlinePanel title={anneeForm.id ? "Modifier l'année scolaire" : 'Nouvelle année scolaire'} edit={Boolean(anneeForm.id)} error={anneeForm.error} onSubmit={soumettreAnnee} onCancel={() => setAnneeForm(null)} actionsCol="col-md-4">
                       <div className="col-md-4">
                         <label className="form-label small mb-1">Libellé *</label>
                         <input autoFocus type="text" className="form-control form-control-sm" placeholder="Ex: 2025-2026" value={anneeForm.libelle} onChange={(e) => setAnneeForm((f) => ({ ...f, libelle: e.target.value }))} />
+                      </div>
+                      <div className="col-md-4">
+                        <label className="form-label small mb-1">Mode d'évaluation</label>
+                        <Select className="form-select form-select-sm" value={anneeForm.mode_evaluation} disabled={anneeForm.verrouille} onChange={(e) => setAnneeForm((f) => ({ ...f, mode_evaluation: e.target.value }))}>
+                          {MODES_EVALUATION.map((m) => <option key={m.code} value={m.code}>{m.libelle} — {m.detail}</option>)}
+                        </Select>
+                        {anneeForm.verrouille && <div className="form-text small"><i className="bx bx-lock-alt me-1" />Notes déjà saisies : mode définitif.</div>}
                       </div>
                       {/* En édition, l'activation se gère via le bouton bascule du tableau. */}
                       <div className="col-md-4">
@@ -926,14 +963,15 @@ function StructureModal({ etab, toast, onClose }) {
                       </div>
                     </InlinePanel>
                   )}
-                  <StructureTable headers={['Libellé', 'État']} colSpan={3} empty="Aucune année scolaire définie.">
+                  <StructureTable headers={['Libellé', 'État', 'Évaluation']} colSpan={4} empty="Aucune année scolaire définie.">
                     {annees.map((a) => (
                       <tr key={a.id}>
                         <td className="fw-semibold">{a.libelle}</td>
                         <td>{a.active ? <span className="badge bg-label-success">Active</span> : <span className="badge bg-label-secondary">Inactive</span>}</td>
+                        <td><BadgeModeEvaluation code={a.mode_evaluation} verrouille={a.mode_verrouille} /></td>
                         <td className="text-end">
                           {actionBtn(a.active ? 'bx-toggle-right' : 'bx-toggle-left', () => toggleAnnee(a), { title: a.active ? 'Désactiver' : 'Activer' })}
-                          {actionBtn('bx-edit-alt', () => setAnneeForm({ id: a.id, libelle: a.libelle, active: a.active, error: '' }))}
+                          {actionBtn('bx-edit-alt', () => setAnneeForm({ id: a.id, libelle: a.libelle, active: a.active, mode_evaluation: a.mode_evaluation || 'lycee', verrouille: Boolean(a.mode_verrouille), error: '' }))}
                           {actionBtn('bx-trash', () => supprimerAnnee(a), { danger: true })}
                         </td>
                       </tr>
@@ -986,7 +1024,7 @@ function StructureModal({ etab, toast, onClose }) {
                     ) : trimestresAnnee.length === 0 ? (
                       <div className="col-12 text-center text-muted py-3">Aucun trimestre pour cette année scolaire.</div>
                     ) : trimestresAnnee.map((t) => {
-                      const seqs = sequences.filter((s) => s.trimestre_id === t.id);
+                      const seqs = sequences.filter((s) => s.trimestre_id === t.id).sort(sortTrimestres);
                       const seqForm = seqForms[t.id];
                       return (
                         <div key={t.id} className="col-md-4">
@@ -1031,6 +1069,7 @@ function StructureModal({ etab, toast, onClose }) {
                                   <div key={s.id} className="d-flex justify-content-between align-items-center small">
                                     <span>{s.libelle}</span>
                                     <span className="text-muted">{s.date_debut || '?'} → {s.date_fin || '?'}</span>
+                                    <VerrouSequence sequence={s} onChange={charger} url={scoped(`/sequences/${s.id}`)} />
                                     <span className="text-nowrap">
                                       {actionBtn('bx-edit-alt', () => ouvrirSequence(t.id, s))}
                                       {actionBtn('bx-trash', () => supprimer(scoped(`/sequences/${s.id}`), 'Supprimer cette séquence ?', null, 'Séquence supprimée.'), { danger: true })}

@@ -4,7 +4,9 @@ from decimal import Decimal, ROUND_DOWN
 from models.evaluation_models import Note
 from models.inscription_models import Inscription, STATUTS_INSCRIPTION_EN_COURS
 from models.pedagogie_models import MatiereClasse, TitulaireClasse
-from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
+from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence, sequences_de_annee
+from services.mode_evaluation_services import mode_de_annee, notes_par_sequence
+from services.trous_services import PeriodeErreur, dispenses_de, resoudre_periode
 
 
 # ---------------------------------------------------------------------------
@@ -21,6 +23,9 @@ from models.structure_models import Classe, AnneeScolaire, Trimestre, Sequence
 #   - la moyenne est TRONQUÉE à 2 décimales, jamais arrondie (11,6985 -> 11,69) ;
 #   - rang = 1 + nombre d'élèves classés strictement meilleurs, calculé sur la
 #     valeur exacte (D2) ; ex æquo au même rang ;
+#   - note de la séquence selon le mode d'évaluation de l'année (Lycée : la
+#     note saisie ; Collège/Institut : CC, DS(, Ev. Tr.) pondérés, une
+#     évaluation manquante comptant 0, cf. mode_evaluation_services) ;
 #   - note « absent » = 0 (D3) : l'élève reste classé ;
 #   - note non saisie (aucune ligne Note, ou ligne sans valeur et sans
 #     absence) = élève NON CLASSÉ (N.C.) : total partiel affiché, ni moyenne
@@ -125,13 +130,7 @@ def sequences_de_l_annee(etablissement, annee_id):
         if annee_id else None
     if not annee:
         raise PvErreur("Année scolaire introuvable", 404)
-    sequences = (
-        Sequence.query
-        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-        .filter(Trimestre.annee_scolaire_id == annee.id)
-        .order_by(Trimestre.id, Sequence.id)
-        .all()
-    )
+    sequences = sequences_de_annee(annee.id)
     return [{"id": s.id, "libelle": s.libelle, "titre": titre_sequence(s),
              "trimestre_id": s.trimestre_id, "trimestre": s.trimestre.libelle if s.trimestre else None}
             for s in sequences]
@@ -139,9 +138,12 @@ def sequences_de_l_annee(etablissement, annee_id):
 
 # --- Construction du PV -----------------------------------------------------
 
-def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphabetique'):
-    """Calcule le PV d'une classe pour une séquence. Lève PvErreur (404) si la
-    classe, l'année ou la séquence est introuvable / hors établissement."""
+def construire_pv(etablissement, classe_id, annee_id, sequence_id=None, ordre='alphabetique', periode=None):
+    """Calcule le PV d'une classe pour une période (cf.
+    trous_services.resoudre_periode) : une séquence (note de la séquence),
+    une seule évaluation d'une séquence (CC, DS, Ev. Tr.) ou un trimestre
+    (moyenne des séquences). periode absent : la séquence sequence_id. Lève
+    PvErreur (404) si la classe, l'année ou la période est introuvable."""
     classe = Classe.query.get(classe_id) if classe_id else None
     if not classe or classe.etablissement_id != etablissement.id:
         raise PvErreur("Classe introuvable", 404)
@@ -151,14 +153,19 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphab
     if not annee:
         raise PvErreur("Année scolaire introuvable", 404)
 
-    sequence = (
-        Sequence.query
-        .join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-        .filter(Sequence.id == sequence_id, Trimestre.annee_scolaire_id == annee.id)
-        .first()
-    ) if sequence_id else None
-    if not sequence:
-        raise PvErreur("Séquence introuvable pour cette année scolaire", 404)
+    if not periode:
+        if not sequence_id:
+            raise PvErreur("Séquence introuvable pour cette année scolaire", 404)
+        periode = f"seq:{sequence_id}"
+    try:
+        p = resoudre_periode(periode, annee)
+    except PeriodeErreur as err:
+        raise PvErreur(err.message, err.status)
+    if p["type"] == 'annuel':
+        raise PvErreur("Le procès-verbal porte sur une séquence, une évaluation ou un trimestre")
+    sequences = p["sequences"]
+    sequence = sequences[0]
+    seq_ids = [s.id for s in sequences]
 
     inscriptions = Inscription.query.filter(
         Inscription.classe_id == classe.id, Inscription.annee_scolaire_id == annee.id,
@@ -178,11 +185,40 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphab
     mc_ids = [mc.id for mc in matieres_classe]
     total_coef = sum(mc.coefficient for mc in matieres_classe)
 
-    notes = {}
+    # notes_seq[(insc, mc, seq)] = (Decimal, absent) — absent = 0 (D3) ;
+    # absente du dict = note manquante.
+    notes_seq = {}
     if insc_ids and mc_ids:
-        for n in Note.query.filter(Note.inscription_id.in_(insc_ids), Note.matiere_classe_id.in_(mc_ids),
-                                   Note.sequence_id == sequence.id).all():
-            notes[(n.inscription_id, n.matiere_classe_id)] = n
+        lignes_notes = Note.query.filter(Note.inscription_id.in_(insc_ids), Note.matiere_classe_id.in_(mc_ids),
+                                         Note.sequence_id.in_(seq_ids)).all()
+        if p["composante"]:
+            for n in lignes_notes:
+                if n.composante == p["composante"] and (n.valeur is not None or n.absent):
+                    valeur = Decimal('0') if n.valeur is None else Decimal(str(n.valeur))
+                    notes_seq[(n.inscription_id, n.matiere_classe_id, n.sequence_id)] = (valeur, n.valeur is None)
+        else:
+            for cle, ns in notes_par_sequence(lignes_notes, mode_de_annee(annee)).items():
+                if ns.valeur is not None or ns.absent:
+                    valeur = Decimal('0') if ns.valeur is None else Decimal(ns.valeur)
+                    notes_seq[cle] = (valeur, ns.valeur is None and ns.absent)
+    dispenses = dispenses_de(insc_ids, mc_ids, seq_ids)
+
+    def _note_periode(insc_id, mc_id):
+        """-> (statut, Decimal|None), statut parmi dispense, manquante, ok,
+        absent : moyenne des séquences de la période (séquences dispensées
+        ignorées)."""
+        valeurs, tous_absents = [], True
+        for s_id in seq_ids:
+            if (insc_id, mc_id, s_id) in dispenses:
+                continue
+            trouve = notes_seq.get((insc_id, mc_id, s_id))
+            if trouve is None:
+                return 'manquante', None
+            valeurs.append(trouve[0])
+            tous_absents = tous_absents and trouve[1]
+        if not valeurs:
+            return 'dispense', None
+        return ('absent' if tous_absents else 'ok'), sum(valeurs) / Decimal(len(valeurs))
 
     titulaire = TitulaireClasse.query.filter_by(classe_id=classe.id, annee_scolaire_id=annee.id).first()
 
@@ -191,34 +227,37 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphab
     manquantes_par_matiere = {mc.id: 0 for mc in matieres_classe}
     for insc in inscriptions:
         total = Decimal('0')
+        coef_eleve = 0
         manquantes = []
         cellules = []
         for mc in matieres_classe:
-            ligne = notes.get((insc.id, mc.id))
-            if ligne is None or (ligne.valeur is None and not ligne.absent):
-                manquantes.append(mc.id)
-                manquantes_par_matiere[mc.id] += 1
+            statut, note = _note_periode(insc.id, mc.id)
+            if statut in ('manquante', 'dispense'):
+                if statut == 'manquante':
+                    manquantes.append(mc.id)
+                    manquantes_par_matiere[mc.id] += 1
                 cellules.append({"mc_id": mc.id, "note": None, "points": None, "points_fmt": "", "note_fmt": "",
-                                 "statut": "manquante", "rouge": False})
+                                 "statut": statut, "rouge": False})
                 continue
-            note = Decimal('0') if ligne.absent else Decimal(str(ligne.valeur))   # absent = 0 (D3)
-            points = note * Decimal(mc.coefficient)
+            points = note * Decimal(mc.coefficient)                               # absent = 0 (D3)
             total += points
+            coef_eleve += mc.coefficient
             cellules.append({"mc_id": mc.id, "note": _en_float(note), "points": _en_float(points),
                              "points_fmt": fmt_points(points),
                              "note_fmt": fmt_points(note),
-                             "statut": "absent" if ligne.absent else "ok",
+                             "statut": statut,
                              "rouge": note < SEUIL_ROUGE})                         # D5
 
-        # Sans matière (total_coef = 0) aucune moyenne n'a de sens : N.C.
-        classe_ok = not manquantes and total_coef > 0
-        moyenne_exacte = total / Decimal(total_coef) if classe_ok else None
+        # Coefficients de l'élève : ceux des matières non dispensées.
+        classe_ok = not manquantes and coef_eleve > 0
+        moyenne_exacte = total / Decimal(coef_eleve) if classe_ok else None
         moyenne = tronquer_2(moyenne_exacte) if classe_ok else None
         motif = None
         if not classe_ok:
             motif = ("Aucune matière affectée à la classe" if total_coef == 0
-                     else f"{len(manquantes)} note(s) manquante(s)")
-        lignes.append({"insc": insc, "cellules": cellules, "total": total,
+                     else f"{len(manquantes)} note(s) manquante(s)" if manquantes
+                     else "Dispensé de toutes les matières")
+        lignes.append({"insc": insc, "cellules": cellules, "total": total, "coef": coef_eleve,
                        "exacte": moyenne_exacte, "moyenne": moyenne,
                        "classe": classe_ok, "motif": motif})
 
@@ -250,6 +289,7 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphab
             "nom_affiche": nom_affiche(e.nom, e.prenom),
             "cellules": l["cellules"],
             "total": _en_float(l["total"]), "total_fmt": fmt_points(l["total"]),
+            "total_coef": l["coef"],
             "moyenne": _en_float(l["moyenne"]), "moyenne_fmt": fmt_moyenne(l["moyenne"]),
             "moyenne_rouge": l["exacte"] is not None and l["exacte"] < SEUIL_ROUGE,
             "rang": rang, "rang_fmt": fmt_rang(rang, e.sexe) if rang is not None else "N.C.",
@@ -286,7 +326,9 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id, ordre='alphab
         },
         "classe": {"id": classe.id, "label": classe_label(classe)},
         "annee": {"id": annee.id, "libelle": annee.libelle},
-        "sequence": {"id": sequence.id, "libelle": sequence.libelle, "titre": titre_sequence(sequence)},
+        "sequence": {"id": sequence.id, "libelle": p["libelle"], "titre": p["titre"]},
+        "periode": {"value": periode, "type": p["type"], "titre": p["titre"], "libelle": p["libelle"],
+                    "composante": p["composante"], "sequence_ids": seq_ids},
         "titulaire": (f"{titulaire.enseignant.nom} {titulaire.enseignant.prenom}".strip()
                       if titulaire and titulaire.enseignant else None),
         "effectif": len(inscriptions),

@@ -70,7 +70,7 @@ def test_modification_sans_changement_ne_journalise_rien(monde, connecter):
     # saisie_le est rafraîchi par le service : c'est la seule différence.
     entrees = _entrees('note', note['id'])
     assert all(set(e.changements) <= {'valeur', 'absent', 'saisie_le', 'inscription_id', 'matiere_classe_id',
-                                      'sequence_id', 'id'} for e in entrees)
+                                      'sequence_id', 'composante', 'id'} for e in entrees)
     assert all('valeur' not in e.changements for e in entrees[1:])
 
 

@@ -4,7 +4,6 @@ import { api } from '../lib/api';
 import ChartCanvas from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import { useEtablissementCourant } from '../components/EnteteEtablissement';
-import { initiales } from '../components/ui';
 import { Skel, SkelGraphique, SkelListe } from '../components/Skeleton';
 
 // Portage de server/static/templates/dashboard.html (Admin d'établissement) :
@@ -226,9 +225,11 @@ export default function EtablissementDashboardPage() {
       {/* Bandeau établissement */}
       <div className="card mb-4">
         <div className="card-body d-flex flex-wrap align-items-center gap-3">
-          <div className="avatar avatar-xl flex-shrink-0">
-            {etablissement?.logo_url ? <img src={etablissement.logo_url} alt="" className="rounded" style={{ objectFit: 'contain' }} /> : <span className="avatar-initial rounded bg-label-primary fs-4">{initiales(nom)}</span>}
-          </div>
+          {etablissement?.logo_url && (
+            <div className="avatar avatar-xl flex-shrink-0">
+              <img src={etablissement.logo_url} alt="" className="rounded" style={{ objectFit: 'contain' }} />
+            </div>
+          )}
           <div className="flex-grow-1">
             <h4 className="mb-1">{nom}</h4>
             <small className="text-muted"><i className="bx bx-map me-1" />{[etablissement?.region, etablissement?.adresse].filter(Boolean).join(' · ') || '—'}</small>

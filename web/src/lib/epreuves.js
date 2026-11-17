@@ -13,7 +13,7 @@ import { api, apiRequest } from './api';
 // mis en file d'attente : un fichier ne se rejoue pas comme une note.
 
 export const EPREUVES_PAR_PAGE_ENSEIGNANT = 6;
-export const EPREUVES_PAR_PAGE_ADMIN = 10;
+export const EPREUVES_PAR_PAGE_ADMIN = 25;
 
 // Mêmes bornes que le serveur (services/epreuve_services.py), pour répondre
 // tout de suite ; le serveur reste juge (extension ET signature du fichier).

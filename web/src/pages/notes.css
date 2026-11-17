@@ -194,3 +194,21 @@
 .releve-note.releve-vide { color: #a1acb8; font-weight: 400; }
 .releve-note.releve-absent { color: #8592a3; font-style: italic; }
 .releve-input { width: 4.2rem; text-align: center; }
+
+/* Saisie « toutes les évaluations » (mode Collège/Institut) : CC, DS(, Ev. Tr.)
+   et la note calculée de la séquence sur la même ligne ; sur téléphone, les
+   champs passent sous le nom de l'élève. */
+.saisie-ligne-multi { grid-template-columns: 26px minmax(0, 1fr) auto; }
+.saisie-evals { display: flex; align-items: flex-end; gap: 0.4rem; }
+.saisie-eval { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; margin: 0; }
+.saisie-eval-libelle { font-size: 0.65rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: #8592a3; }
+.saisie-eval-champ { display: flex; align-items: center; gap: 0.15rem; }
+.saisie-eval-champ .save-state { width: 12px; font-size: 0.8rem; }
+.saisie-input-eval { width: 58px; }
+.saisie-input-eval.is-absent { background: #ffe0db; border-color: #ff3e1d; color: #ff3e1d; }
+.saisie-eval-resultat { min-width: 52px; }
+.saisie-eval-note { height: 46px; display: flex; align-items: center; font-weight: 700; font-size: 1rem; }
+@media (max-width: 575.98px) {
+  .saisie-ligne-multi { grid-template-columns: 26px minmax(0, 1fr); }
+  .saisie-ligne-multi .saisie-evals { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; }
+}

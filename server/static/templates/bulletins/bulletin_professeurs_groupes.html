@@ -1,0 +1,193 @@
+{#- Modèle « Professeurs et moyenne de classe » (mode Lycée) : nom du
+    professeur sous chaque matière, moyenne de la classe par matière, ligne
+    de groupe (moyennes et total du groupe), récapitulatif par évaluation,
+    moyennes du premier et du dernier, discipline, travail et zone de visa du
+    proviseur laissée vide. Données : bulletin_services.construire_bulletins,
+    cf. structure_models.MODELES_BULLETIN. -#}
+{%- macro note(v) -%}
+  {%- if v is none -%}{%- elif v == 'ABS' -%}Abs{%- elif v == 'DISP' -%}Disp.{%- else -%}{{ '%.2f' | format(v) }}{%- endif -%}
+{%- endmacro -%}
+{%- macro rang(r, sexe) -%}
+  {%- if r is none -%}-{%- elif r == 1 -%}{{ '1ère' if sexe == 'F' else '1er' }}{%- else -%}{{ r }}e{%- endif -%}
+{%- endmacro -%}
+{%- macro coche(v) -%}{{ 'X' if v else '' }}{%- endmacro -%}
+{%- set etab = data.etablissement -%}
+{%- set cols = data.colonnes_notes -%}
+{%- set st = data.statistiques -%}
+{%- set libelle_moy = {'annuel': 'MOY AN', 'trimestre': 'MOY TRI'}.get(data.periode.type, 'MOY') -%}
+{%- set nb_cols = cols | length -%}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Bulletins — {{ data.classe.label }} — {{ data.periode.libelle }}</title>
+<style>
+  @page { size: A4 portrait; margin: 9mm 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; font-size: 7.8pt; color: #111; }
+  .page + .page { break-before: page; page-break-before: always; }
+  @media screen {
+    body { background: #e9ebee; padding: 14px 0; }
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto 14px; padding: 9mm 10mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+  }
+  table { border-collapse: collapse; width: 100%; }
+  .entete td { vertical-align: top; text-align: center; font-size: 7pt; line-height: 1.4; text-transform: uppercase; }
+  .entete .logo img { max-height: 18mm; max-width: 22mm; }
+  h1 { text-align: center; font-size: 11pt; letter-spacing: .04em; margin: 3mm 0 3mm; }
+  .eleve td { padding: 0.6mm 0; font-size: 7.8pt; vertical-align: top; }
+  .eleve td.photo { width: 22mm; text-align: right; vertical-align: middle; }
+  .eleve td.photo img { width: 19mm; height: 24mm; object-fit: cover; border: 0.6pt solid #333; }
+  .notes { margin-top: 2.5mm; }
+  .notes th, .notes td { border: 0.5pt solid #444; padding: 0.5mm 1mm; font-size: 7.2pt; vertical-align: top; }
+  .notes th { background: #e3e3e3; font-weight: 400; text-align: left; }
+  .notes td.mat { width: 24%; text-transform: uppercase; }
+  .notes td.mat .prof { text-transform: none; display: block; }
+  .notes tr.groupe td { background: #dcdcdc; }
+  .notes tr.total td { font-weight: 700; font-size: 8.4pt; }
+  .notes td.nc { font-style: italic; color: #555; }
+  .recap { margin-top: 0; }
+  .recap td { border: 0.5pt solid #444; padding: 0.8mm 1.2mm; font-size: 7.4pt; vertical-align: top; }
+  .recap .titre { background: #e3e3e3; text-align: center; font-weight: 700; font-size: 8pt; }
+  .recap .val { display: block; text-align: right; font-size: 8pt; }
+  .recap .gras { font-weight: 700; font-size: 8.2pt; }
+  .bas { margin-top: 3mm; }
+  .bas > tbody > tr > td { vertical-align: top; padding: 0; }
+  .cadre td { border: 0.6pt solid #444; padding: 1mm 1.5mm; font-size: 7.8pt; height: 6mm; }
+  .cadre td.t { font-weight: 700; }
+  .visa { border: 0.6pt solid #444; height: 34mm; margin-left: 3mm; padding: 1.5mm 2mm; text-align: center; font-weight: 700; font-size: 8pt; }
+</style>
+</head>
+<body>
+{%- for b in data.bulletins %}
+{%- set e = b.eleve %}
+{%- set d = b.discipline_totaux %}
+{%- set t = b.travail %}
+<div class="page">
+  <table class="entete">
+    <tr>
+      <td style="width:42%">
+        <div>Ministère des Enseignements Secondaires</div>
+        <div>{{ etab.nom }}</div>
+        <div>{% if etab.bp_numero %}B.P. {{ etab.bp_numero }}{% endif %}{% if etab.adresse %} {{ etab.adresse }}{% endif %}{% if etab.telephone %}, Tél. {{ etab.telephone }}{% endif %}</div>
+      </td>
+      <td class="logo" style="width:16%">{% if logo_src %}<img src="{{ logo_src }}" alt="">{% endif %}</td>
+      <td style="width:42%">
+        <div>République du Cameroun</div>
+        <div>- - - - - - - - - - - - - -</div>
+        <div>Paix-Travail-Patrie</div>
+        <div>Année scolaire : {{ data.annee.libelle }}</div>
+      </td>
+    </tr>
+  </table>
+
+  <h1>{{ data.periode.titre }}</h1>
+
+  {%- set photo_src = photos.get(e.id) %}
+  <table class="eleve">
+    <tr>
+      <td colspan="2">Noms et Prénoms : <strong>{{ e.nom }} {{ e.prenom }}</strong></td>
+      <td style="text-align:right">Sexe : {{ e.sexe or '' }}</td>
+      {%- if photo_src %}<td class="photo" rowspan="3"><img src="{{ photo_src }}" alt="Photo de {{ e.nom }} {{ e.prenom }}"></td>{% endif %}
+    </tr>
+    <tr>
+      <td colspan="2">Date et lieu de Naissance : <strong>{{ e.date_naissance or '' }}{% if e.lieu_naissance %} à {{ e.lieu_naissance | upper }}{% endif %}</strong></td>
+      <td style="text-align:right">Redoublant : {{ 'Oui' if e.statut == 'R' else 'Non' }}</td>
+    </tr>
+    <tr>
+      <td style="width:30%">Classe : {{ data.classe.label }}</td>
+      <td>Effectifs : {{ data.effectif }}</td>
+      <td style="text-align:right">Matricule : {{ e.matricule or '' }}</td>
+    </tr>
+  </table>
+
+  <table class="notes">
+    <thead>
+      <tr>
+        <th>Disciplines et noms de professeurs</th>
+        {%- for c in cols %}<th>{{ c.libelle }}</th>{% endfor %}
+        <th>{{ libelle_moy }}/20</th><th>COEF</th><th>TOTAL (NxC)</th><th>MOY Classe</th><th>Appréciations</th>
+      </tr>
+    </thead>
+    <tbody>
+    {%- for g in b.groupes %}
+      {%- for l in g.lignes %}
+      <tr>
+        <td class="mat">{{ l.matiere }}{% if l.enseignant %}<span class="prof">{{ l.enseignant }}</span>{% endif %}</td>
+        {%- for v in l.cellules %}<td>{{ note(v) }}</td>{% endfor %}
+        {%- if l.classe %}
+        <td>{{ note(l.moyenne) }}</td>
+        <td>{{ l.coefficient }}</td>
+        <td>{{ note(l.points) }}</td>
+        <td>{{ note(l.moyenne_classe) }}</td>
+        <td>{{ l.appreciation_longue or '' }}</td>
+        {%- else %}
+        <td></td><td>{{ l.coefficient }}</td><td></td><td>{{ note(l.moyenne_classe) }}</td>
+        <td class="nc">{{ "Dispensé(e)" if l.dispense else "Non classé(e)" }}</td>
+        {%- endif %}
+      </tr>
+      {%- endfor %}
+      <tr class="groupe">
+        <td>{{ g.libelle }}<br>&nbsp;&nbsp;MOY</td>
+        {%- for v in g.moyennes_colonnes %}<td>{{ note(v) }}</td>{% endfor %}
+        <td>{{ note(g.moyenne) }}</td>
+        <td>TOTAL GRP</td>
+        <td>{{ note(g.total_points) }}</td>
+        <td></td><td></td>
+      </tr>
+    {%- endfor %}
+      <tr class="total">
+        <td>TOTAL</td>
+        <td colspan="{{ nb_cols + 1 }}"></td>
+        <td>{{ b.total_coef }}</td>
+        <td>{{ note(b.total_points) }}</td>
+        <td></td><td></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <table class="recap">
+    <tr><td class="titre" colspan="{{ 2 + 2 * (b.sequences | length) }}">RÉCAPITULATIF, APPRÉCIATIONS GÉNÉRALES ET OBSERVATIONS</td></tr>
+    <tr>
+      <td>{{ libelle_moy }}<span class="val gras">{{ note(b.moyenne) }} /20</span></td>
+      <td>RANG<span class="val gras">{{ rang(b.rang, e.sexe) }} /{{ data.effectif }}</span></td>
+      {%- for s in data.sequences %}
+      {%- set r = b.sequences[loop.index0] %}
+      <td>MOY {{ s.court }}<span class="val">{{ note(r.moyenne) }} /20</span></td>
+      <td>RANG {{ s.court }}<span class="val">{{ rang(r.rang, e.sexe) }} /{{ data.effectif }}</span></td>
+      {%- endfor %}
+    </tr>
+  </table>
+  <table class="recap">
+    <tr>
+      <td style="width:40%" class="gras">APPRÉCIATIONS TRAVAIL<span class="val" style="text-align:left; font-weight:400">{{ b.mention or 'Non classé(e)' }}</span></td>
+      <td style="width:20%" class="gras">MOY DU PREMIER :<span class="val">{{ note(st.moyenne_max) }}</span></td>
+      <td style="width:20%" class="gras">MOY DU DERNIER :<span class="val">{{ note(st.moyenne_min) }}</span></td>
+      <td style="width:20%" class="gras">MOY GÉNÉRALE DE LA CLASSE<span class="val">{{ note(st.moyenne_classe) }}</span></td>
+    </tr>
+    <tr>
+      <td colspan="2" class="gras" style="height:12mm">SANCTIONS (DÉCISION DU CONSEIL DE CLASSE)<span class="val" style="text-align:left; font-weight:400">{{ b.sanction or '' }}</span></td>
+      <td colspan="2" class="gras">OBSERVATIONS ET VISA DU PROVISEUR</td>
+    </tr>
+  </table>
+
+  <table class="bas">
+    <tr>
+      <td style="width:62%">
+        <table class="cadre">
+          <tr><td class="t" colspan="3" style="width:45%">DISCIPLINE</td><td class="t" colspan="2">TRAVAIL</td></tr>
+          <tr><td rowspan="2">Absences</td><td>J</td><td>{{ d.absences_justifiees }}</td><td>Tableau d'honneur</td><td style="width:8mm; text-align:center">{{ coche(t.tableau_honneur) }}</td></tr>
+          <tr><td>NJ</td><td>{{ d.absences_non_justifiees }}</td><td>Encouragement</td><td style="text-align:center">{{ coche(t.encouragements) }}</td></tr>
+          <tr><td class="t" colspan="2">Blâmes conduite</td><td></td><td>Félicitations</td><td style="text-align:center">{{ coche(t.felicitations) }}</td></tr>
+          <tr><td class="t" colspan="2">Avert. Conduite</td><td></td><td>Avertissement travail</td><td style="text-align:center">{{ coche(t.avertissement) }}</td></tr>
+        </table>
+        {%- if b.observations %}
+        <table class="cadre" style="margin-top:2mm"><tr><td>{{ b.observations | join(' ; ') }}</td></tr></table>
+        {%- endif %}
+      </td>
+      <td style="width:38%"><div class="visa">LE PROVISEUR</div></td>
+    </tr>
+  </table>
+</div>
+{%- endfor %}
+</body>
+</html>

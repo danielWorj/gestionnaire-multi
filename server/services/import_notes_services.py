@@ -13,6 +13,9 @@ Deux présentations de fichiers sont comprises :
 
 « abs », « absent » -> élève absent (pas de note chiffrée, cf. Note.absent).
 Une note sur 10, 40… est ramenée sur 20 (option, ou « 12/40 » dans la case).
+
+Mode Collège/Institut (cf. structure_models.MODES_EVALUATION) : un import
+porte sur UNE évaluation (CC, DS ou Ev. Tr.), choisie en option.
 """
 
 import re
@@ -24,12 +27,13 @@ from extensions import db
 from models.evaluation_models import Note
 from models.inscription_models import Eleve, Inscription, STATUTS_INSCRIPTION_EN_COURS
 from models.pedagogie_models import MatiereClasse
-from models.structure_models import Classe, Sequence, Trimestre, annee_active
+from models.structure_models import Classe, Sequence, Trimestre, annee_active, sequences_de_annee
 from services.evaluation_services import resolve_enseignant_matiere_classe_ids
 from services.import_commun import (
     Schema, _cle_identite, _libelles_classe, analyser_avec_schema, entier, normaliser_matricule, valider_blocs,
 )
 from services.import_lecture import normaliser
+from services.mode_evaluation_services import composantes as composantes_du_mode, mode_de_annee
 from services.pedagogie_services import resolve_enseignant_profil
 
 # import_api passe alors le rôle et l'identité de l'utilisateur à traiter().
@@ -158,6 +162,7 @@ def _options(brutes):
         'sequence_id': o.get('sequence_id'),
         'note_sur': sur if sur and 1 <= sur <= 100 else 20,
         'doublons': 'mettre_a_jour' if o.get('doublons') == 'mettre_a_jour' else 'ignorer',
+        'composante': o.get('composante') or None,
     }
 
 
@@ -177,9 +182,9 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
     if erreur:
         return {'erreur': erreur}, 400
     contexte = contexte or {}
-    # SuperAdmin : saisie pour le compte de l'établissement choisi, sur toutes
-    # ses matières-classe ; Enseignant : ses seules matières-classe.
-    superadmin = contexte.get('role') == 'SuperAdmin'
+    # Admin / SuperAdmin : toutes les matières-classe de l'établissement ;
+    # Enseignant : ses seules matières-classe.
+    superadmin = contexte.get('role') in ('Admin', 'SuperAdmin')
     profil = None if superadmin else resolve_enseignant_profil(contexte.get('user_id'))
     if profil is None and not superadmin:
         return {'erreur': "Aucun profil enseignant n'est relié à ce compte. "
@@ -212,13 +217,18 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         or (mes_mc[0] if len(mes_mc) == 1 else None)
 
     annee = annee_active(etablissement_id)
-    sequences = (Sequence.query.join(Trimestre, Trimestre.id == Sequence.trimestre_id)
-                 .filter(Trimestre.annee_scolaire_id == annee.id).order_by(Trimestre.id, Sequence.id).all()) if annee else []
+    sequences = sequences_de_annee(annee.id) if annee else []
     seq_par_id = {s.id: s for s in sequences}
     seq_par_numero = {}
     for rang, s in enumerate(sequences, start=1):
         seq_par_numero.setdefault(_numero_sequence(s, rang), s)
     sequence_choisie = seq_par_id.get(_vers_id(options['sequence_id'], seq_par_id))
+
+    # Évaluation importée : implicite en mode Lycée, à choisir en Collège/Institut.
+    evaluations = composantes_du_mode(mode_de_annee(annee))
+    codes = [code for code, _l, _p in evaluations]
+    composante = options['composante'] if options['composante'] in codes else (codes[0] if len(codes) == 1 else None)
+    libelle_composante = next((l for c, l, _p in evaluations if c == composante), None)
 
     reponse = {
         'colonnes': colonnes,
@@ -227,6 +237,9 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
         'champs': SCHEMA.description_champs(),
         'matieres_classe': sorted(({'id': m.id, 'libelle': libelle_mc(m)} for m in mes_mc), key=lambda x: x['libelle']),
         'sequences': [{'id': s.id, 'libelle': s.libelle} for s in sequences],
+        # Vide en mode Lycée (une seule note par séquence) : rien à choisir.
+        'composantes': [{'id': c, 'libelle': l} for c, l, _p in evaluations] if len(evaluations) > 1 else [],
+        'composante': composante,
         'matiere_classe_id': mc.id if mc else None,
         'sequence_id': sequence_choisie.id if sequence_choisie else None,
         'eleves': [],
@@ -255,7 +268,7 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
     for x in roster:
         par_cle[x['cle']].append(x)
     notes_existantes = {(n.inscription_id, n.sequence_id): n for n in
-                        Note.query.filter(Note.matiere_classe_id == mc.id,
+                        Note.query.filter(Note.matiere_classe_id == mc.id, Note.composante == composante,
                                           Note.inscription_id.in_(list(par_inscription) or [0])).all()}
 
     def retrouver(v):
@@ -337,12 +350,19 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
             n = {'sequence_id': sequence.id if sequence else None,
                  'sequence': sequence.libelle if sequence else entete, 'valeur': None, 'absent': False,
                  'statut': 'nouvelle', 'motif': ''}
-            if sequence is None:
+            if composante is None:
+                r['erreurs'].append("Choisissez l'évaluation importée (CC, DS…)")
+                n['statut'] = 'ignoree'
+            elif sequence is None:
                 r['erreurs'].append("Choisissez la séquence de la colonne « Note »")
                 n['statut'] = 'ignoree'
             elif genre == 'erreur':
                 r['erreurs'].append(resultat)
                 n['statut'] = 'ignoree'
+            elif not superadmin and sequence.est_verrouillee():
+                # Séquence clôturée : seule l'administration peut encore y écrire.
+                r['avertissements'].append(f"{sequence.libelle} : saisie clôturée, note non importée")
+                n['statut'], n['motif'] = 'ignoree', 'séquence clôturée'
             else:
                 n['absent'] = genre == 'absent'
                 n['valeur'] = resultat
@@ -357,7 +377,7 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
                     else:
                         n['statut'] = 'existe'
                         n['motif'] = f"déjà saisie : {_libelle_note(existante.absent, ancienne)}, conservée"
-                        r['avertissements'].append(f"{sequence.libelle} : note déjà saisie "
+                        r['avertissements'].append(f"{sequence.libelle}{' ' + libelle_composante if len(codes) > 1 else ''} : note déjà saisie "
                                                    f"({_libelle_note(existante.absent, ancienne)}), conservée")
             r['notes'].append(n)
 
@@ -416,8 +436,8 @@ def traiter(etablissement_id, payload, valider=False, contexte=None):
             for n in r['notes']:
                 if n['statut'] == 'nouvelle':
                     db.session.add(Note(inscription_id=r['inscription_id'], matiere_classe_id=mc.id,
-                                        sequence_id=n['sequence_id'], valeur=n['valeur'], absent=n['absent'],
-                                        saisie_le=maintenant))
+                                        sequence_id=n['sequence_id'], composante=composante,
+                                        valeur=n['valeur'], absent=n['absent'], saisie_le=maintenant))
                     bilan['notes_creees'] += 1
                 elif n['statut'] == 'maj':
                     note = notes_existantes[(r['inscription_id'], n['sequence_id'])]

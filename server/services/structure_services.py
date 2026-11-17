@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 from flask import current_app
 
 from models.structure_models import (
-    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence, effectifs_classes
+    Etablissement, Cycle, Classe, AnneeScolaire, Trimestre, Sequence, Niveau, effectifs_classes
 )
 from extensions import db
 from sqlalchemy.exc import IntegrityError
@@ -97,7 +97,7 @@ def _filter_valid_columns(model_class, data, exclude=('id', 'version')):
 
 
 # Modèles qui portent directement une colonne etablissement_id
-DIRECT_SCOPE_MODELS = (Cycle, Classe, AnneeScolaire)
+DIRECT_SCOPE_MODELS = (Cycle, Classe, AnneeScolaire, Niveau)
 
 # Champs obligatoires à la création : message clair (400) plutôt qu'une
 # IntegrityError renvoyée comme « violation d'unicité » (409).
@@ -107,6 +107,7 @@ CHAMPS_REQUIS = {
     AnneeScolaire: ('libelle',),
     Trimestre: ('annee_scolaire_id', 'libelle'),
     Sequence: ('trimestre_id', 'libelle'),
+    Niveau: ('libelle',),
 }
 
 
@@ -156,6 +157,13 @@ def _validate_foreign_keys_scoped(model_class, data, etablissement_id):
         cycle = Cycle.query.get(data['cycle_id'])
         if not cycle or cycle.etablissement_id != etablissement_id:
             return "Cycle invalide pour cet établissement"
+
+    if model_class is Classe and data.get('niveau_id') not in (None, ''):
+        niveau = db.session.get(Niveau, data['niveau_id'])
+        if not niveau or niveau.etablissement_id != etablissement_id:
+            return "Niveau invalide pour cet établissement"
+    if model_class is Classe and data.get('niveau_id') == '':
+        data['niveau_id'] = None
 
     if model_class is Trimestre and 'annee_scolaire_id' in data:
         annee = AnneeScolaire.query.get(data['annee_scolaire_id'])
@@ -266,6 +274,11 @@ def create_etablissement(data, logo_file=None):
     data = dict(data or {})
     data.pop('logo', None)
     data.pop('code', None)  # attribué automatiquement (cf. Etablissement.code)
+    if not data.get('mode_evaluation'):
+        data.pop('mode_evaluation', None)  # défaut du modèle : Lycée
+    error = _erreur_mode_evaluation(data) or _preparer_modele_bulletin(data)
+    if error:
+        return {"erreur": error}, 400
     try:
         if logo_file and getattr(logo_file, 'filename', None):
             data['logo'] = save_logo_file(logo_file, data.get('nom', ''))
@@ -285,6 +298,11 @@ def update_etablissement(entity, data, logo_file=None):
     data = dict(data or {})
     data.pop('logo', None)
     data.pop('code', None)  # jamais modifiable
+    if not data.get('mode_evaluation'):
+        data.pop('mode_evaluation', None)
+    error = _erreur_mode_evaluation(data) or _preparer_modele_bulletin(data, entity)
+    if error:
+        return {"erreur": error}, 400
     ancien_logo = entity.logo
     try:
         if logo_file and getattr(logo_file, 'filename', None):
@@ -326,6 +344,74 @@ def _desactiver_autres_annees(data, etablissement_id, annee_id=None):
         autre.active = False
 
 
+def _erreur_mode_evaluation(data):
+    from services.mode_evaluation_services import mode_valide
+    if 'mode_evaluation' in data and not mode_valide(data['mode_evaluation']):
+        return "Mode d'évaluation invalide (attendu : lycee, college ou institut)"
+    return None
+
+
+def _preparer_modele_bulletin(data, etablissement=None):
+    """Modèle de bulletin d'un établissement : il doit appartenir à son mode
+    d'évaluation. Non précisé (ou vide), on garde le modèle actuel s'il reste
+    compatible avec le mode, sinon on revient au modèle par défaut du mode. Retourne
+    un message d'erreur ou None."""
+    from models.structure_models import MODELES_BULLETIN, MODES_EVALUATION
+    from services.mode_evaluation_services import modele_bulletin_compatible, modele_bulletin_defaut, normaliser_mode
+    mode = normaliser_mode(data.get('mode_evaluation') or (etablissement.mode_evaluation if etablissement else None))
+    code = data.get('modele_bulletin') or None
+    if code is None:
+        actuel = etablissement.modele_bulletin if etablissement else None
+        data['modele_bulletin'] = actuel if modele_bulletin_compatible(actuel, mode) else modele_bulletin_defaut(mode)
+        return None
+    if code not in MODELES_BULLETIN:
+        return "Modèle de bulletin inconnu"
+    if not modele_bulletin_compatible(code, mode):
+        return (f"Le modèle de bulletin « {MODELES_BULLETIN[code]['libelle']} » n'appartient pas "
+                f"au mode d'évaluation {MODES_EVALUATION[mode]['libelle']}")
+    return None
+
+
+def _preparer_mode_annee(data, etablissement_id, annee=None):
+    """Mode d'évaluation d'une année : à la création, celui de
+    l'établissement s'il n'est pas précisé ; ensuite modifiable tant
+    qu'aucune note n'a été saisie dans l'année (définitif après). Retourne
+    un message d'erreur ou None."""
+    error = _erreur_mode_evaluation(data)
+    if error:
+        return error
+    if annee is None:
+        if not data.get('mode_evaluation'):
+            etablissement = db.session.get(Etablissement, etablissement_id)
+            data['mode_evaluation'] = etablissement.mode_evaluation if etablissement else None
+        return None
+    if 'mode_evaluation' in data and data['mode_evaluation'] != annee.mode_evaluation and annee.mode_verrouille:
+        return ("Le mode d'évaluation de cette année ne peut plus être modifié : "
+                "des notes ont déjà été saisies.")
+    return None
+
+
+def _preparer_etat_saisie(data, sequence=None):
+    """État de la saisie des notes d'une séquence (cf. Sequence) : valeur
+    contrôlée ; cloturee_le est posé par le serveur à la clôture, jamais
+    reçu du client. Retourne un message d'erreur ou None."""
+    from datetime import datetime
+    from models.structure_models import ETATS_SAISIE
+    data.pop('cloturee_le', None)
+    data.pop('verrouillee', None)
+    if 'etat_saisie' not in data:
+        return None
+    etat = data['etat_saisie'] or 'auto'
+    if etat not in ETATS_SAISIE:
+        return "État de saisie invalide (attendu : auto, cloturee ou ouverte)"
+    data['etat_saisie'] = etat
+    if etat == 'cloturee' and (sequence is None or sequence.etat_saisie != 'cloturee'):
+        data['cloturee_le'] = datetime.utcnow()
+    elif etat != 'cloturee':
+        data['cloturee_le'] = None
+    return None
+
+
 def get_entity_scoped(model_class, entity_id, etablissement_id, classe_ids_restriction=None):
     """Renvoie None si l'entité n'existe pas, n'appartient pas à l'établissement,
     OU (pour une Classe consultée par un Censeur/Surveillant) n'est pas dans
@@ -363,6 +449,13 @@ def create_entity_scoped(model_class, data, etablissement_id):
         return {"erreur": error}, 400
 
     if model_class is AnneeScolaire:
+        error = _preparer_mode_annee(data, etablissement_id)
+        if error:
+            return {"erreur": error}, 400
+    if model_class is Sequence:
+        error = _preparer_etat_saisie(data)
+        if error:
+            return {"erreur": error}, 400
         _desactiver_autres_annees(data, etablissement_id)
 
     return create_entity(model_class, data)
@@ -384,7 +477,14 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
         return {"erreur": error}, 400
 
     if isinstance(entity, AnneeScolaire):
+        error = _preparer_mode_annee(data, etablissement_id, entity)
+        if error:
+            return {"erreur": error}, 400
         _desactiver_autres_annees(data, etablissement_id, entity.id)
+    if isinstance(entity, Sequence):
+        error = _preparer_etat_saisie(data, entity)
+        if error:
+            return {"erreur": error}, 400
 
     return update_entity(entity, data)
 
@@ -395,7 +495,33 @@ def delete_entity_scoped(entity, etablissement_id, classe_ids_restriction=None):
     if (isinstance(entity, Classe) and classe_ids_restriction is not None
             and entity.id not in classe_ids_restriction):
         return {"erreur": "Classe non assignée : vous n'avez pas la charge de cette classe"}, 403
+    if isinstance(entity, Niveau):
+        # Les classes du niveau reviennent au niveau déduit de leur nom.
+        for classe in entity.classes:
+            classe.niveau_id = None
     return delete_entity(entity)
+
+
+def generer_niveaux(etablissement_id):
+    """Crée les niveaux manquants à partir du nom des classes (« 6e A » et
+    « 6e B » -> « 6E ») et y range les classes qui n'en ont pas encore.
+    Retourne {crees, classes_rangees}."""
+    from services.bulletin_services import libelle_niveau_deduit
+    existants = {n.libelle.lower(): n for n in Niveau.query.filter_by(etablissement_id=etablissement_id).all()}
+    crees = rangees = 0
+    for classe in Classe.query.filter_by(etablissement_id=etablissement_id, niveau_id=None).all():
+        libelle = libelle_niveau_deduit(classe)
+        niveau = existants.get(libelle.lower())
+        if niveau is None:
+            niveau = Niveau(etablissement_id=etablissement_id, libelle=libelle, ordre=len(existants) + 1)
+            db.session.add(niveau)
+            db.session.flush()
+            existants[libelle.lower()] = niveau
+            crees += 1
+        classe.niveau_id = niveau.id
+        rangees += 1
+    db.session.commit()
+    return {"crees": crees, "classes_rangees": rangees}
 
 
 # ---------------------------------------------------------------------------

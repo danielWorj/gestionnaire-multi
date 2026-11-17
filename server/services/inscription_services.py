@@ -342,6 +342,15 @@ def update_entity_scoped(entity, data, etablissement_id, classe_ids_restriction=
     if valeurs and memes_valeurs(entity, valeurs):
         return entity.to_dict(), 200
 
+    # Changement de classe : notes, dispenses et versements suivent l'élève
+    # au sein du même niveau (cf. changement_classe_services).
+    if isinstance(entity, Inscription) and data.get('classe_id') not in (None, '')             and int(data['classe_id']) != entity.classe_id:
+        from services.changement_classe_services import preparer_transfert
+        refus = preparer_transfert(entity, data['classe_id'])
+        if refus:
+            db.session.rollback()
+            return refus
+
     return update_entity(entity, data)
 
 
@@ -445,7 +454,7 @@ def historique_eleve(eleve):
         )
         for note, matiere, sequence in lignes_notes:
             notes.append({
-                "id": note.id, "matiere": matiere, "sequence": sequence,
+                "id": note.id, "matiere": matiere, "sequence": sequence, "composante": note.composante,
                 "valeur": _num(note.valeur), "absent": bool(note.absent),
                 "date": note.saisie_le.isoformat() + "Z" if note.saisie_le else None,
                 **contexte(note.inscription_id),

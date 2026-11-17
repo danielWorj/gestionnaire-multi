@@ -210,13 +210,13 @@ body.sheet-open { overflow: hidden; }
     padding: 1rem 1rem calc(var(--app-barre-basse) + var(--app-bas-sur) + 1.25rem) !important;
   }
 
-  /* Toasts : en haut, sous la barre, pleine largeur */
-  .toast-container {
-    top: calc(var(--app-barre-haut) + var(--app-haut-sur) + 0.5rem) !important; bottom: auto !important;
-    left: 0 !important; right: 0 !important; padding: 0 0.75rem !important;
+  /* Toasts : en haut, sous la barre, presque pleine largeur (ils glissent
+     toujours depuis la droite, cf. index.css). */
+  .notif-toasts {
+    top: calc(var(--app-barre-haut) + var(--app-haut-sur) + 0.5rem); bottom: auto;
+    left: 0.75rem; right: 0.75rem; align-items: stretch;
   }
-  .toast-container .toast { width: 100%; max-width: 480px; margin: 0 auto 0.5rem; border-radius: 12px; animation: app-toast 0.25s ease both; }
-  @keyframes app-toast { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+  .notif-toast { width: 100%; max-width: none; }
 
   /* Menus déroulants des pages : rien ne doit dépasser de l'écran */
   .app-content .dropdown-menu { max-width: calc(100vw - 2rem); }
@@ -366,6 +366,9 @@ body.sheet-open { overflow: hidden; }
   table.table-liste > tbody > tr > td.text-end:last-child:not(:first-child)::before { content: none; }
   table.table-liste > tbody > tr > td.text-end:last-child .btn-icon { margin-left: 0 !important; width: 38px; height: 38px; }
   table.table-liste > tbody > tr > td.text-end:last-child .btn:not(.btn-icon) { margin-left: 0 !important; }
+  /* Boutons discrets (IconBtn / RowActions) : cible tactile de 38 px. */
+  .app-content .row-action { width: 38px; height: 38px; margin-left: 0; background: rgba(67, 89, 113, 0.06); }
+  .app-content .row-actions { gap: 0.4rem; }
 
   /* Ligne d'état (chargement, vide, erreur) */
   table.table-liste > tbody > tr:has(> td[colspan]) { border-bottom: 0; }

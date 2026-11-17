@@ -4,7 +4,7 @@ import Modal from '../components/Modal';
 import ChartCanvas, { colorAt, PIE_OPTIONS } from '../components/ChartCanvas';
 import { useAuth } from '../context/AuthContext';
 import {
-  classeLabel, downloadCsv, Field, FormFooter, IconBtn, IdentifiantsModal, initiales, PageHeader, StatCard, TBody,
+  classeLabel, downloadCsv, Field, FormFooter, IdentifiantsModal, PageHeader, RowActions, StatCard, TBody,
   useConfirm, useSave, useToast,
 } from '../components/ui';
 import Select from '../components/Select';
@@ -462,9 +462,9 @@ export default function EnseignantsPage() {
             <div className="table-responsive">
               <table className="table table-hover mb-0">
                 <thead>
-                  <tr><th>Enseignant</th><th>Contact</th><th>Département</th><th>Grade</th><th>Statut</th><th>Matières enseignées</th><th className="text-end">Actions</th></tr>
+                  <tr><th>Enseignant</th><th>Contact</th><th>Statut</th><th>Matières enseignées</th><th className="text-end">Actions</th></tr>
                 </thead>
-                <TBody colSpan={7} loading={loading} error={error} rows={filtered.length} empty="Aucun enseignant trouvé" emptyIcon="bx-user-voice">
+                <TBody colSpan={5} loading={loading} error={error} rows={filtered.length} empty="Aucun enseignant trouvé" emptyIcon="bx-user-voice">
                   {filtered.map((e) => {
                     const mats = matieresByEnseignant[e.id] || [];
                     return (
@@ -479,11 +479,9 @@ export default function EnseignantsPage() {
                           </div>
                         </td>
                         <td>
-                          {e.code_connexion && <div className="small">Code <span className="font-monospace fw-semibold">{e.code_connexion}</span></div>}
-                          <div className="text-muted small">{[e.telephone, e.email].filter(Boolean).join(' · ') || '—'}</div>
+                          {e.telephone || <span className="text-muted">—</span>}
+                          {e.code_connexion && <div className="small text-muted">Code <span className="font-monospace">{e.code_connexion}</span></div>}
                         </td>
-                        <td>{labels.departement(e.departement_id) || '—'}</td>
-                        <td>{labels.grade(e.grade_id) || '—'}</td>
                         <td>
                           {estTitulaire(e)
                             ? <span className="badge bg-label-success"><i className="bx bx-chalkboard me-1" />Titulaire{titulairesActifs[e.id]?.length ? ` · ${titulairesActifs[e.id].join(', ')}` : ''}</span>
@@ -501,14 +499,16 @@ export default function EnseignantsPage() {
                         </td>
                         <td className="text-end text-nowrap">
                           {!e.utilisateur_id && (
-                            <button type="button" className="btn btn-icon btn-sm btn-warning ms-1" title="Compte de connexion non lié : cet enseignant ne peut pas accéder à ses classes/matières/notes. Cliquer pour réparer." onClick={() => reparerLiaisonCompte(e)}>
+                            <button type="button" className="row-action text-warning" title="Compte de connexion non lié : cet enseignant ne peut pas accéder à ses classes/matières/notes. Cliquer pour réparer." onClick={() => reparerLiaisonCompte(e)}>
                               <i className="bx bx-unlink" />
                             </button>
                           )}
-                          <IconBtn icon="bx-show" title="Détails" onClick={() => setDetail(e)} />
-                          {e.utilisateur_id && <IconBtn icon="bx-key" title="Réinitialiser le PIN (PIN oublié ou compte bloqué)" onClick={() => reinitialiserPin(e)} />}
-                          <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setFormModal({ data: e })} />
-                          <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimerEnseignant(e)} />
+                          <RowActions actions={[
+                            { icon: 'bx-show', label: 'Détails', onClick: () => setDetail(e) },
+                            { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormModal({ data: e }) },
+                            { icon: 'bx-key', label: 'Réinitialiser le PIN', title: 'PIN oublié ou compte bloqué', onClick: () => reinitialiserPin(e), hidden: !e.utilisateur_id },
+                            { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimerEnseignant(e) },
+                          ]} />
                         </td>
                       </tr>
                     );
@@ -542,8 +542,10 @@ export default function EnseignantsPage() {
                         <td className="fw-semibold">{item.libelle}</td>
                         <td><span className="badge bg-label-secondary">{enseignants.filter((e) => e[key] === item.id).length}</span></td>
                         <td className="text-end">
-                          <IconBtn icon="bx-edit-alt" title="Modifier" onClick={() => setRefModal({ type, data: item })} />
-                          <IconBtn icon="bx-trash" title="Supprimer" danger onClick={() => supprimerRef(type, item)} />
+                          <RowActions actions={[
+                            { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setRefModal({ type, data: item }) },
+                            { icon: 'bx-trash', label: 'Supprimer', danger: true, onClick: () => supprimerRef(type, item) },
+                          ]} />
                         </td>
                       </tr>
                     ))}
@@ -802,7 +804,6 @@ function DetailModal({ e, labels, titulaire, classesTitu, matieres, onClose }) {
       footer={<button type="button" className="btn btn-outline-secondary" onClick={onClose}>Fermer</button>}
     >
       <div className="d-flex align-items-center gap-3 mb-3">
-        <div className="avatar avatar-lg"><span className="avatar-initial rounded-circle bg-label-primary">{initiales(e.nom, e.prenom)}</span></div>
         <div>
           <div className="fw-bold fs-6">{fullName(e)}</div>
           <div className="text-muted">{[labels.departement(e.departement_id), labels.grade(e.grade_id)].filter(Boolean).join(' · ') || 'Département / grade non renseignés'}</div>

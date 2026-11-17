@@ -24,7 +24,7 @@ from services import (
 # POST /api/auth/utilisateurs ; la création de classes l'est déjà dans
 # classe_bp) ; emploi du temps = mêmes rôles que horaire_bp (Censeur et
 # Surveillant limités à leurs classes assignées) ; notes = Enseignant (ses
-# matières-classes) et SuperAdmin (tout l'établissement choisi), comme note_bp.
+# matières-classes), Admin et SuperAdmin (tout l'établissement), comme note_bp.
 # Établissement résolu comme dans les blueprints cloisonnés : claim JWT pour
 # un compte d'établissement, ?etablissement_id=<id> pour le SuperAdmin
 # (ajouté automatiquement par web/src/lib/api.js).
@@ -41,7 +41,7 @@ MODULES = {
     'matieres': (import_matieres_services, ("Admin", "SuperAdmin"), 'modele-import-matieres.xlsx'),
     'emploi-du-temps': (import_emploi_du_temps_services, ("Admin", "SuperAdmin", "Censeur", "Surveillant"),
                         'modele-import-emploi-du-temps.xlsx'),
-    'notes': (import_notes_services, ("Enseignant", "SuperAdmin"), 'modele-import-notes.xlsx'),
+    'notes': (import_notes_services, ("Enseignant", "Admin", "SuperAdmin"), 'modele-import-notes.xlsx'),
     # Opérations de trésorerie : mêmes rôles que /api/tresorerie (finances).
     'tresorerie': (import_tresorerie_services, ("Admin", "SuperAdmin", "Comptable"), 'modele-import-tresorerie.xlsx'),
 }

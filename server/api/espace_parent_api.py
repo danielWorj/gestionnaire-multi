@@ -164,7 +164,8 @@ def _bulletin(eleve_id):
     if parent is None:
         return None, (jsonify(ERREUR_FAMILLE_NON_RELIEE), 404)
     periode = request.args.get("periode", "")
-    contexte, erreur = contexte_bulletin(parent, eleve_id, periode)
+    contexte, erreur = contexte_bulletin(parent, eleve_id, periode,
+                                         annee_scolaire_id=request.args.get("annee_scolaire_id", type=int))
     if erreur:
         return None, (jsonify(erreur[0]), erreur[1])
     inscription, annee = contexte

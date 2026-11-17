@@ -3,7 +3,7 @@ import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import Modal from '../components/Modal';
 import { fmtHorodatage } from '../components/Historique';
-import { PageHeader, TBody, TableCard, copyText, initiales, useConfirm, useToast } from '../components/ui';
+import { PageHeader, RowActions, TBody, TableCard, copyText, useConfirm, useToast } from '../components/ui';
 
 // Comptes d'administration de la plateforme (cf. /api/superadmin/comptes).
 // Le mot de passe est généré par le serveur et affiché une seule fois ; le
@@ -102,7 +102,6 @@ export default function SuperAdminsPage() {
               <tr key={c.id} className={c.actif ? '' : 'text-muted'}>
                 <td>
                   <div className="d-flex align-items-center gap-2">
-                    <div className="avatar avatar-sm flex-shrink-0"><span className={`avatar-initial rounded-circle ${c.actif ? 'bg-label-primary' : 'bg-label-secondary'}`}>{initiales(c.nom)}</span></div>
                     <span className="fw-semibold">{c.nom}</span>
                     {estMoi(c) && <span className="badge bg-label-info">Vous</span>}
                   </div>
@@ -112,13 +111,13 @@ export default function SuperAdminsPage() {
                 <td className="small">{c.dernier_login ? fmtHorodatage(c.dernier_login) : <span className="text-warning">Jamais</span>}</td>
                 <td className="text-end">
                   {occupe === c.id ? <span className="spinner-border spinner-border-sm text-primary" /> : (
-                    <>
-                      <button type="button" className="btn btn-sm btn-icon btn-outline-secondary" title="Modifier" onClick={() => setFormulaire({ compte: c })}><i className="bx bx-edit-alt" /></button>
-                      <button type="button" className="btn btn-sm btn-icon btn-outline-secondary ms-1" title={estMoi(c) ? 'Utilisez « Changer le mot de passe » dans votre menu' : 'Réinitialiser le mot de passe'} onClick={() => reinitialiser(c)} disabled={estMoi(c) || !c.actif}><i className="bx bx-key" /></button>
-                      {c.actif
-                        ? <button type="button" className="btn btn-sm btn-icon btn-outline-danger ms-1" title={estMoi(c) ? 'Vous ne pouvez pas désactiver votre propre compte' : 'Désactiver'} onClick={() => basculerActif(c)} disabled={estMoi(c) || actifs <= 1}><i className="bx bx-block" /></button>
-                        : <button type="button" className="btn btn-sm btn-outline-success ms-1" onClick={() => basculerActif(c)}><i className="bx bx-check-circle me-1" />Réactiver</button>}
-                    </>
+                    <RowActions actions={[
+                      { icon: 'bx-edit-alt', label: 'Modifier', onClick: () => setFormulaire({ compte: c }) },
+                      { icon: 'bx-key', label: 'Réinitialiser le mot de passe', title: estMoi(c) ? 'Utilisez « Changer le mot de passe » dans votre menu' : undefined, onClick: () => reinitialiser(c), disabled: estMoi(c) || !c.actif },
+                      c.actif
+                        ? { icon: 'bx-block', label: 'Désactiver', title: estMoi(c) ? 'Vous ne pouvez pas désactiver votre propre compte' : undefined, danger: true, onClick: () => basculerActif(c), disabled: estMoi(c) || actifs <= 1 }
+                        : { icon: 'bx-check-circle', label: 'Réactiver', onClick: () => basculerActif(c) },
+                    ]} />
                   )}
                 </td>
               </tr>
