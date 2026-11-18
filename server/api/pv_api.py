@@ -97,10 +97,27 @@ def _taille_police(nb_matieres):
     return 6
 
 
+# Le PV tient sur UNE page A4 paysage (196 mm utiles en hauteur) : en-tête,
+# titre, en-têtes de colonnes et pied occupent ~70 mm, le reste est partagé
+# entre les lignes d'élèves.
+HAUTEUR_LIGNES_MM = 124
+HAUTEUR_LIGNE_MAX_MM = 4.2
+
+
+def _dimensions(nb_matieres, nb_eleves):
+    """(police en pt, hauteur de ligne en mm) pour que le PV tienne sur une page."""
+    hauteur = min(HAUTEUR_LIGNE_MAX_MM, HAUTEUR_LIGNES_MM / max(nb_eleves, 1))
+    # line-height 1.1 + bordures : la police remplit la hauteur utile.
+    police_ligne = (hauteur - 0.45) / 1.1 / 0.3528
+    police = max(4, min(_taille_police(nb_matieres), police_ligne))
+    return round(police, 2), round(hauteur, 2)
+
+
 def rendu_pv(data, logo_src):
     valeurs = 'notes' if request.args.get("valeurs") == 'notes' else 'points'
+    police, hauteur_ligne = _dimensions(len(data["matieres"]), len(data["eleves"]))
     return render_template("pv/pv_evaluation.html", data=data, logo_src=logo_src, valeurs=valeurs,
-                           police=_taille_police(len(data["matieres"])),
+                           police=police, hauteur_ligne=hauteur_ligne,
                            date_edition=date.today().strftime('%d/%m/%Y'))
 
 

@@ -1,0 +1,51 @@
+TREMAN — ACCÈS À L'APPLICATION (année 2026-2027)
+Code établissement : RPZZ    Généré le 18/11/2026 à 12:39
+Connexion : CODE + PIN. Chacun peut changer son PIN depuis son espace (« Changer mon code PIN »).
+PIN oublié : l'Admin en régénère un depuis l'application.
+
+======================================================================================================================
+ENSEIGNANTS
+======================================================================================================================
+CODE  PIN     NOM                           TÉLÉPHONE  GRADE     H/SEM COURS
+----------------------------------------------------------------------------------------------------------------------
+ZGE7  1901    EYIDI Belinda                 679048236  PLEG      14    EPS 6 ème 1, EPS 5 ème 1, EPS 4 ème 1, EPS 3 ème 1, EPS 2nd A, EPS 2nd C, EPS 1ère A
+G6WN  7330    MOUANGUE Grâce                673720219  PLEG      14    EPS 1ère C, EPS 1ère D, EPS 1ère TI, EPS Tle A, EPS Tle C, EPS Tle D, EPS Tle TI
+PGYD  9257    MANDENG Josiane               694986970  PLEG      16    Histoire-Géographie/ECM 1ère TI, Histoire-Géographie/ECM Tle A, Histoire-Géographie/ECM Tle C, Histoire-Géographie/ECM Tle D, Histoire-Géographie/ECM Tle TI
+2DZ7  8666    PRISO Paul                    652227825  Vacataire 18    Histoire-Géographie/ECM/LCN 6 ème 1, Histoire-Géographie/ECM/LCN 5 ème 1, Histoire-Géographie/ECM 4 ème 1, Histoire-Géographie/ECM 3 ème 1
+GQZN  6317    TAGNE Edwige                  699059973  PLEG      18    Histoire-Géographie/ECM 2nd A, Histoire-Géographie/ECM 2nd C, Histoire-Géographie/ECM 1ère A, Histoire-Géographie/ECM 1ère C, Histoire-Géographie/ECM 1ère D
+48QF  2163    EPEE Sandrine                 696826171  PLEG      12    Informatique 6 ème 1, Informatique 5 ème 1, Informatique 4 ème 1, Informatique 3 ème 1, Informatique 2nd A, Informatique 2nd C
+3N8K  9460    FEUDJIO Marie                 691411060  PLEG      11    Algorithmique et programmation 1ère TI, Algorithmique et programmation Tle TI  [Titulaire 1ère TI]
+Y7TM  4998    NJIKAM Sandrine               680970413  PCEG      9     Systèmes et réseaux 1ère TI, Systèmes et réseaux Tle TI  [Titulaire Tle TI]
+9V74  0721    TCHINDA Loïc                  653882489  Vacataire 12    Informatique 1ère A, Informatique 1ère C, Informatique 1ère D, Informatique Tle A, Informatique Tle C, Informatique Tle D
+AWBC  0809    EPEE Enzo                     695944777  PLEG      18    Espagnol 4 ème 1, Espagnol 3 ème 1, Espagnol 2nd A, Espagnol 2nd C, Espagnol 1ère A, Espagnol Tle A
+G4FK  4087    FOTSO Joseph                  698046183  PLEG      14    Anglais 2nd A, Anglais 2nd C, Anglais 1ère A, Anglais 1ère C  [Titulaire 2nd A]
+3VAC  5376    MBARGA Josiane                681394672  PCEG      16    Anglais 6 ème 1, Anglais 5 ème 1, Anglais 4 ème 1, Anglais 3 ème 1
+N76Y  1868    PRISO Ulrich                  694866317  Vacataire 15    Anglais 1ère D, Anglais 1ère TI, Anglais Tle A, Anglais Tle C, Anglais Tle D, Anglais Tle TI
+39EJ  1044    DIBONGUE Serge                653657623  PLEG      12    Français 6 ème 1, Français 5 ème 1  [Titulaire 6 ème 1]
+E42T  3863    MBELLA Estelle                695014599  Vacataire 14    Français 1ère TI, Français Tle A, Français Tle C, Français Tle D, Français Tle TI
+JMU4  8141    MOLUH Yannick                 653451983  PLEG      15    Français 4 ème 1, Français 3 ème 1, Français 2nd A  [Titulaire 4 ème 1]
+E84M  6891    NGOS Josiane                  657630728  PCEG      15    Français 2nd C, Français 1ère A, Français 1ère C, Français 1ère D  [Titulaire 1ère A]
+3TDZ  9103    BAYIHA Landry                 684936485  Vacataire 15    Mathématiques 6 ème 1, Mathématiques 5 ème 1, Mathématiques 4 ème 1  [Titulaire 5 ème 1]
+BR2V  3521    BELLO Christian               677393831  PCEG      18    Mathématiques 3 ème 1, Mathématiques 2nd A, Mathématiques 2nd C, Mathématiques 1ère A  [Titulaire 3 ème 1]
+TRKJ  4473    NGANKAM Fabrice               681552616  PCEG      18    Mathématiques Tle A, Mathématiques Tle C, Mathématiques Tle D, Mathématiques Tle TI  [Titulaire Tle C]
+9NQD  3527    NJOYA Cynthia                 677748324  PLEG      16    Mathématiques 1ère C, Mathématiques 1ère D, Mathématiques 1ère TI  [Titulaire 1ère C]
+W7DW  1170    MBARGA Hervé                  652165747  PLEG      14    Philosophie Tle A, Philosophie Tle C, Philosophie Tle D, Philosophie Tle TI  [Titulaire Tle A]
+48PK  1185    NOUBISSI Ibrahim              679543273  PLEG      9     Philosophie 1ère A, Philosophie 1ère C, Philosophie 1ère D, Philosophie 1ère TI
+7E8J  0780    AMOUGOU Samuel                653411782  PLEG      14    PCT Tle C, PCT Tle D, PCT Tle TI
+NE2V  2053    EYIDI Estelle                 676419628  Vacataire 17    PCT 6 ème 1, PCT 5 ème 1, PCT 4 ème 1, PCT 3 ème 1, PCT 2nd A, PCT 2nd C  [Titulaire 2nd C]
+GQUB  5501    NGUEMO Arnaud                 687121951  PCEG      13    PCT 1ère C, PCT 1ère D, PCT 1ère TI  [Titulaire 1ère D]
+3H9M  5703    EBOA Joseph                   670185002  PLEG      15    SVTEEHB 1ère C, SVTEEHB 1ère D, SVTEEHB Tle A, SVTEEHB Tle C, SVTEEHB Tle D  [Titulaire Tle D]
+DCTA  9579    NCHARE Junior                 652319776  PLEG      15    SVTEEHB 6 ème 1, SVTEEHB 5 ème 1, SVTEEHB 4 ème 1, SVTEEHB 3 ème 1, SVTEEHB 2nd A, SVTEEHB 2nd C, SVTEEHB 1ère A
+
+======================================================================================================================
+PERSONNEL ADMINISTRATIF
+======================================================================================================================
+CODE  PIN     RÔLE         NOM                           DÉTAIL
+----------------------------------------------------------------------------------------------------------------------
+UAFN  —       Admin        ADMIN TREMAN                  Compte existant, PIN non modifié
+B8R6  5081    Comptable    NCHARE Emmanuel               Économat
+XAD9  6552    Secretaire   TCHAMBA Landry                Secrétariat
+8XU3  5246    Censeur      NGOUE Aïcha                   Censeur du premier cycle (6 ème 1, 5 ème 1, 4 ème 1, 3 ème 1)
+ZWTR  4100    Surveillant  MVONDO Marcel                 Surveillant général du premier cycle
+J6HJ  2854    Censeur      MBELLA Annick                 Censeur du second cycle (2nd A, 2nd C, 1ère A, 1ère C, 1ère D, 1ère TI, Tle A, Tle C, Tle D, Tle TI)
+44W3  5998    Surveillant  DJOMO Rachel                  Surveillant général du second cycle

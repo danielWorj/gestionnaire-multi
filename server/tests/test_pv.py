@@ -277,6 +277,18 @@ def test_matieres_alertes_et_statistiques(monde, classe_34):
     st = pv["statistiques"]
     assert st["nb_classes"] == 2 and st["nb_sup_10"] == 1 and st["taux_reussite"] == 50.0
     assert st["moyenne_classe"] == 8.0 and st["moyenne_classe_fmt"] == '08,00'
+    # Noms à côté de la plus forte / plus faible moyenne.
+    assert st["premier"] == nom_affiche("Aa", "X")
+    assert st["dernier"] == nom_affiche("Bb", "X")
+
+
+def test_dimensions_une_page():
+    from api.pv_api import HAUTEUR_LIGNES_MM, _dimensions
+    assert _dimensions(10, 20) == (7.8, 4.2)             # petite classe : taille normale
+    for n in (45, 60, 80):
+        police, hauteur = _dimensions(16, n)
+        assert hauteur * n <= HAUTEUR_LIGNES_MM + 0.5   # toutes les lignes tiennent
+        assert 4 <= police < 7.2
 
 
 def test_erreurs_perimetre(monde, appli):

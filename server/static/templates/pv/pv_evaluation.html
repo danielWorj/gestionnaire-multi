@@ -1,7 +1,10 @@
 {#- Procès-verbal d'évaluation (« Contrôle continu N°x »).
     Gabarit unique pour l'aperçu HTML et le PDF (WeasyPrint), cf. api/pv_api.py.
     Données : pv_services.construire_pv. AUCUN calcul ici : les chaînes
-    *_fmt viennent du serveur. Propre au PV (rien de commun avec le bulletin). -#}
+    *_fmt viennent du serveur. En-tête identique à celui du bulletin
+    (bulletin_evaluations.html). Tient sur UNE page : police et hauteur de
+    ligne calculées par pv_api._dimensions selon le nombre d'élèves et de
+    matières. -#}
 {%- set etab = data.etablissement -%}
 {%- set nb_mat = data.matieres | length -%}
 <!DOCTYPE html>
@@ -11,29 +14,31 @@
 <title>PV — {{ data.classe.label }} — {{ data.sequence.titre }}</title>
 <style>
   @page {
-    size: A4 landscape; margin: 8mm;
-    @bottom-right { content: "Page " counter(page) " / " counter(pages); font-family: "DejaVu Sans", Arial, sans-serif; font-size: 6.5pt; color: #555; }
+    size: A4 landscape; margin: 7mm;
   }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { margin: 0; font-family: "DejaVu Sans", Arial, Helvetica, sans-serif; color: #111;
          font-size: {{ police }}pt; }
   @media screen {
     body { background: #e9ebee; padding: 14px 0; }
-    .page { width: 297mm; margin: 0 auto; padding: 8mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
+    .page { width: 297mm; min-height: 210mm; margin: 0 auto; padding: 7mm; background: #fff; box-shadow: 0 1px 6px rgba(0,0,0,.18); }
   }
   table { border-collapse: collapse; width: 100%; }
-  .entete td { vertical-align: top; text-align: center; font-size: 7.4pt; line-height: 1.35; }
-  .entete .gauche { text-align: left; width: 33%; }
-  .entete .droite { text-align: right; width: 33%; }
-  .entete .etab { font-weight: 700; font-size: 8.6pt; text-transform: uppercase; }
-  .entete .logo { max-height: 15mm; max-width: 22mm; vertical-align: middle; margin-right: 2mm; }
-  h1 { text-align: center; font-size: 13pt; margin: 2mm 0 1.5mm; letter-spacing: .04em; }
-  .contexte td { font-weight: 700; font-size: 9.5pt; padding: 0 0 2mm; }
-  .contexte .c { text-align: center; }
-  .contexte .d { text-align: right; }
+  /* En-tête : celui du bulletin (bulletin_evaluations.html). */
+  .entete td { vertical-align: top; text-align: center; font-size: 6.6pt; line-height: 1.3; text-transform: uppercase; }
+  .entete .etab { font-weight: 700; }
+  .entete td.logo { vertical-align: middle; }
+  .entete .logo img { max-height: 16mm; max-width: 24mm; }
+  .entete .bp { color: #c00; text-transform: none; }
+  .titre-ligne { margin: 1.5mm 0 1.5mm; }
+  .titre-ligne td { vertical-align: middle; font-weight: 700; font-size: 8.6pt; width: 30%; }
+  .titre-ligne td.c { width: 40%; }
+  .titre-ligne td.d { text-align: right; }
+  .titre { border: 1pt solid #111; border-radius: 1.5mm; text-align: center; font-size: 11pt; padding: 1mm 2mm; letter-spacing: .03em; }
 
   table.pv { table-layout: fixed; }
   table.pv th, table.pv td { border: 0.4pt solid #222; text-align: center; padding: 0.6mm 0.3mm; }
+  table.pv tbody td { height: {{ hauteur_ligne }}mm; padding: 0 0.3mm; line-height: 1.1; }
   table.pv thead { display: table-header-group; }
   table.pv tr { break-inside: avoid; page-break-inside: avoid; }
   table.pv th { font-weight: 700; background: #f1f1f1; }
@@ -42,7 +47,7 @@
   th.fin { width: 13mm; }
   th.rang { width: 11mm; }
   /* En-têtes de matières verticaux (comme sur le PV papier) */
-  th.mat { height: 19mm; padding: 0; position: relative; vertical-align: bottom; }
+  th.mat { height: 16mm; padding: 0; position: relative; vertical-align: bottom; }
   th.mat span { display: block; position: absolute; left: 50%; bottom: 1mm; white-space: nowrap;
                 transform-origin: 0 100%; transform: rotate(-90deg) translateY(50%); font-size: 6.6pt; }
   tr.coef td, tr.coef th { background: #f7f7f7; font-weight: 700; }
@@ -52,33 +57,42 @@
   td.nc, td.nc-rang { color: #555; }
   td.total, td.moy, td.rang { font-weight: 700; }
 
-  .pied { margin-top: 3mm; font-size: 7.4pt; break-inside: avoid; page-break-inside: avoid; }
-  .pied .stats { margin-bottom: 3mm; }
-  .pied .stats span { margin-right: 6mm; }
-  .signatures td { width: 33%; text-align: center; height: 20mm; vertical-align: top; font-weight: 700; border: 0; }
-  .edition { text-align: right; font-size: 6.8pt; color: #555; margin-top: 1mm; }
+  .pied { margin-top: 1.5mm; font-size: 7pt; break-inside: avoid; page-break-inside: avoid; }
+  .pied .stats { margin-bottom: 1mm; }
+  .pied .stats > span { margin-right: 5mm; }
+  .pied .stats .qui { font-style: italic; }
+  .signatures td { width: 33%; text-align: center; height: 12mm; vertical-align: top; font-weight: 700; border: 0; }
+  .edition { text-align: right; font-size: 6.4pt; color: #555; }
 </style>
 </head>
 <body>
 <div class="page">
 
-  <table class="entete"><tr>
-    <td class="gauche">
-      {%- if logo_src %}<img class="logo" src="{{ logo_src }}" alt="">{% endif -%}
-      <span class="etab">{{ etab.nom }}</span>
-    </td>
-    <td></td>
-    <td class="droite">
-      {%- if etab.bp %}{{ etab.bp }}{% if etab.region %} — {{ etab.region }}{% endif %}<br>{% endif -%}
-      {%- if etab.telephone %}Tél : {{ etab.telephone }}{% endif -%}
-    </td>
-  </tr></table>
+  <table class="entete">
+    <tr>
+      <td style="width:38%">
+        <div>République du Cameroun</div>
+        <div>Paix-Travail-Patrie</div>
+        <div>Ministère des Enseignements Secondaires</div>
+        <div class="etab">{{ etab.nom }}</div>
+        <div class="bp">{% if etab.bp_numero %}B.P. : {{ etab.bp_numero }} {% endif %}{{ etab.adresse or '' }}{% if etab.telephone %} {{ etab.telephone }}{% endif %}</div>
+        <div>Année scolaire {{ data.annee.libelle }}</div>
+      </td>
+      <td class="logo" style="width:24%">{% if logo_src %}<img src="{{ logo_src }}" alt="">{% endif %}</td>
+      <td style="width:38%">
+        <div>Republic of Cameroon</div>
+        <div>Peace-Work-Fatherland</div>
+        <div>Ministry of Secondary Education</div>
+        <div class="etab">{{ etab.nom_bilingue or etab.nom }}</div>
+        <div class="bp">{% if etab.bp_numero %}P.O. Box : {{ etab.bp_numero }} {% endif %}{{ etab.adresse or '' }}{% if etab.telephone %} {{ etab.telephone }}{% endif %}</div>
+        <div>Academic year {{ data.annee.libelle }}</div>
+      </td>
+    </tr>
+  </table>
 
-  <h1>PROCÈS VERBAL D'ÉVALUATION</h1>
-
-  <table class="contexte"><tr>
-    <td>{{ data.sequence.titre }}</td>
-    <td class="c">Classe : {{ data.classe.label }}</td>
+  <table class="titre-ligne"><tr>
+    <td>{{ data.sequence.titre }}<br>Classe : {{ data.classe.label }}</td>
+    <td class="c"><div class="titre">PROCÈS VERBAL D'ÉVALUATION</div></td>
     <td class="d">Effectif : {{ data.effectif }}</td>
   </tr></table>
 
@@ -131,8 +145,8 @@
     {%- if data.statistiques.nb_classes %}
     <div class="stats">
       <span>Moyenne de la classe : <b>{{ data.statistiques.moyenne_classe_fmt }}</b></span>
-      <span>Plus forte : <b>{{ data.statistiques.moyenne_max_fmt }}</b></span>
-      <span>Plus faible : <b>{{ data.statistiques.moyenne_min_fmt }}</b></span>
+      <span>Plus forte : <b>{{ data.statistiques.moyenne_max_fmt }}</b>{% if data.statistiques.premier %} <span class="qui">({{ data.statistiques.premier }})</span>{% endif %}</span>
+      <span>Plus faible : <b>{{ data.statistiques.moyenne_min_fmt }}</b>{% if data.statistiques.dernier %} <span class="qui">({{ data.statistiques.dernier }})</span>{% endif %}</span>
       <span>Moyennes ≥ 10 : <b>{{ data.statistiques.nb_sup_10 }}</b> ({{ data.statistiques.taux_reussite_fmt }} %)</span>
       {%- if data.statistiques.nb_non_classes %}<span>Non classés : <b>{{ data.statistiques.nb_non_classes }}</b></span>{% endif %}
     </div>

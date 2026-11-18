@@ -82,6 +82,7 @@
   .titre { border: 1pt solid #111; border-radius: 1.5mm; text-align: center; font-weight: 700; font-size: 11pt; padding: 1.5mm 2mm; margin: 0 6mm; }
   .titre-ligne td.photo { width: 24mm; text-align: right; }
   .titre-ligne td.photo img { width: 20mm; height: 25mm; object-fit: cover; border: 0.6pt solid #333; }
+  .titre-ligne td.photo .sans-photo { display: inline-block; width: 20mm; height: 25mm; border: 0.6pt dashed #888; color: #999; font-size: 6.5pt; line-height: 25mm; text-align: center; }
   .eleve { margin-top: 2mm; }
   .eleve td { border: 0.6pt solid #333; padding: 0.8mm 1.5mm; font-size: 8pt; }
   .notes { margin-top: 2mm; }
@@ -146,7 +147,8 @@
   <table class="titre-ligne">
     <tr>
       <td><div class="titre">{{ 'BULLETIN DE NOTES DU ' ~ data.periode.libelle if periode_type == 'trimestre' else data.periode.titre }}</div></td>
-      {%- if photo_src %}<td class="photo"><img src="{{ photo_src }}" alt="Photo de {{ e.nom }} {{ e.prenom }}"></td>{% endif %}
+      {#- Cadre photo toujours présent : vide (« Photo ») si l'élève n'en a pas. #}
+      <td class="photo">{% if photo_src %}<img src="{{ photo_src }}" alt="Photo de {{ e.nom }} {{ e.prenom }}">{% else %}<div class="sans-photo">Photo</div>{% endif %}</td>
     </tr>
   </table>
 

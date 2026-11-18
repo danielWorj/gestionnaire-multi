@@ -313,6 +313,13 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id=None, ordre='a
     statistiques["moyenne_classe_fmt"] = fmt_moyenne(tronquer_2(sum(exactes) / len(exactes))) if exactes else ""
     statistiques["moyenne_min_fmt"] = fmt_moyenne(tronquer_2(min(exactes))) if exactes else ""
     statistiques["moyenne_max_fmt"] = fmt_moyenne(tronquer_2(max(exactes))) if exactes else ""
+    # Élève(s) ayant la plus forte / la plus faible moyenne (ex aequo sur la
+    # valeur exacte : tous les noms, séparés par « , »).
+    def _noms_extreme(valeur):
+        return ", ".join(nom_affiche(l["insc"].eleve.nom, l["insc"].eleve.prenom)
+                         for l in sorted(classees, key=_cle_alpha) if l["exacte"] == valeur)
+    statistiques["premier"] = _noms_extreme(max(exactes)) if exactes else ""
+    statistiques["dernier"] = _noms_extreme(min(exactes)) if exactes else ""
     statistiques["taux_reussite_fmt"] = (str(statistiques["taux_reussite"]).replace('.', ',')
                                          if statistiques["taux_reussite"] is not None else "")
     alertes = [{"mc_id": mc.id, "matiere": mc.matiere.libelle if mc.matiere else f"Matière #{mc.matiere_id}",
@@ -323,6 +330,9 @@ def construire_pv(etablissement, classe_id, annee_id, sequence_id=None, ordre='a
         "etablissement": {
             "nom": etablissement.nom, "bp": etablissement.bp, "telephone": etablissement.telephone,
             "region": etablissement.region, "adresse": etablissement.adresse, "logo": etablissement.logo,
+            "nom_bilingue": etablissement.nom_bilingue,
+            # « BP 66 » / « B.P. 66 » -> « 66 » : le gabarit ajoute B.P. / P.O. Box.
+            "bp_numero": re.sub(r'^\s*(B\.?\s*P\.?|P\.?\s*O\.?\s*Box)\s*', '', etablissement.bp or '', flags=re.I),
         },
         "classe": {"id": classe.id, "label": classe_label(classe)},
         "annee": {"id": annee.id, "libelle": annee.libelle},
